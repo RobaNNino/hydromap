@@ -6,7 +6,6 @@ services:
     env: python
     plan: free                          # cambia in 'starter' se vuoi più memoria/no-sleep
     region: frankfurt                   # 'frankfurt' o 'oregon'
-    pythonVersion: "3.11.9"
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn backend.app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120
     healthCheckPath: /api/geojson
