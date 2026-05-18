@@ -11,8 +11,14 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 from pathlib import Path
+
+# Permette gli import "flat" (from news_engine import ...) sia quando lanciamo
+# `python backend/app.py` localmente, sia quando gunicorn lancia `backend.app:app`
+# dalla root del progetto (in quel caso senza questa riga `news_engine` non si trova).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from dotenv import load_dotenv
 from flask import Flask, abort, jsonify, request, send_file, send_from_directory
