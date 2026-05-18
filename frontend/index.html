@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
-<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="style.css?v=20260518c" />
 </head>
 <body>
 <header class="topbar">
@@ -36,15 +36,17 @@
       </select>
     </div>
 
-    <button id="layer-toggle-btn" class="layer-toggle-btn" title="Mostra/nascondi livelli">☰ Livelli</button>
     <div class="layer-toggles" id="layer-toggles">
       <label><input type="checkbox" id="toggle-zones"   checked /> Zone</label>
       <label><input type="checkbox" id="toggle-news"    checked /> News</label>
       <label><input type="checkbox" id="toggle-nasoni"  /> Nasoni</label>
       <label><input type="checkbox" id="toggle-aqueducts" /> Acquedotti</label>
       <label><input type="checkbox" id="toggle-bracciano" /> Bracciano</label>
+      <label title="Pozzi e piezometri ISPRA — falda di Roma"><input type="checkbox" id="toggle-ispra" /> 🔬 Pozzi ISPRA</label>
     </div>
   </div>
+
+  <button id="layer-toggle-btn" class="layer-toggle-btn" title="Mostra/nascondi controlli">☰ Livelli</button>
 
   <div class="basemap-switcher">
     <select id="basemap-select" title="Mappa di base">
@@ -172,10 +174,18 @@
         <ul class="aq-list" id="aq-list"></ul>
         <h3>Numeri chiave</h3>
         <div id="info-numbers" class="info-numbers"></div>
-        <h3>Fonti dei dati</h3>
+
+        <h3>🏛️ Fonti ufficiali — Portali esterni</h3>
+        <p class="hint">Vai diretto ai portali istituzionali per consultare i dati ufficiali (ASL, Ministero Salute, ISPRA, Città Metropolitana).</p>
+        <div id="official-sources" class="sources-grid">
+          <div class="hint">Caricamento…</div>
+        </div>
+
+        <h3>Fonti dei dati su HydroMap</h3>
         <ul>
           <li>275 PDF di analisi <a href="https://www.aceaato2.a-acqua.it/qualita-acqua" target="_blank">Acea Ato 2</a> — parametri estratti automaticamente</li>
           <li>Nasoni e fontanelle: <a href="https://www.openstreetmap.org" target="_blank">OpenStreetMap</a> (Overpass API)</li>
+          <li>Pozzi e piezometri: <a href="https://sinacloud.isprambiente.it/portal/apps/webappviewer/index.html?id=8e503e563996418bade74c4487825ac0" target="_blank">ISPRA SinaCloud</a> (ArcGIS REST)</li>
           <li>News real-time: Gemini 2.5 Flash con Google Search grounding</li>
         </ul>
       </div>
@@ -188,6 +198,6 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="app.js"></script>
+<script src="app.js?v=20260518c"></script>
 </body>
 </html>

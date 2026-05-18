@@ -58,6 +58,7 @@ const state = {
   nasoniLayer: null,
   aqueductsLayer: null,
   bracciantoLayer: null,
+  ispraLayer: null,
   parameter: "",      // parametro coropletico attivo
   paramData: null,
   compareList: [],    // names
@@ -533,6 +534,86 @@ $("toggle-aqueducts").addEventListener("change", async e => {
   if (e.target.checked) grp.addTo(map); else map.removeLayer(grp);
 });
 
+// ---------- POZZI ISPRA (rete monitoraggio falda Roma) ----------
+const ISPRA_ICON = L.divIcon({
+  className: "ispra-pin",
+  html: `<div class="ispra">🔬</div>`,
+  iconSize: [22, 22], iconAnchor: [11, 11],
+});
+function _fmt(v, unit = "") {
+  if (v === null || v === undefined || v === "") return "—";
+  return `${v}${unit ? " " + unit : ""}`;
+}
+async function loadIspra() {
+  if (state.ispraLayer) return state.ispraLayer;
+  $("toggle-ispra").disabled = true;
+  try {
+    const r = await fetch(API("/api/ispra/wells"));
+    const d = await r.json();
+    const cluster = L.markerClusterGroup({
+      maxClusterRadius: 55,
+      iconCreateFunction: (c) => L.divIcon({
+        html: `<div class="ispra-cluster"><span>${c.getChildCount()}</span></div>`,
+        className: "", iconSize: [36, 36],
+      }),
+    });
+    (d.items || []).forEach(w => {
+      const m = L.marker([w.lat, w.lng], { icon: ISPRA_ICON });
+      const isPiezo = (w.tipo_opera || "").toLowerCase().includes("piez");
+      m.bindPopup(`<div class="news-popup ispra-popup">
+        <div class="title">${isPiezo ? "🪨" : "💧"} ${escapeHtml(w.localita || w.sigla || "Punto ISPRA")}</div>
+        <div class="pills">
+          <span class="pill">${escapeHtml(w.tipo_opera || "—")}</span>
+          ${w.municipio ? `<span class="pill">${escapeHtml(w.municipio)}</span>` : ""}
+          ${w.attivita ? `<span class="pill ${w.attivita === "Attivo" ? "sev-info" : "sev-warning"}">${escapeHtml(w.attivita)}</span>` : ""}
+        </div>
+        <div class="summary">
+          <b>Sigla:</b> ${escapeHtml(w.sigla || "—")}<br/>
+          <b>Falda:</b> ${escapeHtml(w.falda || "—")}<br/>
+          <b>Utilizzo:</b> ${escapeHtml(w.utilizzo || "—")}<br/>
+          <b>Profondità:</b> ${_fmt(w.profondita_m, "m")}<br/>
+          <b>Quota piano campagna:</b> ${_fmt(w.quota_m, "m s.l.m.")}<br/>
+          <b>Ultimo livello falda:</b> ${_fmt(w.ultimo_livello, "m dal p.c.")}<br/>
+          <b>Gestore:</b> ${escapeHtml(w.ente || "—")}
+        </div>
+        <div class="news-link"><a href="${d.source_url}" target="_blank" rel="noopener">Apri scheda completa su ISPRA ↗</a></div>
+      </div>`);
+      cluster.addLayer(m);
+    });
+    state.ispraLayer = cluster;
+    state.ispraCount = d.count;
+    return cluster;
+  } finally {
+    $("toggle-ispra").disabled = false;
+  }
+}
+$("toggle-ispra").addEventListener("change", async e => {
+  const grp = await loadIspra();
+  if (e.target.checked) grp.addTo(map); else map.removeLayer(grp);
+});
+
+// ---------- FONTI UFFICIALI (Info tab) ----------
+async function loadOfficialSources() {
+  const el = $("official-sources");
+  if (!el) return;
+  try {
+    const r = await fetch(API("/api/sources"));
+    const d = await r.json();
+    el.innerHTML = (d.items || []).map(s => `
+      <a class="source-card" href="${s.url}" target="_blank" rel="noopener">
+        <div class="source-card-head">
+          <span class="source-card-title">${escapeHtml(s.title)}</span>
+          <span class="source-card-open">Apri ↗</span>
+        </div>
+        <div class="source-card-meta">${escapeHtml(s.agency)} · ${escapeHtml(s.type)}</div>
+        <div class="source-card-desc">${escapeHtml(s.description)}</div>
+        ${s.hint ? `<div class="source-card-hint">💡 ${escapeHtml(s.hint)}</div>` : ""}
+      </a>`).join("");
+  } catch (e) {
+    el.innerHTML = `<div class="hint">Impossibile caricare le fonti (${escapeHtml(e.message || e)}).</div>`;
+  }
+}
+
 // ---------- PARAMETER COROPLETICO ----------
 async function loadParameterList() {
   const r = await fetch(API("/api/parameters"));
@@ -797,6 +878,7 @@ async function loadInfo() {
     <div class="kpi"><strong>${dash.total_parameters_distinct}</strong><span>parametri distinti</span></div>
     <div class="kpi"><strong>${(dash.top_exceedances_by_parameter || []).reduce((s, [, c]) => s + c, 0)}</strong><span>superi totali</span></div>
   `;
+  loadOfficialSources();
 }
 
 // ---------- REFRESH NEWS BTN ----------

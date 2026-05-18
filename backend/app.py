@@ -217,6 +217,21 @@ def api_ask():
     return jsonify(ask_ai(q))
 
 
+# ---------- Fonti ufficiali esterne (ISPRA, Salute, G3W) ----------
+from external_sources import get_ispra_wells, OFFICIAL_SOURCES  # noqa: E402
+
+
+@app.get("/api/ispra/wells")
+def api_ispra_wells():
+    force = request.args.get("force", "0") == "1"
+    return jsonify(get_ispra_wells(force=force))
+
+
+@app.get("/api/sources")
+def api_sources():
+    return jsonify({"items": OFFICIAL_SOURCES})
+
+
 # ---------- Dati reali esterni: meteo + lago Bracciano ----------
 from realtime import get_meteo, get_bracciano  # noqa: E402
 
@@ -238,9 +253,17 @@ def api_bracciano():
 
 
 # ---------- frontend ----------
+def _no_cache(resp):
+    """Disabilita la cache del browser su index/CSS/JS per evitare versioni stantie."""
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
+
 @app.get("/")
 def index():
-    return send_from_directory(FRONTEND_DIR, "index.html")
+    return _no_cache(send_from_directory(FRONTEND_DIR, "index.html"))
 
 
 @app.get("/<path:fname>")
@@ -250,7 +273,11 @@ def static_files(fname: str):
         abort(404)
     if not target.exists() or target.is_dir():
         abort(404)
-    return send_from_directory(FRONTEND_DIR, fname)
+    resp = send_from_directory(FRONTEND_DIR, fname)
+    # Niente cache su asset front-end: in dev/sviluppo evita problemi di file vecchi.
+    if fname.endswith((".html", ".css", ".js")):
+        resp = _no_cache(resp)
+    return resp
 
 
 if __name__ == "__main__":
