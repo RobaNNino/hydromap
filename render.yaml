@@ -1,0 +1,27 @@
+# HydroMap backend — Render Blueprint
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: hydromap-api
+    env: python
+    plan: free                          # cambia in 'starter' se vuoi più memoria/no-sleep
+    region: frankfurt                   # 'frankfurt' o 'oregon'
+    pythonVersion: "3.11.9"
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn backend.app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120
+    healthCheckPath: /api/geojson
+    autoDeploy: true
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false                     # da impostare manualmente nel dashboard Render
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: GEMINI_NEWS_MODEL
+        value: gemini-2.5-pro
+      - key: NEWS_MAX_AGE_DAYS
+        value: "30"
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      # Limita CORS al solo dominio Netlify in produzione (vedi backend/app.py)
+      - key: CORS_ORIGINS
+        value: "*"

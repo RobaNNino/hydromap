@@ -1,0 +1,32 @@
+# HydroMap frontend — Netlify config
+# Docs: https://docs.netlify.com/configure-builds/file-based-configuration/
+
+[build]
+  publish = "frontend"
+  # nessun build step: il frontend è HTML + JS vanilla, già pronto
+  command = ""
+
+# SPA-style fallback (in realtà c'è una sola pagina, ma evita 404 su refresh)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Security headers
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options          = "DENY"
+    X-Content-Type-Options   = "nosniff"
+    Referrer-Policy          = "strict-origin-when-cross-origin"
+    Permissions-Policy       = "geolocation=(self)"
+
+# Cache statici
+[[headers]]
+  for = "*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"
+[[headers]]
+  for = "*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"

@@ -1,0 +1,17 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+# Cache runtime (rigenerati a runtime)
+backend/data/news_cache.json
+backend/data/realtime_cache.json
+backend/data/geocache.json
+# File di debug
+_dbg.py
+news_out.json
+smoke.txt
+ai.txt
+ai2.txt
+# NOTA: backend/data/pdfs/ e backend/data/results.json DEVONO essere committati
+# per il deploy backend (Render legge questi file da disco).

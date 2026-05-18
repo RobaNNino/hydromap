@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<!-- Backend API base URL. Lasciato vuoto = same-origin (sviluppo locale).
+     Per il deploy su Netlify/Render, imposta l'URL del backend (es. https://hydromap-api.onrender.com). -->
+<meta name="api-base" content="" />
+<title>HydroMap — Qualità dell'acqua Roma e Lazio</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header class="topbar">
+  <button id="burger" class="burger" aria-label="Apri menù" title="Apri pannello">
+    <span></span><span></span><span></span>
+  </button>
+  <div class="brand">
+    <span class="logo">💧</span>
+    <h1>HydroMap</h1>
+    <span class="tag">Acqua di Roma · 275 zone · news live · AI</span>
+  </div>
+
+  <div class="topbar-controls">
+    <div class="searchbox">
+      <input type="text" id="search-input" placeholder="🔎 Cerca comune, zona, parametro (es. arsenico, Bracciano…)" autocomplete="off"/>
+      <div id="search-results" class="search-results"></div>
+    </div>
+
+    <div class="param-selector">
+      <label>Colora zone per:</label>
+      <select id="param-select">
+        <option value="">— stato (default) —</option>
+      </select>
+    </div>
+
+    <button id="layer-toggle-btn" class="layer-toggle-btn" title="Mostra/nascondi livelli">☰ Livelli</button>
+    <div class="layer-toggles" id="layer-toggles">
+      <label><input type="checkbox" id="toggle-zones"   checked /> Zone</label>
+      <label><input type="checkbox" id="toggle-news"    checked /> News</label>
+      <label><input type="checkbox" id="toggle-nasoni"  /> Nasoni</label>
+      <label><input type="checkbox" id="toggle-aqueducts" /> Acquedotti</label>
+      <label><input type="checkbox" id="toggle-bracciano" /> Bracciano</label>
+    </div>
+  </div>
+
+  <div class="basemap-switcher">
+    <select id="basemap-select" title="Mappa di base">
+      <option value="osm">OpenStreetMap</option>
+      <option value="positron">Light</option>
+      <option value="dark">Dark</option>
+      <option value="sat">Satellite</option>
+      <option value="topo">Topografico</option>
+    </select>
+  </div>
+</header>
+
+<div class="status-strip" id="stats"></div>
+
+<main>
+  <div id="map"></div>
+  <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+  <aside id="sidebar">
+    <button id="sidebar-close" class="sidebar-close" aria-label="Chiudi pannello" title="Chiudi">✕</button>
+    <div class="sidebar-handle" aria-hidden="true"></div>
+    <nav class="tabs">
+      <button class="tab active" data-tab="zone" title="Dati della zona selezionata">📍 Zona</button>
+      <button class="tab" data-tab="dashboard" title="Panoramica statistica">📊 Dashboard</button>
+      <button class="tab" data-tab="news" title="Notizie in tempo reale">📰 News</button>
+      <button class="tab" data-tab="compare" title="Confronta zone">⚖️ Confronto</button>
+      <button class="tab" data-tab="chat" title="Assistente AI">🤖 AI</button>
+      <button class="tab" data-tab="meteo" title="Meteo e siccità">🌧️ Meteo</button>
+      <button class="tab" data-tab="info" title="Info sull'acqua di Roma">ℹ️ Info</button>
+    </nav>
+
+    <section id="tab-zone" class="tab-content active">
+      <div id="zone-panel" class="panel">
+        <h2>Seleziona un'area sulla mappa</h2>
+        <p class="hint">Tocca o clicca un poligono per vedere i parametri di potabilità estratti dal PDF Acea Ato 2.</p>
+        <div class="intro-tip">
+          <b>💡 Buono a sapersi:</b> nomi come <i>"Acqua Marcia"</i> o <i>"Peschiera-Capore"</i>
+          indicano l'<b>acquedotto fornitore</b>, non la qualità dell'acqua. L'<i>Acqua Marcia</i> è
+          uno storico acquedotto romano del 144 a.C. — prende il nome dal pretore Quinto Marcio Re,
+          non da "acqua andata a male". Tutta l'acqua di Roma è regolarmente analizzata e potabile.
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-dashboard" class="tab-content">
+      <div class="panel">
+        <h2>📊 Dashboard</h2>
+        <div id="dashboard-summary" class="dash-summary"></div>
+        <div class="chart-wrap"><canvas id="chart-status"></canvas></div>
+        <h3>Parametri più spesso fuori norma</h3>
+        <div class="chart-wrap"><canvas id="chart-exc-param"></canvas></div>
+        <h3>Comuni con più anomalie</h3>
+        <div class="chart-wrap"><canvas id="chart-exc-comune"></canvas></div>
+        <h3>Statistiche per parametro</h3>
+        <div id="dashboard-table-wrap"></div>
+      </div>
+    </section>
+
+    <section id="tab-news" class="tab-content">
+      <div class="panel">
+        <div class="news-header">
+          <h2>📰 News in tempo reale</h2>
+          <button id="refresh-news" title="Aggiorna">⟳</button>
+        </div>
+        <div id="news-filters" class="news-filters"></div>
+        <div id="news-meta" class="news-meta-line"></div>
+        <div id="news-list" class="news-list">
+          <p class="hint">Ricerca multi-tematica su Google via Gemini…</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-compare" class="tab-content">
+      <div class="panel">
+        <h2>⚖️ Confronta zone</h2>
+        <p class="hint">Aggiungi zone (max 4) per confrontare i parametri fianco a fianco.</p>
+        <div class="compare-add">
+          <input type="text" id="compare-input" placeholder="Cerca e aggiungi zona…"/>
+          <div id="compare-suggest" class="search-results"></div>
+        </div>
+        <div id="compare-chips" class="compare-chips"></div>
+        <div id="compare-table-wrap"></div>
+      </div>
+    </section>
+
+    <section id="tab-chat" class="tab-content">
+      <div class="panel chat-panel">
+        <h2>🤖 Assistente AI HydroMap</h2>
+        <p class="hint">Fai una domanda sui dati delle 275 zone (Gemini userà solo i dati locali).</p>
+        <div id="chat-log" class="chat-log"></div>
+        <div class="chat-suggestions">
+          <button class="chip" data-q="Quali sono i comuni con più anomalie?">Comuni con più anomalie</button>
+          <button class="chip" data-q="Dove c'è più arsenico nell'acqua?">Dove c'è più arsenico?</button>
+          <button class="chip" data-q="Quali zone hanno cloruri elevati?">Zone con cloruri alti</button>
+          <button class="chip" data-q="Qual è il pH medio delle zone di Roma?">pH medio</button>
+        </div>
+        <form id="chat-form" class="chat-form">
+          <input type="text" id="chat-input" placeholder="Es. quali sono le 3 zone meno conformi?" required />
+          <button type="submit">Invia</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="tab-meteo" class="tab-content">
+      <div class="panel">
+        <h2>🌧️ Meteo & Siccità — Roma</h2>
+        <p class="hint">Dati reali da <a href="https://open-meteo.com" target="_blank">Open-Meteo</a> (archivio + forecast ECMWF/DWD). Aggiornato ogni 3 ore.</p>
+        <div id="meteo-status" class="loading">Caricamento…</div>
+        <div id="drought-banner" class="drought-banner hidden"></div>
+        <div id="meteo-kpis" class="dash-summary"></div>
+        <h3>Pioggia ultimi 90 giorni (mm)</h3>
+        <div class="chart-wrap"><canvas id="chart-rain-history"></canvas></div>
+        <h3>Forecast 7 giorni</h3>
+        <div class="chart-wrap"><canvas id="chart-rain-forecast"></canvas></div>
+        <div id="forecast-list" class="forecast-list"></div>
+        <h3>💧 Lago di Bracciano</h3>
+        <div id="bracciano-card" class="bracciano-card"></div>
+      </div>
+    </section>
+
+    <section id="tab-info" class="tab-content">
+      <div class="panel">
+        <h2>ℹ️ L'acqua di Roma</h2>
+        <p>L'acqua potabile di Roma proviene per il <strong>~70%</strong> dall'acquedotto <strong>Peschiera-Capore</strong> (sorgenti a Cittaducale, Rieti, ~130 km).</p>
+        <ul class="aq-list" id="aq-list"></ul>
+        <h3>Numeri chiave</h3>
+        <div id="info-numbers" class="info-numbers"></div>
+        <h3>Fonti dei dati</h3>
+        <ul>
+          <li>275 PDF di analisi <a href="https://www.aceaato2.a-acqua.it/qualita-acqua" target="_blank">Acea Ato 2</a> — parametri estratti automaticamente</li>
+          <li>Nasoni e fontanelle: <a href="https://www.openstreetmap.org" target="_blank">OpenStreetMap</a> (Overpass API)</li>
+          <li>News real-time: Gemini 2.5 Flash con Google Search grounding</li>
+        </ul>
+      </div>
+    </section>
+  </aside>
+</main>
+
+<div id="param-legend" class="param-legend hidden"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
