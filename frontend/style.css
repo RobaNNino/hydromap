@@ -41,8 +41,12 @@ body.sidebar-open .burger span:nth-child(1) { transform: translateY(6px) rotate(
 body.sidebar-open .burger span:nth-child(2) { opacity: 0; }
 body.sidebar-open .burger span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
 .brand { display: flex; align-items: center; gap: 12px; }
-.brand .logo { font-size: 30px; filter: drop-shadow(0 1px 2px rgba(0,0,0,.4)); }
-.brand h1 { font-size: 20px; letter-spacing: 0.3px; }
+.brand .logo {
+  height: 38px; width: auto;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,.35));
+  display: block;
+}
+.brand h1 { display: none; } /* il testo è già nel logo PNG */
 .brand .tag { font-size: 11.5px; opacity: 0.8; padding-left: 8px; border-left: 1px solid rgba(255,255,255,.4); }
 
 .topbar-controls {
@@ -505,12 +509,7 @@ table.compare-table small { color: #64748b; font-size: 10px; }
     flex: 1 1 auto; min-width: 0; gap: 10px;
     order: 1;
   }
-  .brand .logo { font-size: 26px; }
-  .brand h1 {
-    font-size: 16px; white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis;
-    margin: 0;
-  }
+  .brand .logo { height: 32px; }
   .brand .tag { display: none; }
   .basemap-switcher { display: none; }
 
@@ -650,3 +649,19 @@ table.compare-table small { color: #64748b; font-size: 10px; }
   display: flex; align-items: center; gap: 4px;
 }
 .map-tt .tt-hint::before { content: "→"; }
+.map-tt .tt-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.map-tt .tt-badge {
+  font-size: 10.5px; padding: 2px 7px; border-radius: 999px;
+  background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe;
+}
+.map-tt .tt-status { font-size: 10.5px; padding: 2px 7px; border-radius: 999px; font-weight: 600; }
+.map-tt .tt-status.ok { background: #dcfce7; color: #14532d; border: 1px solid #86efac; }
+.map-tt .tt-status.warn { background: #fee2e2; color: #7f1d1d; border: 1px solid #fca5a5; }
+
+/* Zone panel badges + search sub-line */
+.zone-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.zbadge {
+  font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  background: #e0f2fe; color: #075985; border: 1px solid #7dd3fc;
+}
+.sr-sub { font-size: 11.5px; color: #475569; margin-top: 1px; }

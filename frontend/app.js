@@ -98,17 +98,24 @@ function prettyZoneInfo(zonaRaw) {
     : aqPretty;
   return { number: num, aqueduct: aqPretty, label, hint };
 }
-function tooltipHtml(comune, zonaRaw) {
-  const pz = prettyZoneInfo(zonaRaw);
-  const com = escapeHtml(comune || "—").replace(/\bE\b/g, "e").toLowerCase()
-    .replace(/(^|\s)\p{L}/gu, c => c.toUpperCase());
-  const supply = pz.aqueduct
-    ? `<div class="tt-supply">💧 Fornitore: acquedotto <b>${escapeHtml(pz.aqueduct)}</b></div>`
-    : "";
-  const zone = pz.number ? `<div class="tt-zone">Zona ${escapeHtml(pz.number)}</div>` : "";
+function tooltipHtml(p) {
+  // Usa l'enrichment lato server (display_name, area, aqueduct, icon, badges).
+  const icon = p.icon || "🏘️";
+  const title = p.display_name || p.comune || "—";
+  const area = p.area || "";
+  const zone = p.zone_num ? `Zona ${escapeHtml(p.zone_num)}` : "";
+  const aq = p.aqueduct
+    ? `<div class="tt-supply">💧 Acquedotto <b>${escapeHtml(p.aqueduct)}</b></div>` : "";
+  const badges = (p.badges || []).slice(0, 2).map(b =>
+    `<span class="tt-badge">${escapeHtml(b)}</span>`).join("");
+  const statusBadge = p.status === "ATTENZIONE"
+    ? `<span class="tt-status warn">⚠ Attenzione</span>`
+    : p.status === "OK" ? `<span class="tt-status ok">✓ Conforme</span>` : "";
   return `<div class="map-tt">
-    <div class="tt-comune">${escapeHtml(com)}</div>
-    ${zone}${supply}
+    <div class="tt-comune">${icon} ${escapeHtml(title)}</div>
+    ${area ? `<div class="tt-zone">${escapeHtml(area)}${zone ? ` · ${zone}` : ""}</div>` : (zone ? `<div class="tt-zone">${zone}</div>` : "")}
+    ${aq}
+    <div class="tt-badges">${badges}${statusBadge}</div>
     <div class="tt-hint">Clicca per i dettagli</div>
   </div>`;
 }
@@ -194,7 +201,7 @@ function currentStyle(feature) {
 
 function onEach(feature, layer) {
   const p = feature.properties || {};
-  layer.bindTooltip(tooltipHtml(p.comune, p.zona_label || p.zona), {
+  layer.bindTooltip(tooltipHtml(p), {
     sticky: true, direction: "top", offset: [0, -6], className: "map-tooltip",
   });
   layer.on({
@@ -266,25 +273,37 @@ function renderZone(d, name) {
   const sections = Object.entries(d.sections || {}).map(([k, v]) =>
     `<div class="section-block"><h4>${escapeHtml(k)}</h4><p>${escapeHtml(v)}</p></div>`
   ).join("");
-  const pz = prettyZoneInfo(d.zona);
-  const comunePretty = String(d.comune || "—").toLowerCase()
-    .replace(/(^|\s)\p{L}/gu, c => c.toUpperCase());
-  const supplierBlock = pz.aqueduct ? `
+  const enr = d.enrichment || {};
+  const title = enr.display_name || d.comune || "—";
+  const area = enr.area || "";
+  const icon = enr.icon || "🏘️";
+  const comuneOfficial = enr.comune_label || d.comune || "";
+  const zoneNum = enr.zone_num || "";
+  const aqueduct = enr.aqueduct || "";
+  const aqueductHint = enr.aqueduct_hint || "";
+  const badges = (enr.badges || []).map(b => `<span class="zbadge">${escapeHtml(b)}</span>`).join("");
+  const supplierBlock = aqueduct ? `
     <div class="supplier-card">
       <div class="supplier-head">
         <span class="supplier-ico">💧</span>
         <div>
           <div class="supplier-label">Acqua fornita dall'acquedotto</div>
-          <div class="supplier-name">${escapeHtml(pz.aqueduct)}</div>
+          <div class="supplier-name">${escapeHtml(aqueduct)}</div>
         </div>
       </div>
-      ${pz.hint ? `<div class="supplier-hint"><b>ℹ️ Cosa significa?</b> ${escapeHtml(pz.hint)}</div>` : ""}
+      ${aqueductHint ? `<div class="supplier-hint"><b>ℹ️ Cosa significa?</b> ${escapeHtml(aqueductHint)}</div>` : ""}
     </div>` : "";
   $("zone-panel").innerHTML = `
     <div class="zone-title-row">
       <div>
-        <div class="zone-title">${escapeHtml(comunePretty)}</div>
-        <div class="zone-sub">${pz.number ? `Zona ${escapeHtml(pz.number)}` : escapeHtml(d.zona || "")} · aggiornato a ${escapeHtml(d.periodo || "n/d")}</div>
+        <div class="zone-title">${icon} ${escapeHtml(title)}</div>
+        <div class="zone-sub">
+          ${area ? `<b>${escapeHtml(area)}</b> · ` : ""}
+          ${comuneOfficial ? `${escapeHtml(comuneOfficial)} · ` : ""}
+          ${zoneNum ? `Zona ${escapeHtml(zoneNum)} · ` : ""}
+          aggiornato a ${escapeHtml(d.periodo || "n/d")}
+        </div>
+        ${badges ? `<div class="zone-badges">${badges}</div>` : ""}
       </div>
       <span class="badge ${badgeClass}">${escapeHtml(s.status || "N/D")}</span>
     </div>
@@ -677,14 +696,23 @@ function bindSearch(inputId, resultsId, onPick) {
         const r = await fetch(API(`/api/search?q=${encodeURIComponent(q)}&limit=12`), { signal: searchAbort.signal });
         const d = await r.json();
         if (!d.items.length) { box.innerHTML = `<div class="sr-empty">Nessun risultato</div>`; box.classList.add("visible"); return; }
-        box.innerHTML = d.items.map(it => `
+        box.innerHTML = d.items.map(it => {
+          const titleLine = it.display_name
+            ? `${it.icon || "🏘️"} ${escapeHtml(it.display_name)}`
+            : `${escapeHtml(it.comune || "")} · ${escapeHtml(it.zona || "")}`;
+          const subLine = it.area
+            ? `${escapeHtml(it.area)}${it.aqueduct ? ` · 💧 ${escapeHtml(it.aqueduct)}` : ""}`
+            : (it.zona ? escapeHtml(it.zona) : "");
+          return `
           <div class="sr-item" data-name="${escapeHtml(it.name)}">
-            <div class="sr-title">${escapeHtml(it.comune || "")} · ${escapeHtml(it.zona || "")}</div>
+            <div class="sr-title">${titleLine}</div>
+            ${subLine ? `<div class="sr-sub">${subLine}</div>` : ""}
             <div class="sr-meta">
               <span class="badge ${it.status === 'OK' ? 'ok' : it.status === 'ATTENZIONE' ? 'warn' : 'unk'}">${escapeHtml(it.status || "?")}</span>
               ${it.exceedances ? `<span>· ${it.exceedances} anomalie</span>` : ""}
             </div>
-          </div>`).join("");
+          </div>`;
+        }).join("");
         box.classList.add("visible");
         box.querySelectorAll(".sr-item").forEach(el => {
           el.addEventListener("click", () => {
@@ -793,8 +821,13 @@ function removeCompare(name) {
 }
 
 async function renderCompare() {
-  $("compare-chips").innerHTML = state.compareList.map(n =>
-    `<span class="chip active" style="--c:#0369a1">${escapeHtml(n)} <button data-rm="${escapeHtml(n)}">×</button></span>`).join("");
+  $("compare-chips").innerHTML = state.compareList.map(n => {
+    // Cerco enrichment nella geoData (ricavata da /api/geojson).
+    const f = (state.geoData?.features || []).find(ff => (ff.properties || {}).name === n);
+    const p = f ? f.properties : {};
+    const lbl = p.display_name ? `${p.icon || "🏘️"} ${p.display_name}` : n;
+    return `<span class="chip active" style="--c:#0369a1">${escapeHtml(lbl)} <button data-rm="${escapeHtml(n)}">×</button></span>`;
+  }).join("");
   $("compare-chips").querySelectorAll("button[data-rm]").forEach(b => {
     b.addEventListener("click", () => removeCompare(b.dataset.rm));
   });
@@ -805,7 +838,7 @@ async function renderCompare() {
   const r = await fetch(API(`/api/compare?names=${state.compareList.map(encodeURIComponent).join(",")}`));
   const d = await r.json();
   const head = `<tr><th>Parametro</th>${d.zones.map(z =>
-    `<th>${escapeHtml(z.comune || "")}<br/><small>${escapeHtml(z.zona || "")}</small></th>`).join("")}</tr>`;
+    `<th>${z.icon || "🏘️"} ${escapeHtml(z.display_name || z.comune || "")}<br/><small>${escapeHtml(z.area || z.zona || "")}</small></th>`).join("")}</tr>`;
   const statusRow = `<tr><td><b>Stato</b></td>${d.zones.map(z =>
     `<td><span class="badge ${z.status === 'OK' ? 'ok' : z.status === 'ATTENZIONE' ? 'warn' : 'unk'}">${escapeHtml(z.status || "?")}</span></td>`).join("")}</tr>`;
   const rows = d.parameters.map(p => {

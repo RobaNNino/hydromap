@@ -19,6 +19,8 @@ from pathlib import Path
 
 import requests
 
+from zone_names import enrich_zone
+
 DATA = Path(__file__).parent / "data"
 RESULTS_FILE = DATA / "results.json"
 
@@ -114,10 +116,13 @@ def parameter_map(param: str) -> dict:
             if _norm(p.get("parametro", "")) == pkey:
                 v = p.get("valore_num")
                 if isinstance(v, (int, float)):
+                    enr = enrich_zone(name, r.get("comune"), r.get("zona"))
                     items.append({
                         "name": name,
                         "comune": r.get("comune"),
                         "zona": r.get("zona"),
+                        "display_name": enr.get("display_name"),
+                        "area": enr.get("area"),
                         "valore": v,
                         "limite": p.get("limite_num"),
                         "unita": p.get("unita"),
@@ -163,10 +168,14 @@ def search(q: str, limit: int = 25) -> dict:
         return {"q": q, "items": []}
     matches = []
     for name, r in res.items():
+        enr = enrich_zone(name, r.get("comune"), r.get("zona"))
         haystacks = {
             "name": _norm(name),
             "comune": _norm(r.get("comune", "")),
             "zona": _norm(r.get("zona", "")),
+            "display": _norm(enr.get("display_name", "")),
+            "area": _norm(enr.get("area", "")),
+            "tokens": _norm(enr.get("search_tokens", "")),
             "params": " ".join(_norm(p.get("parametro", "")) for p in r.get("parameters") or []),
         }
         text = " ".join(haystacks.values())
@@ -175,14 +184,21 @@ def search(q: str, limit: int = 25) -> dict:
         # score: weight by where it matches
         score = 0
         for t in tokens:
-            if t in haystacks["comune"]: score += 5
-            if t in haystacks["zona"]:   score += 3
-            if t in haystacks["name"]:   score += 2
-            if t in haystacks["params"]: score += 1
+            if t in haystacks["display"]: score += 7
+            if t in haystacks["area"]:    score += 6
+            if t in haystacks["comune"]:  score += 5
+            if t in haystacks["zona"]:    score += 3
+            if t in haystacks["name"]:    score += 2
+            if t in haystacks["tokens"]:  score += 2
+            if t in haystacks["params"]:  score += 1
         matches.append({
             "name": name,
             "comune": r.get("comune"),
             "zona": r.get("zona"),
+            "display_name": enr.get("display_name"),
+            "area": enr.get("area"),
+            "aqueduct": enr.get("aqueduct"),
+            "icon": enr.get("icon"),
             "status": (r.get("summary") or {}).get("status"),
             "exceedances": len((r.get("summary") or {}).get("exceedances") or []),
             "score": score,
@@ -201,10 +217,15 @@ def compare(names: list[str]) -> dict:
         r = res.get(n)
         if not r:
             continue
+        enr = enrich_zone(n, r.get("comune"), r.get("zona"))
         zones.append({
             "name": n,
             "comune": r.get("comune"),
             "zona": r.get("zona"),
+            "display_name": enr.get("display_name"),
+            "area": enr.get("area"),
+            "aqueduct": enr.get("aqueduct"),
+            "icon": enr.get("icon"),
             "status": (r.get("summary") or {}).get("status"),
             "exceedances": (r.get("summary") or {}).get("exceedances") or [],
             "parameters": {p.get("parametro"): p for p in r.get("parameters") or []},

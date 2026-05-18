@@ -63,6 +63,7 @@ def _build_enriched_geojson() -> dict:
     global _GEOJSON_CACHE
     if _GEOJSON_CACHE is not None:
         return _GEOJSON_CACHE
+    from zone_names import enrich_zone
     raw = json.loads(GEOJSON_FILE.read_text(encoding="utf-8"))
     for feat in raw["features"]:
         p = feat.setdefault("properties", {})
@@ -77,6 +78,17 @@ def _build_enriched_geojson() -> dict:
         else:
             p["status"] = "UNKNOWN"
             p["exceedances_count"] = 0
+        # Enrichment: nomi user-friendly + acquedotto + area geografica.
+        enr = enrich_zone(name or "", p.get("comune"), p.get("zona_label"))
+        p["display_name"] = enr["display_name"]
+        p["area"] = enr.get("area") or ""
+        p["aqueduct"] = enr.get("aqueduct") or ""
+        p["aqueduct_hint"] = enr.get("aqueduct_hint") or ""
+        p["zone_num"] = enr.get("zone_num") or ""
+        p["icon"] = enr.get("icon") or "🏘️"
+        p["badges"] = enr.get("badges") or []
+        p["comune_label"] = enr.get("comune_label") or p.get("comune")
+        p["search_tokens"] = enr.get("search_tokens") or ""
         # color by status (overrides Acea default which is uniform).
         status_color = {
             "OK": "#16a34a",
@@ -100,7 +112,9 @@ def api_zone(name: str):
     r = _RESULTS.get(name)
     if not r:
         abort(404, description=f"zone '{name}' not found")
-    return jsonify({**r, "pdf_url": f"/api/pdf/{name}"})
+    from zone_names import enrich_zone
+    enr = enrich_zone(name, r.get("comune"), r.get("zona"))
+    return jsonify({**r, "pdf_url": f"/api/pdf/{name}", "enrichment": enr})
 
 
 @app.get("/api/pdf/<name>")
