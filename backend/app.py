@@ -1,5 +1,5 @@
 """
-HydroMap backend.
+AcquaMap backend.
 Endpoints:
   GET  /                            -> serve frontend
   GET  /api/geojson                 -> map polygons with status+links
@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -28,7 +29,14 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 ROOT = Path(__file__).parent / "data"
 PDF_DIR = ROOT / "pdfs"
-GEOJSON_FILE = ROOT / "mappa-qualita-ato-2.json"
+# Mappa provider_id -> file GeoJSON locale (popolato da scrape.py / scraper dedicati).
+# I file vengono uniti in un singolo FeatureCollection alla prima richiesta.
+GEOJSON_FILES: dict[str, Path] = {
+    "acea_ato2": ROOT / "mappa-qualita-ato-2.json",
+    "acea_ato5": ROOT / "mappa-qualita-ato-5.json",
+    "acqualatina": ROOT / "mappa-qualita-acqualatina.json",
+    "acqua_pubblica_sabina": ROOT / "mappa-qualita-aps.json",
+}
 RESULTS_FILE = ROOT / "results.json"
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
@@ -59,27 +67,137 @@ _RESULTS = _load_results()
 _GEOJSON_CACHE: dict | None = None
 
 
+# ---------- freshness analisi (data analisi → "nuova"/"in scadenza"/"vecchia") ----------
+_MONTHS_IT = {
+    "gennaio": 1, "febbraio": 2, "marzo": 3, "aprile": 4, "maggio": 5, "giugno": 6,
+    "luglio": 7, "agosto": 8, "settembre": 9, "ottobre": 10, "novembre": 11, "dicembre": 12,
+}
+# Soglie configurabili (in mesi) — il D.Lgs 18/2023 raccomanda controlli almeno annuali
+# per i parametri di routine, quindi >12 mesi = analisi obsoleta.
+FRESH_MAX_MONTHS = int(os.environ.get("FRESH_MAX_MONTHS", "6"))      # <=6 mesi = "nuova"
+FRESH_WARN_MONTHS = int(os.environ.get("FRESH_WARN_MONTHS", "12"))   # 7-12 = "in scadenza", >12 = "vecchia"
+
+
+def _parse_periodo(periodo: str | None) -> tuple[int, int] | None:
+    """Estrae (anno, mese) da una stringa tipo 'settembre 2024', '09/2024',
+    '2024-09', 'Secondo Semestre 2025', 'I Trimestre 2025', 'II semestre 2025'."""
+    if not periodo:
+        return None
+    s = str(periodo).strip().lower()
+    # 'settembre 2024'
+    import re as _re
+    m = _re.search(r"\b(" + "|".join(_MONTHS_IT.keys()) + r")\b[^\d]*(\d{4})", s)
+    if m:
+        return int(m.group(2)), _MONTHS_IT[m.group(1)]
+    # 'primo/secondo/terzo/quarto trimestre 2025' o 'I/II/III/IV trimestre'
+    m = _re.search(r"\b(primo|secondo|terzo|quarto|i{1,3}v?|iv)\s*trimestre[^\d]*(\d{4})", s)
+    if m:
+        q = {"primo": 1, "i": 1, "secondo": 2, "ii": 2, "terzo": 3, "iii": 3,
+             "quarto": 4, "iv": 4}.get(m.group(1), 1)
+        month = q * 3  # fine trimestre
+        return int(m.group(2)), month
+    # 'primo/secondo semestre 2025' o 'I/II semestre'
+    m = _re.search(r"\b(primo|secondo|i{1,2})\s*semestre[^\d]*(\d{4})", s)
+    if m:
+        h = {"primo": 1, "i": 1, "secondo": 2, "ii": 2}.get(m.group(1), 1)
+        month = 6 if h == 1 else 12  # fine semestre
+        return int(m.group(2)), month
+    # '09/2024' or '9-2024'
+    m = _re.search(r"\b(0?[1-9]|1[0-2])[\/\-\.](\d{4})\b", s)
+    if m:
+        return int(m.group(2)), int(m.group(1))
+    # '2024-09'
+    m = _re.search(r"\b(\d{4})[\/\-\.](0?[1-9]|1[0-2])\b", s)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    # solo anno
+    m = _re.search(r"\b(20\d{2})\b", s)
+    if m:
+        return int(m.group(1)), 6  # assume metà anno se manca il mese
+    return None
+
+
+def _freshness(periodo: str | None) -> dict:
+    """Classifica un'analisi in base a quanto è recente la data."""
+    ym = _parse_periodo(periodo)
+    if not ym:
+        return {"label": "n/d", "level": "unknown", "color": "#94a3b8",
+                "months_old": None, "iso": None, "periodo": periodo}
+    y, m = ym
+    from datetime import date
+    today = date.today()
+    months_old = (today.year - y) * 12 + (today.month - m)
+    if months_old < 0:
+        months_old = 0
+    if months_old <= FRESH_MAX_MONTHS:
+        label, level, color = "nuova", "fresh", "#16a34a"
+    elif months_old <= FRESH_WARN_MONTHS:
+        label, level, color = "in scadenza", "warn", "#f59e0b"
+    else:
+        label, level, color = "vecchia", "stale", "#dc2626"
+    return {
+        "label": label, "level": level, "color": color,
+        "months_old": months_old,
+        "iso": f"{y:04d}-{m:02d}",
+        "periodo": periodo,
+    }
+
+
 def _build_enriched_geojson() -> dict:
     global _GEOJSON_CACHE
     if _GEOJSON_CACHE is not None:
         return _GEOJSON_CACHE
     from zone_names import enrich_zone
-    raw = json.loads(GEOJSON_FILE.read_text(encoding="utf-8"))
+
+    # Unisce tutti i GeoJSON disponibili in un singolo FeatureCollection.
+    merged_features: list[dict] = []
+    name_to_provider: dict[str, str] = {}
+    for prov_id, gf in GEOJSON_FILES.items():
+        if not gf.exists():
+            continue
+        try:
+            data = json.loads(gf.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for feat in data.get("features", []):
+            p = feat.setdefault("properties", {})
+            n = p.get("name")
+            if not n:
+                continue
+            name_to_provider.setdefault(n, prov_id)
+            # Marca subito il provider sulla feature (sovrascrive eventuali default).
+            p["_source_provider"] = prov_id
+            merged_features.append(feat)
+
+    raw = {"type": "FeatureCollection", "features": merged_features}
     for feat in raw["features"]:
         p = feat.setdefault("properties", {})
         name = p.get("name")
         r = _RESULTS.get(name)
+        prov_id = r.get("provider") if r else None
+        prov_id = prov_id or p.get("_source_provider") or "acea_ato2"
         if r:
             summ = r.get("summary", {})
             p["status"] = summ.get("status", "OK")
             p["exceedances_count"] = len(summ.get("exceedances") or [])
             p["periodo"] = r.get("periodo")
             p["zona_label"] = r.get("zona")
+            p["provider"] = prov_id
+            p["freshness"] = _freshness(r.get("periodo"))
         else:
             p["status"] = "UNKNOWN"
             p["exceedances_count"] = 0
+            p["provider"] = prov_id
+            p["freshness"] = _freshness(None)
+        # Metadati gestore (label corto + ATO) per badge UI.
+        meta = PROVIDER_META.get(p["provider"]) or {}
+        p["provider_label"] = (meta.get("label") or "").split(" — ")[0]
+        p["provider_ato"] = meta.get("ato") or ""
         # Enrichment: nomi user-friendly + acquedotto + area geografica.
-        enr = enrich_zone(name or "", p.get("comune"), p.get("zona_label"))
+        # ATO 5 espone LOCALITA/DESCRIZ: usali come fallback per comune/zona.
+        comune_hint = p.get("comune") or p.get("LOCALITA") or (r.get("comune") if r else None)
+        zona_hint = p.get("zona_label") or p.get("DESCRIZ") or (r.get("zona") if r else None)
+        enr = enrich_zone(name or "", comune_hint, zona_hint)
         p["display_name"] = enr["display_name"]
         p["area"] = enr.get("area") or ""
         p["aqueduct"] = enr.get("aqueduct") or ""
@@ -87,7 +205,7 @@ def _build_enriched_geojson() -> dict:
         p["zone_num"] = enr.get("zone_num") or ""
         p["icon"] = enr.get("icon") or "🏘️"
         p["badges"] = enr.get("badges") or []
-        p["comune_label"] = enr.get("comune_label") or p.get("comune")
+        p["comune_label"] = enr.get("comune_label") or comune_hint
         p["search_tokens"] = enr.get("search_tokens") or ""
         # color by status (overrides Acea default which is uniform).
         status_color = {
@@ -104,7 +222,12 @@ def _build_enriched_geojson() -> dict:
 # ---------- routes ----------
 @app.get("/api/geojson")
 def api_geojson():
-    return jsonify(_build_enriched_geojson())
+    data = _build_enriched_geojson()
+    # Ricalcola la freshness ad ogni richiesta (dipende dalla data corrente).
+    for feat in data.get("features", []):
+        p = feat.get("properties") or {}
+        p["freshness"] = _freshness(p.get("periodo"))
+    return jsonify(data)
 
 
 @app.get("/api/zone/<name>")
@@ -114,7 +237,15 @@ def api_zone(name: str):
         abort(404, description=f"zone '{name}' not found")
     from zone_names import enrich_zone
     enr = enrich_zone(name, r.get("comune"), r.get("zona"))
-    return jsonify({**r, "pdf_url": f"/api/pdf/{name}", "enrichment": enr})
+    prov_id = r.get("provider", "acea_ato2")
+    return jsonify({
+        **r,
+        "pdf_url": f"/api/pdf/{name}",
+        "enrichment": enr,
+        "freshness": _freshness(r.get("periodo")),
+        "provider": prov_id,
+        "provider_meta": PROVIDER_META.get(prov_id) or {},
+    })
 
 
 @app.get("/api/pdf/<name>")
@@ -126,30 +257,96 @@ def api_pdf(name: str):
 
 
 # ---------- Gemini news (multi-topic, grounded, geocoded) ----------
-from news_engine import fetch_news, CATEGORY_META  # noqa: E402
+# IMPORTANTE: ogni fetch costa molto (N chiamate parallele a Gemini Pro con
+# grounding Google Search). Per evitare di bruciare credito a ogni utente
+# che apre l'app, le news sono:
+#   - condivise GLOBALMENTE (singolo stato server-side, non per-utente);
+#   - persistite su disco (sopravvivono ai cold-start di Render);
+#   - aggiornate al massimo una volta ogni NEWS_TTL_SECONDS (default 6h)
+#     con strategia stale-while-revalidate (serve cache vecchia subito,
+#     scatena un solo refresh in background, protetto da lock);
+#   - `?fresh=1` accettato SOLO con header X-Admin-Token == NEWS_ADMIN_TOKEN.
+from news_engine import (  # noqa: E402
+    fetch_news, CATEGORY_META, load_news_cache, save_news_cache,
+)
 
-_news_cache: dict = {"ts": 0.0, "data": None}
-_news_lock = __import__("threading").Lock()
+NEWS_TTL_SECONDS = int(os.environ.get("NEWS_TTL_SECONDS", str(6 * 3600)))
+NEWS_ADMIN_TOKEN = os.environ.get("NEWS_ADMIN_TOKEN", "")
+
+_news_state: dict = {"data": None, "ts": 0.0, "refreshing": False}
+_news_lock = threading.Lock()
+
+# Hydrate cache da disco all'avvio: così dopo un cold start di Render
+# le news sono subito disponibili senza chiamare Gemini.
+_disk_cache = load_news_cache()
+if _disk_cache and _disk_cache.get("items"):
+    _news_state["data"] = _disk_cache
+    _news_state["ts"] = float(_disk_cache.get("generated_at") or 0)
 
 
-def _get_news(fresh: bool, ttl: int = 900) -> dict:
-    with _news_lock:
-        if (not fresh and _news_cache["data"]
-                and (time.time() - _news_cache["ts"]) < ttl):
-            return {**_news_cache["data"], "cached": True}
-    data = fetch_news(limit_per_topic=5)
-    if data.get("items"):
+def _news_do_refresh() -> None:
+    """Esegue una fetch completa e aggiorna stato + disco. Solo per uso interno."""
+    try:
+        data = fetch_news(limit_per_topic=5)
+        if data.get("items"):
+            data["generated_at"] = int(time.time())
+            save_news_cache(data)
+            with _news_lock:
+                _news_state["data"] = data
+                _news_state["ts"] = float(data["generated_at"])
+    except Exception as e:  # noqa: BLE001 - non vogliamo crashare il thread
+        print(f"[news] background refresh failed: {e}", file=sys.stderr)
+    finally:
         with _news_lock:
-            _news_cache.update({"ts": time.time(), "data": data})
-    return data
+            _news_state["refreshing"] = False
+
+
+def _get_news(force: bool = False) -> dict:
+    now = time.time()
+    with _news_lock:
+        data = _news_state["data"]
+        ts = _news_state["ts"]
+        refreshing = _news_state["refreshing"]
+        age = (now - ts) if ts else float("inf")
+        need_refresh = force or data is None or age > NEWS_TTL_SECONDS
+        spawn_bg = False
+        run_sync = False
+        if need_refresh and not refreshing:
+            _news_state["refreshing"] = True
+            if data is None:
+                run_sync = True  # primo avvio assoluto: serve qualcosa subito
+            else:
+                spawn_bg = True
+
+    if run_sync:
+        _news_do_refresh()
+        with _news_lock:
+            data = _news_state["data"]
+            ts = _news_state["ts"]
+    elif spawn_bg:
+        threading.Thread(target=_news_do_refresh, daemon=True).start()
+
+    out = dict(data or {"items": [], "categories": CATEGORY_META})
+    out["cached"] = True
+    out["generated_at"] = int(ts) if ts else None
+    out["ttl_seconds"] = NEWS_TTL_SECONDS
+    out["next_refresh_at"] = int(ts + NEWS_TTL_SECONDS) if ts else None
+    with _news_lock:
+        out["refreshing"] = _news_state["refreshing"]
+    return out
 
 
 @app.get("/api/news")
 def api_news():
-    fresh = request.args.get("fresh", "0") == "1"
+    # `fresh=1` è ammesso solo se chi chiama presenta un token admin.
+    # Questo impedisce agli utenti del frontend di forzare chiamate AI costose.
+    force = False
+    if request.args.get("fresh") == "1":
+        token = request.headers.get("X-Admin-Token", "")
+        force = bool(NEWS_ADMIN_TOKEN) and token == NEWS_ADMIN_TOKEN
     limit = int(request.args.get("limit", 0) or 0)
     category = (request.args.get("category") or "").strip().lower()
-    data = _get_news(fresh)
+    data = _get_news(force=force)
     items = list(data.get("items") or [])
     if category and category != "tutte":
         items = [it for it in items if it.get("category") == category]
@@ -231,14 +428,8 @@ def api_ask():
     return jsonify(ask_ai(q))
 
 
-# ---------- Fonti ufficiali esterne (ISPRA, Salute, G3W) ----------
-from external_sources import get_ispra_wells, OFFICIAL_SOURCES  # noqa: E402
-
-
-@app.get("/api/ispra/wells")
-def api_ispra_wells():
-    force = request.args.get("force", "0") == "1"
-    return jsonify(get_ispra_wells(force=force))
+# ---------- Fonti ufficiali esterne (Salute, G3W) ----------
+from external_sources import OFFICIAL_SOURCES, PROVIDER_META  # noqa: E402
 
 
 @app.get("/api/sources")
@@ -246,22 +437,14 @@ def api_sources():
     return jsonify({"items": OFFICIAL_SOURCES})
 
 
-# ---------- Dati reali esterni: meteo + lago Bracciano ----------
-from realtime import get_meteo, get_bracciano  # noqa: E402
+# ---------- Dati reali esterni: meteo ----------
+from realtime import get_meteo  # noqa: E402
 
 
 @app.get("/api/meteo")
 def api_meteo():
     try:
         return jsonify(get_meteo())
-    except Exception as e:
-        return jsonify({"error": str(e)}), 502
-
-
-@app.get("/api/bracciano")
-def api_bracciano():
-    try:
-        return jsonify(get_bracciano())
     except Exception as e:
         return jsonify({"error": str(e)}), 502
 

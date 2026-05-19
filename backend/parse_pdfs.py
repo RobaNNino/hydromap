@@ -14,7 +14,15 @@ import pdfplumber
 
 ROOT = Path(__file__).parent / "data"
 PDF_DIR = ROOT / "pdfs"
-GEOJSON_FILE = ROOT / "mappa-qualita-ato-2.json"
+# I PDF Acea (ATO 2/5) sono tutti dentro PDF_DIR (nomi non collidono perché
+# usano slug e codici diversi). Il provider è determinato dal GeoJSON di
+# appartenenza.
+GEOJSON_FILES = {
+    "acea_ato2": ROOT / "mappa-qualita-ato-2.json",
+    "acea_ato5": ROOT / "mappa-qualita-ato-5.json",
+    "acqualatina": ROOT / "mappa-qualita-acqualatina.json",
+    "acqua_pubblica_sabina": ROOT / "mappa-qualita-aps.json",
+}
 OUT_FILE = ROOT / "results.json"
 
 SECTION_KEYS = (
@@ -74,13 +82,23 @@ def parse_pdf(path: Path) -> dict:
         out["comune"] = _clean(m.group(1)) if m else None
         m = re.search(r"\bZONA\s+([^\n]+)", text, re.IGNORECASE)
         out["zona"] = _clean(m.group(1)) if m else None
+        # Data analisi: prova prima il formato mese+anno (ATO 2),
+        # poi il formato semestrale/trimestrale (ATO 5).
         m = re.search(
             r"(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|"
             r"agosto|settembre|ottobre|novembre|dicembre)\s+\d{4}",
             text,
             re.IGNORECASE,
         )
-        out["periodo"] = _clean(m.group(0)) if m else None
+        if m:
+            out["periodo"] = _clean(m.group(0))
+        else:
+            m = re.search(
+                r"(primo|secondo|terzo|quarto|i+|iv)\s*(semestre|trimestre)\s+\d{4}",
+                text,
+                re.IGNORECASE,
+            )
+            out["periodo"] = _clean(m.group(0)) if m else None
 
         # ---- parameter table (first table with the expected header) ----
         param_table = None
@@ -180,18 +198,357 @@ def parse_pdf(path: Path) -> dict:
     return out
 
 
+def parse_pdf_acqualatina(path: Path) -> dict:
+    """
+    Parser dedicato per i PDF Acqualatina (schema diverso da Acea):
+      - "Comune di X"
+      - "Approvvigionamento ..." (più righe possibili)
+      - "Punto di prelievo ..."
+      - "Periodo di monitoraggio: II semestre 2025"
+      - Tabella 4 colonne: Prova | Unità di misura | Limite (D.Lgs 31/01) | Valore
+    Estraibile direttamente dal testo lineare con regex per riga.
+    """
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {}}
+    with pdfplumber.open(path) as pdf:
+        text = pdf.pages[0].extract_text() or ""
+
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+
+    # ---- metadata ----
+    out["comune"] = None
+    out["zona"] = None
+    out["periodo"] = None
+    out["punto_prelievo"] = None
+    for ln in lines[:15]:
+        if out["comune"] is None:
+            m = re.match(r"\s*Comune di\s+(.+)$", ln, re.IGNORECASE)
+            if m:
+                out["comune"] = _clean(m.group(1))
+                continue
+        if out["zona"] is None:
+            m = re.match(r"\s*Approvvigionamento\s+(.+)$", ln, re.IGNORECASE)
+            if m:
+                out["zona"] = _clean(m.group(1))
+                continue
+        if out["punto_prelievo"] is None:
+            m = re.match(r"\s*Punto di prelievo\s+(.+)$", ln, re.IGNORECASE)
+            if m:
+                out["punto_prelievo"] = _clean(m.group(1))
+                continue
+        if out["periodo"] is None:
+            m = re.search(
+                r"Periodo di monitoraggio[:\s]+(.+)$", ln, re.IGNORECASE
+            )
+            if m:
+                out["periodo"] = _clean(m.group(1))
+                continue
+
+    # ---- parametri: ogni riga utile della tabella ha forma
+    #      "<parametro> <unita> <limite> <valore>"
+    # ma parametro e unita possono contenere spazi. Strategia: troviamo
+    # l'inizio della tabella ("pH pH ..."), poi parse posizionale a destra.
+    start_idx = None
+    for i, ln in enumerate(lines):
+        if re.match(r"^Prova\s+Unità", ln):
+            start_idx = i + 1
+            break
+        if re.match(r"^pH\s+pH\b", ln, re.IGNORECASE):
+            start_idx = i
+            break
+    if start_idx is None:
+        out["summary"] = {
+            "total_parameters": 0,
+            "total_with_limit": 0,
+            "exceedances": [],
+            "status": "UNKNOWN",
+        }
+        return out
+
+    # Token speciali che rappresentano "valore qualitativo" anziché numerico.
+    QUAL_TOKENS = {
+        "incolore", "inodore", "insapore", "conforme", "s.v.a.",
+        "s.v.a.*", "n.d.", "n.d.**", "n.p.",
+    }
+    NOTE_PREFIXES = ("*", "**", "***")
+
+    for ln in lines[start_idx:]:
+        s = ln.strip()
+        if not s or s.startswith(NOTE_PREFIXES):
+            continue
+        # Stop ai blocchi finali (note legenda).
+        if re.match(r"^[*]+\s", s) or s.lower().startswith("legenda"):
+            continue
+        toks = s.split()
+        if len(toks) < 3:
+            continue
+        # Strategia: l'ULTIMO token è il valore; il PENULTIMO è (parte del) limite
+        # quando presente. Acqualatina ha 4 colonne fisse: prova/unita/limite/valore.
+        # Quando il limite manca (es. "Temperatura ° C 25 15,4") la riga ha 4 token
+        # comunque. Tutte le righe valide hanno almeno il valore.
+        # Pattern token-finale "valore": numero, <numero, qualitativo, o range "0".
+        last = toks[-1]
+        is_value_like = (
+            bool(re.match(r"^[<>]?\s*\d", last))
+            or last.lower() in QUAL_TOKENS
+            or last.lower() in {"0"}
+        )
+        if not is_value_like:
+            continue
+        valore = last
+        # Ricostruzione naïve: ipotizziamo unità è 1-2 token, limite è 1-2 token.
+        # Acqualatina usa unità tipo "mg/L", "µS/cm a 20°C", "ufc/100 ml".
+        # Per semplicità: prendiamo l'intera riga e separiamo a posteriori i campi
+        # via euristica: parametro = parole iniziali fino al primo token-unità,
+        # ma è fragile. Manteniamo grezzo: parametro = primi token, limite="" ,
+        # valore=last. Sufficiente per il calcolo di compliance qualitativo.
+        head = " ".join(toks[:-1])
+        # Heuristica: divide head in parametro+unita+limite se token contiene "/", "°C", "%"
+        unit_idx = None
+        for i, t in enumerate(toks[:-1]):
+            if any(c in t for c in ("/", "°", "%")) or t.lower() in {
+                "mg/l", "µg/l", "μg/l", "ufc/100", "ntu", "ph"
+            }:
+                unit_idx = i
+                break
+        if unit_idx is not None:
+            parametro = " ".join(toks[:unit_idx]) if unit_idx > 0 else toks[0]
+            # Se il parametro è vuoto (riga inizia con "pH pH ..."), usa il
+            # primo token come parametro e considera l'unità da unit_idx+1.
+            if not parametro:
+                parametro = toks[0]
+                unita_lim = toks[1:-1]
+            else:
+                unita_lim = toks[unit_idx:-1]
+            # Unità può estendersi (es. "µS/cm a 20°C" -> 3 token). Cerchiamo
+            # il primo token successivo che inizi con cifra o "<" o "n.": è il limite.
+            # MA: scartiamo token che contengono "°" (sono continuazione di
+            # unità, es. "20°C" in "µS/cm a 20°C").
+            lim_start = None
+            for j, t in enumerate(unita_lim):
+                if j == 0:
+                    continue
+                if "°" in t:
+                    continue
+                if re.match(r"^([<>]?\s*\d|n\.[dp]\.|s\.v\.a)", t):
+                    lim_start = j
+                    break
+            if lim_start is None:
+                unita = " ".join(unita_lim)
+                limite = ""
+            else:
+                unita = " ".join(unita_lim[:lim_start])
+                limite = " ".join(unita_lim[lim_start:])
+        else:
+            parametro = head
+            unita = ""
+            limite = ""
+        # Filtra righe non-parametro (es. footer)
+        if not parametro or len(parametro) < 2:
+            continue
+        out["parameters"].append({
+            "parametro": _clean(parametro),
+            "unita": _clean(unita),
+            "limite": _clean(limite),
+            "valore": _clean(valore),
+            "valore_num": _parse_number(valore),
+            "limite_num": _parse_number(limite),
+        })
+
+    # ---- compliance summary (stesse regole del parser Acea) ----
+    exceed: list[dict] = []
+    total_with_limit = 0
+    for p in out["parameters"]:
+        v = p["valore_num"]
+        lim_v = p["limite_num"]
+        lim_raw = (p["limite"] or "").strip()
+        val_raw = (p["valore"] or "").strip()
+        if val_raw.lower() == "non conforme":
+            exceed.append({"parametro": p["parametro"], "valore": p["valore"], "limite": p["limite"]})
+            continue
+        if val_raw.startswith("<"):
+            if lim_v is not None:
+                total_with_limit += 1
+            continue
+        if lim_v is None or v is None:
+            continue
+        # Salta limiti contenenti caratteri sospetti che indicano un parsing
+        # ambiguo (es. "20°C 2500" -> il "limite" è in realtà unità+limite).
+        if "°" in lim_raw or "<" in lim_raw or ">" in lim_raw:
+            continue
+        total_with_limit += 1
+        if "cloro" in p["parametro"].lower() or "disinfettante" in p["parametro"].lower():
+            continue
+        if v > lim_v:
+            exceed.append({"parametro": p["parametro"], "valore": p["valore"], "limite": p["limite"]})
+    out["summary"] = {
+        "total_parameters": len(out["parameters"]),
+        "total_with_limit": total_with_limit,
+        "exceedances": exceed,
+        "status": "OK" if not exceed else "ATTENZIONE",
+    }
+    return out
+
+
+def parse_pdf_aps(path: Path) -> dict:
+    """
+    Parser dedicato per i PDF "IMP*.pdf" del laboratorio Gruppo Maurizi
+    (rapporti di prova per Acqua Pubblica Sabina S.p.A. — provincia di
+    Rieti + sabina romana).
+
+    Schema PDF:
+      - "Punto di prelievo: COMUNE (RI) - F.P. <descrizione> [- Codice: NNNNNN] ($)"
+      - "Emissione rapporto: DD/MM/YYYY"
+      - "Data di campionamento: DD/MM/YYYY"
+      - Tabella "PROVA METODO RISULTATO LIMITI LOQ U.M." (multi-pagina)
+
+    Estrae i parametri chiave (microbiologici + chimico-fisici di base)
+    via regex per riga e applica una compliance euristica.
+    """
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {}}
+
+    with pdfplumber.open(path) as pdf:
+        text_all = "\n".join((p.extract_text() or "") for p in pdf.pages)
+
+    # ---- metadata ----
+    m = re.search(
+        r"Punto di prelievo:\s*([^()\-\n]+?)\s*\(\s*R[IM]\s*\)\s*"
+        r"(?:-\s*(.*?))?\s*(?:-\s*Codice(?:\s+Comune)?:?\s*\d{6})?\s*\(\$\)",
+        text_all,
+        re.IGNORECASE,
+    )
+    if m:
+        out["comune"] = _clean(m.group(1)).title()
+        out["punto_prelievo"] = _clean(m.group(2) or "")
+    else:
+        out["comune"] = None
+        out["punto_prelievo"] = None
+    out["zona"] = out["punto_prelievo"]
+
+    # Periodo: "<mese> YYYY" da data di emissione.
+    MESI = [
+        "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
+        "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre",
+    ]
+    m = re.search(r"Emissione rapporto:\s*(\d{2})/(\d{2})/(\d{4})", text_all)
+    if m:
+        d, mo, y = m.group(1), int(m.group(2)), m.group(3)
+        out["periodo"] = f"{MESI[mo - 1]} {y}"
+        out["data_emissione"] = f"{y}-{mo:02d}-{d}"
+    else:
+        out["periodo"] = None
+        out["data_emissione"] = None
+
+    # ---- parametri principali (regex per riga) ----
+    # Ogni pattern produce: (label normalizzata, regex sul testo completo).
+    # Cattura il "risultato" (primo token significativo dopo il metodo) e
+    # opzionalmente i "limiti".
+    PARAM_PATTERNS: list[tuple[str, str, str, re.Pattern[str]]] = [
+        # (label, unita, limite_legge, regex)
+        ("Conteggio colonie 22°C", "UFC/ml", "Senza variazioni anomale",
+         re.compile(r"Conteggio delle colonie a\s*\n?\s*UNI EN ISO 6222:2001\s+(\S+)\s+(\[[^\]]+\]|\S+)\s+", re.IGNORECASE)),
+        ("Conteggio colonie 37°C", "UFC/ml", "—",
+         re.compile(r"UNI EN ISO 6222:2001\s+\S+\s+(?:\[[^\]]+\]|\S+)\s+(?:variazioni\s+/\s+UFC/ml\s+Sede\s+\S+\s+)?(?:Conteggio[\s\S]*?UNI EN ISO 6222:2001\s+(\S+)\s+(\[[^\]]+\]|\S+))", re.IGNORECASE)),
+        ("Batteri coliformi", "UFC/100 ml", "0",
+         re.compile(r"Batteri coliformi\s+UNI EN ISO 9308-1:2017\s+(\S+)\s+/\s+(\S+(?:\s*\(D7\))?)\s+", re.IGNORECASE)),
+        ("Escherichia coli", "UFC/100 ml", "0",
+         re.compile(r"Escherichia coli\s+UNI EN ISO 9308-1:2017\s+(\S+)\s+/\s+(\S+(?:\s*\(D7\))?)\s+", re.IGNORECASE)),
+        ("Pseudomonas aeruginosa", "UFC/250 ml", "0",
+         re.compile(r"Pseudomonas aeruginosa\s+ISO 16266:2006\s+(\S+)\s+", re.IGNORECASE)),
+        ("Enterococchi", "UFC/100 ml", "0",
+         re.compile(r"Enterococchi\s+(?:intestinali\s+)?UNI EN ISO 7899-2:2003\s+(\S+)\s+", re.IGNORECASE)),
+        ("pH", "Unità pH", "6,5 — 9,5",
+         re.compile(r"\bpH\s*\(.\)\s+(\S+)\s+", re.IGNORECASE)),
+        ("Conducibilità a 20°C", "µS/cm", "2500",
+         re.compile(r"Conducibilit[àa]\b[^\n]*?\s(\d[\d,]*)\s+(\d+)\s+", re.IGNORECASE)),
+        ("Cloro residuo libero", "mg/L", "0,2",
+         re.compile(r"Cloro\s+residuo\s+libero[^\n]*?\s([<>]?\s*\d[\d,]*)\s+", re.IGNORECASE)),
+        ("Nitrati", "mg/L", "50",
+         re.compile(r"\bNitrati\b[^\n]*?\s([<>]?\s*\d[\d,]*)\s+(\d+)\s+", re.IGNORECASE)),
+        ("Nitriti", "mg/L", "0,5",
+         re.compile(r"\bNitriti\b[^\n]*?\s([<>]?\s*\d[\d,]*)\s+([\d,]+)\s+", re.IGNORECASE)),
+        ("Durezza", "°F", "15 — 50",
+         re.compile(r"Durezza[^\n]*?\s(\d[\d,]*)\s+", re.IGNORECASE)),
+    ]
+    for label, unita, limite_str, rx in PARAM_PATTERNS:
+        m = rx.search(text_all)
+        if not m:
+            continue
+        valore = m.group(1).strip()
+        out["parameters"].append({
+            "parametro": label,
+            "unita": unita,
+            "limite": limite_str,
+            "valore": valore,
+            "valore_num": _parse_number(valore),
+            "limite_num": _parse_number(limite_str),
+        })
+
+    # ---- compliance euristica (microbiologici) ----
+    exceed: list[dict] = []
+    MICRO_ZERO = {
+        "batteri coliformi", "escherichia coli",
+        "pseudomonas aeruginosa", "enterococchi",
+    }
+    for p in out["parameters"]:
+        v = p["valore_num"]
+        if v is None:
+            continue
+        label = p["parametro"].lower()
+        if label in MICRO_ZERO and v > 0:
+            exceed.append({"parametro": p["parametro"], "valore": p["valore"], "limite": p["limite"]})
+        elif label == "nitrati" and v > 50:
+            exceed.append({"parametro": p["parametro"], "valore": p["valore"], "limite": p["limite"]})
+        elif label == "nitriti" and v > 0.5:
+            exceed.append({"parametro": p["parametro"], "valore": p["valore"], "limite": p["limite"]})
+        elif label == "ph" and (v < 6.5 or v > 9.5):
+            exceed.append({"parametro": p["parametro"], "valore": p["valore"], "limite": p["limite"]})
+        elif label == "conducibilità a 20°c" and v > 2500:
+            exceed.append({"parametro": p["parametro"], "valore": p["valore"], "limite": p["limite"]})
+
+    out["summary"] = {
+        "total_parameters": len(out["parameters"]),
+        "total_with_limit": sum(1 for p in out["parameters"] if p["limite_num"] is not None),
+        "exceedances": exceed,
+        "status": "OK" if not exceed else "ATTENZIONE",
+    }
+    return out
+
+
 def _worker(path_str: str) -> tuple[str, dict | str]:
     p = Path(path_str)
     try:
+        # Dispatch in base al prefisso del nome file.
+        if p.stem.startswith("acqualatina_"):
+            return p.stem, parse_pdf_acqualatina(p)
+        if p.stem.startswith("IMP"):
+            return p.stem, parse_pdf_aps(p)
         return p.stem, parse_pdf(p)
     except Exception as e:  # pragma: no cover
         return p.stem, f"ERROR: {e!r}"
 
 
 def main() -> int:
-    if not GEOJSON_FILE.exists():
-        print("Missing GeoJSON. Run scrape.py first.")
+    # Costruisce mappa name -> provider dai GeoJSON disponibili.
+    name_to_provider: dict[str, str] = {}
+    for prov_id, gf in GEOJSON_FILES.items():
+        if not gf.exists():
+            continue
+        try:
+            data = json.loads(gf.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for feat in data.get("features", []):
+            n = (feat.get("properties") or {}).get("name")
+            if n:
+                name_to_provider.setdefault(n, prov_id)
+        print(f"[provider] {prov_id}: {len(data.get('features', []))} features")
+
+    if not name_to_provider:
+        print("Missing GeoJSON files. Run scrape.py first.")
         return 1
+
     pdfs = sorted(PDF_DIR.glob("*.pdf"))
     print(f"[parse] {len(pdfs)} PDFs found")
 
@@ -205,6 +562,14 @@ def main() -> int:
             if isinstance(res, str):
                 errors.append((name, res))
             else:
+                # Tagga il provider in base al GeoJSON di appartenenza.
+                # I PDF "IMP*" sono SEMPRE Acqua Pubblica Sabina anche se non
+                # rappresentativi (cioè non scelti come name di feature):
+                # vengono raggruppati per comune in build_aps.py.
+                if name.startswith("IMP"):
+                    res["provider"] = "acqua_pubblica_sabina"
+                else:
+                    res["provider"] = name_to_provider.get(name, "acea_ato2")
                 results[name] = res
             if i % 25 == 0 or i == len(pdfs):
                 print(f"  parsed {i}/{len(pdfs)}  errors={len(errors)}")

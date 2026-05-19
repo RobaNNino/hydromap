@@ -30,11 +30,13 @@ from pathlib import Path
 import requests
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-# Modello più avanzato per ricerca più ampia e ragionata.
-# Variabile dedicata per le news; in fallback usa GEMINI_MODEL o gemini-2.5-pro.
+# Modello per le news. Default: gemini-2.5-flash — molto più economico di pro
+# (ordine di grandezza ~10x sui token), e con grounding Google Search la
+# qualità sulle news italiane resta accettabile. Override via env
+# GEMINI_NEWS_MODEL se in futuro vuoi tornare a "gemini-2.5-pro".
 GEMINI_MODEL = os.environ.get(
     "GEMINI_NEWS_MODEL",
-    os.environ.get("GEMINI_MODEL", "gemini-2.5-pro"),
+    os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
 )
 
 # Finestra di freschezza: scarta notizie più vecchie di tot giorni.
@@ -42,6 +44,31 @@ NEWS_MAX_AGE_DAYS = int(os.environ.get("NEWS_MAX_AGE_DAYS", "30"))
 
 DATA_DIR = Path(__file__).parent / "data"
 GEOCACHE_FILE = DATA_DIR / "geocache.json"
+NEWS_CACHE_FILE = DATA_DIR / "news_cache.json"
+
+
+def load_news_cache() -> dict | None:
+    """Legge la cache news persistita su disco (sopravvive ai cold-start)."""
+    if not NEWS_CACHE_FILE.exists():
+        return None
+    try:
+        d = json.loads(NEWS_CACHE_FILE.read_text(encoding="utf-8"))
+        if isinstance(d, dict) and isinstance(d.get("items"), list):
+            return d
+    except Exception:
+        return None
+    return None
+
+
+def save_news_cache(data: dict) -> None:
+    """Persiste la cache news su disco in modo atomico."""
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = NEWS_CACHE_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(NEWS_CACHE_FILE)
+    except Exception:
+        pass
 
 # Topic = (label, prompt extension, default category, default severity)
 # Priorità ASSOLUTA a Roma e provincia. I topic "nazionali" servono solo
@@ -84,12 +111,6 @@ TOPICS = [
      "interventi su collettori e depuratori (Roma Sud, Roma Nord, "
      "Roma Est, Ostia, Fregene)",
      "infrastruttura", "info"),
-    ("roma_bracciano_siccita",
-     "livello del Lago di Bracciano, prelievi Acea, siccità nel bacino "
-     "del Tevere e dell'Aniene, stato degli invasi che servono Roma "
-     "(Peschiera, sorgenti del Capore, Salto, Turano), allarmi siccità "
-     "a Roma e Lazio",
-     "siccità", "warning"),
     ("roma_nasoni_fontane",
      "nasoni di Roma (fontanelle pubbliche), Acea, manutenzione, "
      "chiusure estive, fontane storiche (Trevi, Quattro Fiumi, Tritone) "

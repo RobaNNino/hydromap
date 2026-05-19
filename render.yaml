@@ -1,4 +1,4 @@
-# HydroMap backend — Render Blueprint
+# AcquaMap backend — Render Blueprint
 # Docs: https://render.com/docs/blueprint-spec
 services:
   - type: web

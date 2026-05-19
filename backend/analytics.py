@@ -1,5 +1,5 @@
 """
-HydroMap analytics & AI assistant.
+AcquaMap analytics & AI assistant.
 
 Funzioni:
   - build_dashboard()  -> aggregati statistici sulle 275 zone
@@ -310,7 +310,7 @@ def ask_ai(question: str) -> dict:
         "Se la domanda è fuori contesto, dillo brevemente. "
         "Usa solo i dati forniti qui sotto (NON inventare numeri). "
         "Cita sempre i nomi dei comuni/zone se rilevanti.\n\n"
-        f"=== DATI HYDROMAP ===\n{ctx}\n=== FINE DATI ===\n\n"
+        f"=== DATI ACQUAMAP ===\n{ctx}\n=== FINE DATI ===\n\n"
         f"Domanda dell'utente: {question}\n\nRisposta:"
     )
     url = (

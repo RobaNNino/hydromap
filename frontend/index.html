@@ -6,7 +6,7 @@
 <!-- Backend API base URL. Lasciato vuoto = same-origin (sviluppo locale).
      Per il deploy su Netlify/Render, imposta l'URL del backend (es. https://hydromap-api.onrender.com). -->
 <meta name="api-base" content="https://hydromap-api.onrender.com" />
-<title>HydroMap — Qualità dell'acqua Roma e Lazio</title>
+<title>AcquaMap — Qualità dell'acqua Roma e Lazio</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
@@ -18,13 +18,13 @@
     <span></span><span></span><span></span>
   </button>
   <div class="brand">
-    <img class="logo" src="hydromap_logo_trasparente.png" alt="HydroMap logo" />
+    <img class="logo" src="acquamap_LOGO.png" alt="AcquaMap logo" />
     <span class="tag">Acqua di Roma · 275 zone · news live · AI</span>
   </div>
 
   <div class="topbar-controls">
     <div class="searchbox">
-      <input type="text" id="search-input" placeholder="🔎 Cerca comune, zona, parametro (es. arsenico, Bracciano…)" autocomplete="off"/>
+      <input type="text" id="search-input" placeholder="🔎 Cerca comune, zona, parametro (es. arsenico, Frascati…)" autocomplete="off"/>
       <div id="search-results" class="search-results"></div>
     </div>
 
@@ -40,8 +40,6 @@
       <label><input type="checkbox" id="toggle-news"    checked /> News</label>
       <label><input type="checkbox" id="toggle-nasoni"  /> Nasoni</label>
       <label><input type="checkbox" id="toggle-aqueducts" /> Acquedotti</label>
-      <label><input type="checkbox" id="toggle-bracciano" /> Bracciano</label>
-      <label title="Pozzi e piezometri ISPRA — falda di Roma"><input type="checkbox" id="toggle-ispra" /> 🔬 Pozzi ISPRA</label>
     </div>
   </div>
 
@@ -133,7 +131,7 @@
 
     <section id="tab-chat" class="tab-content">
       <div class="panel chat-panel">
-        <h2>🤖 Assistente AI HydroMap</h2>
+        <h2>🤖 Assistente AI AcquaMap</h2>
         <p class="hint">Fai una domanda sui dati delle 275 zone (Gemini userà solo i dati locali).</p>
         <div id="chat-log" class="chat-log"></div>
         <div class="chat-suggestions">
@@ -161,8 +159,6 @@
         <h3>Forecast 7 giorni</h3>
         <div class="chart-wrap"><canvas id="chart-rain-forecast"></canvas></div>
         <div id="forecast-list" class="forecast-list"></div>
-        <h3>💧 Lago di Bracciano</h3>
-        <div id="bracciano-card" class="bracciano-card"></div>
       </div>
     </section>
 
@@ -175,16 +171,15 @@
         <div id="info-numbers" class="info-numbers"></div>
 
         <h3>🏛️ Fonti ufficiali — Portali esterni</h3>
-        <p class="hint">Vai diretto ai portali istituzionali per consultare i dati ufficiali (ASL, Ministero Salute, ISPRA, Città Metropolitana).</p>
+        <p class="hint">Vai diretto ai portali istituzionali per consultare i dati ufficiali (ASL, Ministero Salute, Città Metropolitana).</p>
         <div id="official-sources" class="sources-grid">
           <div class="hint">Caricamento…</div>
         </div>
 
-        <h3>Fonti dei dati su HydroMap</h3>
+        <h3>Fonti dei dati su AcquaMap</h3>
         <ul>
           <li>275 PDF di analisi <a href="https://www.aceaato2.a-acqua.it/qualita-acqua" target="_blank">Acea Ato 2</a> — parametri estratti automaticamente</li>
           <li>Nasoni e fontanelle: <a href="https://www.openstreetmap.org" target="_blank">OpenStreetMap</a> (Overpass API)</li>
-          <li>Pozzi e piezometri: <a href="https://sinacloud.isprambiente.it/portal/apps/webappviewer/index.html?id=8e503e563996418bade74c4487825ac0" target="_blank">ISPRA SinaCloud</a> (ArcGIS REST)</li>
           <li>News real-time: Gemini 2.5 Flash con Google Search grounding</li>
         </ul>
       </div>

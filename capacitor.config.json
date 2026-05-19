@@ -1,0 +1,14 @@
+{
+  "appId": "it.acquamap.app",
+  "appName": "AcquaMap",
+  "webDir": "frontend",
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": true
+  },
+  "server": {
+    "androidScheme": "https",
+    "cleartext": false
+  }
+}

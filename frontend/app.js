@@ -1,5 +1,5 @@
 /* ============================================================
- * HydroMap — frontend completo
+ * AcquaMap — frontend completo
  *   - mappa Leaflet con basemap switcher
  *   - zone (Acea Ato 2) con coropletico per parametro
  *   - news geolocalizzate con cluster + filtri categoria
@@ -57,8 +57,6 @@ const state = {
   activeCategory: "tutte",
   nasoniLayer: null,
   aqueductsLayer: null,
-  bracciantoLayer: null,
-  ispraLayer: null,
   parameter: "",      // parametro coropletico attivo
   paramData: null,
   compareList: [],    // names
@@ -111,11 +109,18 @@ function tooltipHtml(p) {
   const statusBadge = p.status === "ATTENZIONE"
     ? `<span class="tt-status warn">⚠ Attenzione</span>`
     : p.status === "OK" ? `<span class="tt-status ok">✓ Conforme</span>` : "";
+  const fr = p.freshness || {};
+  const frBadge = fr.label && fr.label !== "n/d"
+    ? `<span class="tt-fresh fresh-${fr.level}">${escapeHtml(fr.label)}</span>`
+    : "";
+  const provBadge = p.provider_label
+    ? `<span class="tt-prov" title="${escapeHtml(p.provider_ato || "")}">${escapeHtml(p.provider_label)}</span>`
+    : "";
   return `<div class="map-tt">
     <div class="tt-comune">${icon} ${escapeHtml(title)}</div>
     ${area ? `<div class="tt-zone">${escapeHtml(area)}${zone ? ` · ${zone}` : ""}</div>` : (zone ? `<div class="tt-zone">${zone}</div>` : "")}
     ${aq}
-    <div class="tt-badges">${badges}${statusBadge}</div>
+    <div class="tt-badges">${badges}${statusBadge}${frBadge}${provBadge}</div>
     <div class="tt-hint">Clicca per i dettagli</div>
   </div>`;
 }
@@ -293,6 +298,14 @@ function renderZone(d, name) {
       </div>
       ${aqueductHint ? `<div class="supplier-hint"><b>ℹ️ Cosa significa?</b> ${escapeHtml(aqueductHint)}</div>` : ""}
     </div>` : "";
+  const fr = d.freshness || {};
+  const frBadge = fr.label && fr.label !== "n/d"
+    ? `<span class="fresh-badge fresh-${fr.level}" title="Analisi di ${escapeHtml(fr.periodo || "")} \u2014 ${fr.months_old} mesi fa">${escapeHtml(fr.label)}</span>`
+    : "";
+  const pm = d.provider_meta || {};
+  const provBadge = pm.label
+    ? `<span class="prov-badge" title="${escapeHtml(pm.ato || "")}">🏛 ${escapeHtml(pm.label.split(" — ")[0])}</span>`
+    : "";
   $("zone-panel").innerHTML = `
     <div class="zone-title-row">
       <div>
@@ -301,7 +314,7 @@ function renderZone(d, name) {
           ${area ? `<b>${escapeHtml(area)}</b> · ` : ""}
           ${comuneOfficial ? `${escapeHtml(comuneOfficial)} · ` : ""}
           ${zoneNum ? `Zona ${escapeHtml(zoneNum)} · ` : ""}
-          aggiornato a ${escapeHtml(d.periodo || "n/d")}
+          aggiornato a ${escapeHtml(d.periodo || "n/d")} ${frBadge} ${provBadge}
         </div>
         ${badges ? `<div class="zone-badges">${badges}</div>` : ""}
       </div>
@@ -455,14 +468,24 @@ async function loadNews(fresh = false) {
   $("news-list").innerHTML = `<p class="loading">Caricamento news multi-tematica…</p>`;
   $("news-meta").textContent = "";
   try {
+    // NB: il parametro `fresh` viene ignorato dal backend per gli utenti
+    // pubblici (richiede header X-Admin-Token). Le news sono aggiornate
+    // automaticamente lato server una volta ogni `ttl_seconds`.
     const r = await fetch(API(`/api/news${fresh ? "?fresh=1" : ""}`));
     const data = await r.json();
     if (data.error) throw new Error(data.error);
     state.newsCategories = data.categories || {};
     state.newsItems = (data.items || []).map((it, idx) => ({ ...it, _idx: idx }));
-    $("news-meta").innerHTML = `<span>${state.newsItems.length} notizie</span>
-      <span>${data.cached ? "cache" : "live"}</span><span>${escapeHtml(data.model || "")}</span>
-      <span>${data.generated_at ? new Date(data.generated_at * 1000).toLocaleTimeString("it-IT") : ""}</span>`;
+    const gen = data.generated_at ? new Date(data.generated_at * 1000) : null;
+    const next = data.next_refresh_at ? new Date(data.next_refresh_at * 1000) : null;
+    const ttlH = data.ttl_seconds ? Math.round(data.ttl_seconds / 3600) : null;
+    const refreshing = data.refreshing ? ' · <em>aggiornamento in corso…</em>' : "";
+    $("news-meta").innerHTML = `
+      <span>${state.newsItems.length} notizie</span>
+      <span>${escapeHtml(data.model || "")}</span>
+      ${gen ? `<span title="Ultimo aggiornamento globale">aggiornato ${gen.toLocaleString("it-IT")}</span>` : ""}
+      ${next && ttlH ? `<span title="Prossimo refresh automatico globale">prossimo refresh ~${next.toLocaleTimeString("it-IT", {hour:"2-digit", minute:"2-digit"})} (ogni ${ttlH}h)</span>` : ""}
+      ${refreshing}`;
     renderNewsSidebar();
     refreshNewsMarkers();
   } catch (e) {
@@ -553,64 +576,6 @@ $("toggle-aqueducts").addEventListener("change", async e => {
   if (e.target.checked) grp.addTo(map); else map.removeLayer(grp);
 });
 
-// ---------- POZZI ISPRA (rete monitoraggio falda Roma) ----------
-const ISPRA_ICON = L.divIcon({
-  className: "ispra-pin",
-  html: `<div class="ispra">🔬</div>`,
-  iconSize: [22, 22], iconAnchor: [11, 11],
-});
-function _fmt(v, unit = "") {
-  if (v === null || v === undefined || v === "") return "—";
-  return `${v}${unit ? " " + unit : ""}`;
-}
-async function loadIspra() {
-  if (state.ispraLayer) return state.ispraLayer;
-  $("toggle-ispra").disabled = true;
-  try {
-    const r = await fetch(API("/api/ispra/wells"));
-    const d = await r.json();
-    const cluster = L.markerClusterGroup({
-      maxClusterRadius: 55,
-      iconCreateFunction: (c) => L.divIcon({
-        html: `<div class="ispra-cluster"><span>${c.getChildCount()}</span></div>`,
-        className: "", iconSize: [36, 36],
-      }),
-    });
-    (d.items || []).forEach(w => {
-      const m = L.marker([w.lat, w.lng], { icon: ISPRA_ICON });
-      const isPiezo = (w.tipo_opera || "").toLowerCase().includes("piez");
-      m.bindPopup(`<div class="news-popup ispra-popup">
-        <div class="title">${isPiezo ? "🪨" : "💧"} ${escapeHtml(w.localita || w.sigla || "Punto ISPRA")}</div>
-        <div class="pills">
-          <span class="pill">${escapeHtml(w.tipo_opera || "—")}</span>
-          ${w.municipio ? `<span class="pill">${escapeHtml(w.municipio)}</span>` : ""}
-          ${w.attivita ? `<span class="pill ${w.attivita === "Attivo" ? "sev-info" : "sev-warning"}">${escapeHtml(w.attivita)}</span>` : ""}
-        </div>
-        <div class="summary">
-          <b>Sigla:</b> ${escapeHtml(w.sigla || "—")}<br/>
-          <b>Falda:</b> ${escapeHtml(w.falda || "—")}<br/>
-          <b>Utilizzo:</b> ${escapeHtml(w.utilizzo || "—")}<br/>
-          <b>Profondità:</b> ${_fmt(w.profondita_m, "m")}<br/>
-          <b>Quota piano campagna:</b> ${_fmt(w.quota_m, "m s.l.m.")}<br/>
-          <b>Ultimo livello falda:</b> ${_fmt(w.ultimo_livello, "m dal p.c.")}<br/>
-          <b>Gestore:</b> ${escapeHtml(w.ente || "—")}
-        </div>
-        <div class="news-link"><a href="${d.source_url}" target="_blank" rel="noopener">Apri scheda completa su ISPRA ↗</a></div>
-      </div>`);
-      cluster.addLayer(m);
-    });
-    state.ispraLayer = cluster;
-    state.ispraCount = d.count;
-    return cluster;
-  } finally {
-    $("toggle-ispra").disabled = false;
-  }
-}
-$("toggle-ispra").addEventListener("change", async e => {
-  const grp = await loadIspra();
-  if (e.target.checked) grp.addTo(map); else map.removeLayer(grp);
-});
-
 // ---------- FONTI UFFICIALI (Info tab) ----------
 async function loadOfficialSources() {
   const el = $("official-sources");
@@ -618,16 +583,23 @@ async function loadOfficialSources() {
   try {
     const r = await fetch(API("/api/sources"));
     const d = await r.json();
-    el.innerHTML = (d.items || []).map(s => `
+    el.innerHTML = (d.items || []).map(s => {
+      const ato = s.ato ? `<span class="src-pill src-ato">${escapeHtml(s.ato)}</span>` : "";
+      const tracked = s.provider ? (s.scraped
+        ? `<span class="src-pill src-scraped" title="Dati integrati in AcquaMap">● Dati in AcquaMap</span>`
+        : `<span class="src-pill src-link" title="Solo link al portale ufficiale">● Solo link</span>`) : "";
+      return `
       <a class="source-card" href="${s.url}" target="_blank" rel="noopener">
         <div class="source-card-head">
           <span class="source-card-title">${escapeHtml(s.title)}</span>
           <span class="source-card-open">Apri ↗</span>
         </div>
         <div class="source-card-meta">${escapeHtml(s.agency)} · ${escapeHtml(s.type)}</div>
+        ${(ato || tracked) ? `<div class="source-card-pills">${ato}${tracked}</div>` : ""}
         <div class="source-card-desc">${escapeHtml(s.description)}</div>
         ${s.hint ? `<div class="source-card-hint">💡 ${escapeHtml(s.hint)}</div>` : ""}
-      </a>`).join("");
+      </a>`;
+    }).join("");
   } catch (e) {
     el.innerHTML = `<div class="hint">Impossibile caricare le fonti (${escapeHtml(e.message || e)}).</div>`;
   }
@@ -915,9 +887,12 @@ async function loadInfo() {
 }
 
 // ---------- REFRESH NEWS BTN ----------
-$("refresh-news").addEventListener("click", () => loadNews(true));
+// Il bottone NON forza più un refresh AI (costoso). Ricarica solo la cache
+// server-side condivisa: utile se un'altra visita ha appena triggerato un
+// aggiornamento in background (stale-while-revalidate).
+$("refresh-news").addEventListener("click", () => loadNews(false));
 
-// ---------- METEO & BRACCIANO (DATI REALI ESTERNI) ----------
+// ---------- METEO (DATI REALI ESTERNI) ----------
 const WCODE = {
   0: ["☀️","sereno"], 1: ["🌤️","poco nuv."], 2: ["⛅","variabile"], 3: ["☁️","coperto"],
   45: ["🌫️","nebbia"], 48: ["🌫️","nebbia gelo"],
@@ -932,13 +907,9 @@ async function loadMeteo() {
   state.meteoLoaded = true;
   $("meteo-status").innerText = "Caricamento dati Open-Meteo…";
   try {
-    const [m, b] = await Promise.all([
-      fetch(API("/api/meteo")).then(r => r.json()),
-      fetch(API("/api/bracciano")).then(r => r.json()),
-    ]);
+    const m = await fetch(API("/api/meteo")).then(r => r.json());
     if (m.error) throw new Error(m.error);
     renderMeteo(m);
-    renderBracciano(b);
     $("meteo-status").innerText = `Fonte: ${m.source} · ultimo aggiornamento ${new Date(m.updated).toLocaleString("it-IT")}`;
   } catch (e) {
     $("meteo-status").innerHTML = `<span class="error">Errore: ${escapeHtml(e.message)}</span>`;
@@ -1020,62 +991,11 @@ function renderMeteo(m) {
   }).join("");
 }
 
-function renderBracciano(b) {
-  $("bracciano-card").innerHTML = `
-    <div class="b-grid">
-      <div class="kpi"><strong>${b.surface_km2}</strong><span>km² superficie</span></div>
-      <div class="kpi"><strong>${b.depth_max_m}</strong><span>m profondità max</span></div>
-      <div class="kpi"><strong>${b.depth_mean_m}</strong><span>m profondità media</span></div>
-      <div class="kpi"><strong>${b.volume_km3}</strong><span>km³ volume</span></div>
-      <div class="kpi"><strong>${b.elevation_m}</strong><span>m s.l.m.</span></div>
-      <div class="kpi" style="background:${(b.drought_color||'#94a3b8')}22;color:${b.drought_color||'#0f172a'}">
-        <strong>${b.drought_label||"n/d"}</strong><span>stato area</span>
-      </div>
-    </div>
-    <p><strong>Tipo:</strong> ${escapeHtml(b.type)}</p>
-    <p><strong>Comuni rivieraschi:</strong> ${(b.shore_comuni||[]).join(", ")}</p>
-    <p><strong>Emissario:</strong> ${escapeHtml(b.main_outflow)}</p>
-    <p><strong>Uso idrico:</strong> ${escapeHtml(b.use)}</p>
-    <p class="hint">${escapeHtml(b.notes)}</p>
-    <p class="hint">Fonti: ${escapeHtml(b.source)} · <a href="${b.wikipedia}" target="_blank">Wikipedia</a></p>
-  `;
-
-  // marker mappa
-  if (!state.bracciantoLayer) {
-    const icon = L.divIcon({
-      className: "bracciano-pin",
-      html: `<div class="b-marker" style="background:${b.drought_color||'#0284c7'}">🏞️</div>`,
-      iconSize: [40, 40], iconAnchor: [20, 20], popupAnchor: [0, -16],
-    });
-    state.bracciantoLayer = L.marker([b.lat, b.lon], { icon }).bindPopup(`
-      <div class="news-popup">
-        <div class="title">${escapeHtml(b.name)}</div>
-        <div class="summary">
-          ${b.surface_km2} km² · ${b.depth_max_m} m max · ${b.volume_km3} km³<br/>
-          <em>${escapeHtml(b.use)}</em>
-        </div>
-        <a class="news-link" href="${b.wikipedia}" target="_blank">Wikipedia ↗</a>
-      </div>
-    `);
-  }
-}
-
-$("toggle-bracciano").addEventListener("change", async e => {
-  if (!state.bracciantoLayer) {
-    const b = await fetch(API("/api/bracciano")).then(r => r.json());
-    renderBracciano(b);
-  }
-  if (e.target.checked) {
-    state.bracciantoLayer.addTo(map);
-    map.flyTo([42.117, 12.233], 11, { duration: 1.2 });
-  } else if (map.hasLayer(state.bracciantoLayer)) {
-    map.removeLayer(state.bracciantoLayer);
-  }
-});
-
 // ---------- BOOT ----------
 (async () => {
-  await loadGeoJSON();
+  // NB: niente più auto-refresh client-side ogni 15 min: scatenava una
+  // fetch AI completa per ogni utente/tab e bruciava credito Gemini.
+  // L'aggiornamento è ora gestito dal backend (cache globale + TTL).
   await loadParameterList();
   loadNews().catch(e => console.error(e));
   setInterval(() => loadNews(true), 15 * 60 * 1000);

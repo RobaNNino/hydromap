@@ -1,5 +1,5 @@
 /* ============================================================
- * HydroMap — stylesheet completo
+ * AcquaMap — stylesheet completo
  * Mobile-first refinements + clarity per i nomi acquedotti
  * ============================================================ */
 :root {
@@ -328,24 +328,6 @@ table.params td.exc { color: #b91c1c; font-weight: 600; background: #fef2f2; }
   box-shadow: 0 2px 6px rgba(0,0,0,.25);
 }
 
-/* ---------- POZZI ISPRA ---------- */
-.ispra-pin { background: transparent !important; border: none !important; }
-.ispra {
-  width: 22px; height: 22px; border-radius: 50%;
-  background: #7c3aed; color: white;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 11px; border: 2px solid white;
-  box-shadow: 0 1px 3px rgba(0,0,0,.3);
-}
-.ispra-cluster {
-  width: 36px; height: 36px; border-radius: 50%;
-  background: rgba(109, 40, 217, .9); color: white;
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 700; font-size: 12px; border: 3px solid white;
-  box-shadow: 0 2px 6px rgba(0,0,0,.25);
-}
-.ispra-popup .summary b { color: #0c4a6e; }
-
 /* ---------- FONTI UFFICIALI (cards) ---------- */
 .sources-grid { display: grid; gap: 10px; margin: 10px 0 16px; }
 .source-card {
@@ -366,6 +348,11 @@ table.params td.exc { color: #b91c1c; font-weight: 600; background: #fef2f2; }
   background: #0284c7; padding: 3px 8px; border-radius: 999px;
 }
 .source-card-meta { font-size: 11px; color: #475569; margin-bottom: 6px; }
+.source-card-pills { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.src-pill { font-size: 10.5px; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+.src-ato { background: #e0e7ff; color: #3730a3; border: 1px solid #a5b4fc; }
+.src-scraped { background: #dcfce7; color: #14532d; border: 1px solid #86efac; }
+.src-link    { background: #fef3c7; color: #78350f; border: 1px solid #fcd34d; }
 .source-card-desc { font-size: 12.5px; color: #334155; line-height: 1.4; }
 .source-card-hint {
   margin-top: 6px; padding: 6px 8px; border-radius: 8px;
@@ -452,26 +439,6 @@ table.compare-table small { color: #64748b; font-size: 10px; }
 .forecast-list .fc-temp { font-size: 11px; }
 .forecast-list .fc-rain { font-size: 10px; color: #0284c7; }
 .forecast-list .fc-txt  { font-size: 9.5px; color: #64748b; text-transform: capitalize; }
-
-.bracciano-card { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-top: 8px; }
-.bracciano-card p { font-size: 12px; line-height: 1.45; margin: 6px 0; color: #334155; }
-.b-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
-.b-grid .kpi { padding: 8px 4px; }
-
-.bracciano-pin { background: transparent !important; border: none !important; }
-.b-marker {
-  width: 40px; height: 40px; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  background: #0284c7; color: white; font-size: 18px;
-  border: 3px solid white;
-  box-shadow: 0 4px 12px rgba(2,132,199,.45);
-  animation: lake-pulse 2.4s infinite;
-}
-@keyframes lake-pulse {
-  0%   { box-shadow: 0 0 0 0    rgba(2,132,199,.55), 0 4px 12px rgba(2,132,199,.4); }
-  70%  { box-shadow: 0 0 0 14px rgba(2,132,199,0),   0 4px 12px rgba(2,132,199,.4); }
-  100% { box-shadow: 0 0 0 0    rgba(2,132,199,0),   0 4px 12px rgba(2,132,199,.4); }
-}
 
 @media (max-width: 1024px) {
   main { grid-template-columns: 1fr 380px; }
@@ -613,7 +580,6 @@ table.compare-table small { color: #64748b; font-size: 10px; }
   .panel { padding: 12px; }
   .dash-summary { grid-template-columns: repeat(2, 1fr); }
   .info-numbers  { grid-template-columns: repeat(2, 1fr); }
-  .b-grid        { grid-template-columns: repeat(3, 1fr); }
   .forecast-list { grid-template-columns: repeat(4, 1fr); }
   .zone-title { font-size: 17px; }
   .zone-stats { grid-template-columns: 1fr 1fr; }
@@ -657,6 +623,28 @@ table.compare-table small { color: #64748b; font-size: 10px; }
 .map-tt .tt-status { font-size: 10.5px; padding: 2px 7px; border-radius: 999px; font-weight: 600; }
 .map-tt .tt-status.ok { background: #dcfce7; color: #14532d; border: 1px solid #86efac; }
 .map-tt .tt-status.warn { background: #fee2e2; color: #7f1d1d; border: 1px solid #fca5a5; }
+.map-tt .tt-fresh { font-size: 10.5px; padding: 2px 7px; border-radius: 999px; font-weight: 600; }
+
+/* Freshness badges (data analisi: nuova / in scadenza / vecchia) */
+.fresh-badge, .tt-fresh {
+  display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  font-weight: 600; margin-left: 6px; vertical-align: middle;
+}
+.fresh-fresh   { background: #dcfce7; color: #14532d; border: 1px solid #86efac; }
+.fresh-warn    { background: #fef3c7; color: #78350f; border: 1px solid #fcd34d; }
+.fresh-stale   { background: #fee2e2; color: #7f1d1d; border: 1px solid #fca5a5; }
+.fresh-unknown { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+
+/* Provider badge (gestore idrico) */
+.map-tt .tt-prov {
+  font-size: 10.5px; padding: 2px 7px; border-radius: 999px; font-weight: 600;
+  background: #ede9fe; color: #4c1d95; border: 1px solid #c4b5fd;
+}
+.prov-badge {
+  display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  font-weight: 600; margin-left: 6px; vertical-align: middle;
+  background: #ede9fe; color: #4c1d95; border: 1px solid #c4b5fd;
+}
 
 /* Zone panel badges + search sub-line */
 .zone-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }

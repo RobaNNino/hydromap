@@ -1,4 +1,4 @@
-# 🚀 HydroMap — Guida al deploy
+# 🚀 AcquaMap — Guida al deploy
 
 Backend Flask su **Render** (gratis) + frontend statico su **Netlify** (gratis).
 
@@ -25,13 +25,13 @@ Backend Flask su **Render** (gratis) + frontend statico su **Netlify** (gratis).
 
 ## 🪜 Step 1 — Pushare il progetto su GitHub
 
-Dalla cartella `HYDROMAP`:
+Dalla cartella `ACQUAMAP`:
 
 ```powershell
 # Inizializza repo (se non già fatto)
 git init
 git add .
-git commit -m "HydroMap: prepare for deploy"
+git commit -m "AcquaMap: prepare for deploy"
 
 # Crea il repo su GitHub via web (es. https://github.com/TUO_USER/hydromap)
 # poi:

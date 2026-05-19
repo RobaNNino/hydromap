@@ -1,0 +1,26 @@
+{
+  "name": "hydromap",
+  "version": "1.0.0",
+  "description": "Webapp che **scarica i 275 PDF di qualità dell'acqua** pubblicati da Acea Ato 2\r ([qualita-acqua](https://www.aceaato2.a-acqua.it/qualita-acqua)), li **parsifica**\r estraendo tutti i parametri di potabilità, e li **rimappa** su un'interattiva\r mappa Leaflet del Lazio con polygon colorati per stato di conformità.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RobaNNino/hydromap.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/RobaNNino/hydromap/issues"
+  },
+  "homepage": "https://github.com/RobaNNino/hydromap#readme",
+  "dependencies": {
+    "@capacitor/android": "^8.3.4",
+    "@capacitor/cli": "^8.3.4",
+    "@capacitor/core": "^8.3.4"
+  }
+}

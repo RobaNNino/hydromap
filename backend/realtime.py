@@ -4,8 +4,6 @@ Dati reali in tempo reale per HydroMap.
 Fonti utilizzate:
   - Open-Meteo (https://open-meteo.com) → archive-api per precipitazioni storiche
     e api per forecast 7 giorni. Servizio gratuito senza chiave.
-  - Wikidata / dati pubblici per le caratteristiche del Lago di Bracciano
-    (principale bacino di approvvigionamento idrico di Roma fino al 2017).
 
 Tutti gli endpoint sono cache-ati su disco per ridurre il traffico.
 """
@@ -30,10 +28,6 @@ CACHE_TTL = 3 * 60 * 60  # 3 ore
 # Coordinate di riferimento (Campidoglio, Roma).
 ROMA_LAT = 41.8933
 ROMA_LON = 12.4830
-
-# Lago di Bracciano (centro lago).
-BRACCIANO_LAT = 42.117
-BRACCIANO_LON = 12.233
 
 
 # --------------------------------------------------------------------------- #
@@ -191,66 +185,3 @@ def _fetch_open_meteo() -> dict[str, Any]:
 
 def get_meteo() -> dict[str, Any]:
     return _cached("meteo", _fetch_open_meteo, ttl=3 * 3600)
-
-
-# --------------------------------------------------------------------------- #
-# Lago di Bracciano (dati pubblici Wikidata + sintesi tecniche ARPA Lazio)
-# --------------------------------------------------------------------------- #
-
-BRACCIANO_STATIC: dict[str, Any] = {
-    "source": "Wikidata Q207692 + ARPA Lazio + ISPRA",
-    "name": "Lago di Bracciano",
-    "type": "lago vulcanico (caldera)",
-    "lat": BRACCIANO_LAT,
-    "lon": BRACCIANO_LON,
-    "elevation_m": 164,
-    "surface_km2": 56.5,
-    "depth_max_m": 165,
-    "depth_mean_m": 89,
-    "volume_km3": 5.0,
-    "shore_km": 31.5,
-    "catchment_km2": 147.7,
-    "main_inflow": "piccoli affluenti perimetrali (Lerre, Bagno, Grottoni)",
-    "main_outflow": "Fiume Arrone",
-    "shore_comuni": ["Bracciano", "Anguillara Sabazia", "Trevignano Romano"],
-    "use": (
-        "Riserva idropotabile storica di Roma: alimentava la Capitale "
-        "fino al 2017 tramite l'acquedotto Paolo (presa di Anguillara). "
-        "Dopo la siccità 2017 la captazione è stata limitata; "
-        "Roma è oggi alimentata principalmente dall'acquedotto "
-        "Peschiera-Capore (≈70%)."
-    ),
-    "protected_area": "Parco Naturale Regionale di Bracciano-Martignano (RM)",
-    "wikipedia": "https://it.wikipedia.org/wiki/Lago_di_Bracciano",
-    "wikidata": "https://www.wikidata.org/wiki/Q207692",
-    # Soglie di allarme storiche (livello rispetto allo zero idrometrico
-    # di Anguillara, fonte: ACEA / ARPA Lazio, 2017-2024).
-    "level_zero_m": 0.0,
-    "warning_levels": {
-        "normal_min": -0.5,
-        "attention": -1.0,
-        "alarm": -1.5,
-        "ban_extraction": -1.6,
-    },
-    "notes": (
-        "Il minimo storico è stato registrato a fine luglio 2017 a "
-        "−1,62 m sotto lo zero idrometrico, evento che portò alla "
-        "sospensione delle captazioni ACEA e all'emergenza idrica "
-        "di Roma."
-    ),
-}
-
-
-def get_bracciano() -> dict[str, Any]:
-    """Combina dati statici sul lago con dati meteo recenti."""
-    out = dict(BRACCIANO_STATIC)
-    try:
-        m = get_meteo()
-        out["recent_rain_30d_mm"] = m["rain_mm"]["last_30d"]
-        out["recent_rain_90d_mm"] = m["rain_mm"]["last_90d"]
-        out["drought_label"] = m["drought"]["label"]
-        out["drought_color"] = m["drought"]["color"]
-    except Exception:
-        pass
-    out["updated"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
-    return out
