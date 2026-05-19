@@ -1,32 +1,16 @@
 /* ============================================================
- * AcquaMap — frontend completo
- *   - mappa Leaflet con basemap switcher
- *   - zone (Acea Ato 2) con coropletico per parametro
- *   - news geolocalizzate con cluster + filtri categoria
- *   - nasoni Roma (OSM Overpass)
- *   - acquedotti storici (polylines)
- *   - sidebar a tab: Zona / Dashboard / News / Confronto / Chat AI / Info
- *   - search bar globale con autocomplete
- *   - Chart.js per dashboard
+ * AcquaMap — frontend v2.0 (mobile-first)
+ *   Funzioni dati preservate dalla v1; shell completamente nuovo:
+ *   bottom sheet drag, bottom nav, FAB, modal sheets, dark mode.
  * ============================================================ */
 
-// ---------- API base URL (per deploy split frontend/backend) ----------
-// Configurabile via <meta name="api-base" content="https://..."> in index.html
-// oppure window.API_BASE prima del caricamento dello script.
-// Lasciato vuoto = same-origin (sviluppo locale o monolito).
-// In locale (localhost/127.0.0.1/file://) ignoriamo il meta tag remoto:
-// così `python backend/app.py` serve il frontend con API same-origin senza
-// dipendere dal backend deployato su Render (che può essere in cold-start).
+// ---------- API base ----------
 const _isLocalHost = /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(location.hostname) || location.protocol === "file:";
 const _metaApiBase = _isLocalHost ? "" : (document.querySelector('meta[name="api-base"]')?.content || "");
-const API_BASE = (
-  window.API_BASE
-  || _metaApiBase
-  || ""
-).replace(/\/$/, "");
+const API_BASE = (window.API_BASE || _metaApiBase || "").replace(/\/$/, "");
 const API = (p) => API_BASE + p;
 
-// ---------- mappa + basemaps ----------
+// ---------- BASEMAPS ----------
 const BASEMAPS = {
   osm:      { url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
               attr: '&copy; OpenStreetMap', maxZoom: 19 },
@@ -40,7 +24,7 @@ const BASEMAPS = {
               attr: '&copy; OpenTopoMap', maxZoom: 17 },
 };
 
-const map = L.map("map", { preferCanvas: true }).setView([41.85, 12.66], 9);
+const map = L.map("map", { preferCanvas: true, zoomControl: false }).setView([41.85, 12.66], 9);
 let baseLayer = null;
 function setBasemap(key) {
   if (baseLayer) map.removeLayer(baseLayer);
@@ -49,7 +33,6 @@ function setBasemap(key) {
   baseLayer.addTo(map);
 }
 setBasemap("osm");
-document.getElementById("basemap-select").addEventListener("change", e => setBasemap(e.target.value));
 
 // ---------- state ----------
 const state = {
@@ -62,9 +45,10 @@ const state = {
   activeCategory: "tutte",
   nasoniLayer: null,
   aqueductsLayer: null,
-  parameter: "",      // parametro coropletico attivo
+  parameter: "",
   paramData: null,
-  compareList: [],    // names
+  compareList: [],
+  meLayer: null,
 };
 
 const SELECTED_STYLE = { weight: 2.5, color: "#0c4a6e", fillOpacity: 0.7 };
@@ -73,11 +57,6 @@ const $ = (id) => document.getElementById(id);
 const escapeHtml = (s) => String(s ?? "")
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-// ---------- NAMING HELPERS ----------
-// Il PDF Acea usa nomi come "5 ACQUA MARCIA" o "3 PESCHIERA-CAPORE"
-// dove la prima cifra è il numero di zona e il resto è l'acquedotto fornitore.
-// Questi nomi (specie "Acqua Marcia") confondono gli utenti che pensano a
-// "acqua marcia" = guasta. Li separiamo esplicitamente.
 const AQUEDUCT_INFO = {
   "ACQUA MARCIA": "Storico acquedotto romano del 144 a.C. — il nome 'Marcia' deriva dal pretore Quinto Marcio Re, non dalla qualità dell'acqua. Oggi capta sorgenti dell'alto Aniene.",
   "PESCHIERA-CAPORE": "Principale acquedotto di Roma: sorgenti di Peschiera (Rieti) e Capore. Fornisce ~70% dell'acqua della Capitale.",
@@ -89,7 +68,6 @@ const AQUEDUCT_INFO = {
 function prettyZoneInfo(zonaRaw) {
   const raw = String(zonaRaw || "").trim();
   if (!raw) return { number: "", aqueduct: "", label: "", hint: "" };
-  // Match "5 ACQUA MARCIA" o "3 PESCHIERA-CAPORE" o solo "1" o solo nome.
   const m = raw.match(/^\s*(\d+)\s*[-·.\s]?\s*(.*)$/);
   let num = "", aq = raw;
   if (m && m[1]) { num = m[1]; aq = (m[2] || "").trim(); }
@@ -102,7 +80,6 @@ function prettyZoneInfo(zonaRaw) {
   return { number: num, aqueduct: aqPretty, label, hint };
 }
 function tooltipHtml(p) {
-  // Usa l'enrichment lato server (display_name, area, aqueduct, icon, badges).
   const icon = p.icon || "🏘️";
   const title = p.display_name || p.comune || "—";
   const area = p.area || "";
@@ -116,72 +93,264 @@ function tooltipHtml(p) {
     : p.status === "OK" ? `<span class="tt-status ok">✓ Conforme</span>` : "";
   const fr = p.freshness || {};
   const frBadge = fr.label && fr.label !== "n/d"
-    ? `<span class="tt-fresh fresh-${fr.level}">${escapeHtml(fr.label)}</span>`
-    : "";
+    ? `<span class="tt-fresh fresh-${fr.level}">${escapeHtml(fr.label)}</span>` : "";
   const provBadge = p.provider_label
-    ? `<span class="tt-prov" title="${escapeHtml(p.provider_ato || "")}">${escapeHtml(p.provider_label)}</span>`
-    : "";
+    ? `<span class="tt-prov" title="${escapeHtml(p.provider_ato || "")}">${escapeHtml(p.provider_label)}</span>` : "";
   return `<div class="map-tt">
     <div class="tt-comune">${icon} ${escapeHtml(title)}</div>
     ${area ? `<div class="tt-zone">${escapeHtml(area)}${zone ? ` · ${zone}` : ""}</div>` : (zone ? `<div class="tt-zone">${zone}</div>` : "")}
     ${aq}
     <div class="tt-badges">${badges}${statusBadge}${frBadge}${provBadge}</div>
-    <div class="tt-hint">Clicca per i dettagli</div>
+    <div class="tt-hint">Tocca per i dettagli</div>
   </div>`;
 }
 
-// ---------- TABS ----------
-document.querySelectorAll(".tab").forEach(t => {
-  t.addEventListener("click", () => {
-    document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
-    document.querySelectorAll(".tab-content").forEach(x => x.classList.remove("active"));
-    t.classList.add("active");
-    $(`tab-${t.dataset.tab}`).classList.add("active");
-    // lazy-load tab contents
-    if (t.dataset.tab === "dashboard" && !state.dashboardLoaded) loadDashboard();
-    if (t.dataset.tab === "meteo" && !state.meteoLoaded) loadMeteo();
-    if (t.dataset.tab === "info" && !state.infoLoaded) loadInfo();
-    // su mobile, assicura che il drawer sia aperto quando l'utente cambia tab
-    document.body.classList.add("sidebar-open");
-  });
-});
+// ---------- TOAST ----------
+let _toastTm = null;
+function showToast(msg, ms = 2400) {
+  const t = $("toast"); if (!t) return;
+  t.textContent = msg;
+  t.classList.remove("hidden");
+  requestAnimationFrame(() => t.classList.add("show"));
+  clearTimeout(_toastTm);
+  _toastTm = setTimeout(() => {
+    t.classList.remove("show");
+    setTimeout(() => t.classList.add("hidden"), 250);
+  }, ms);
+}
 
-// ---------- MOBILE DRAWER ----------
-function setupMobileChrome() {
-  const burger = $("burger");
-  const overlay = $("sidebar-overlay");
-  const closeBtn = $("sidebar-close");
-  const open  = () => document.body.classList.add("sidebar-open");
-  const close = () => document.body.classList.remove("sidebar-open");
-  burger?.addEventListener("click", () => {
-    document.body.classList.toggle("sidebar-open");
-  });
-  overlay?.addEventListener("click", close);
-  closeBtn?.addEventListener("click", close);
-  // chiudi il drawer con Esc
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") close();
-  });
-  // Sezione layer collassabile su mobile
-  const layerBtn = $("layer-toggle-btn");
-  layerBtn?.addEventListener("click", () => {
-    document.body.classList.toggle("layers-open");
+// ---------- BOTTOM SHEET ----------
+function setSheetState(stateName) {
+  const sh = $("sheet");
+  if (!sh) return;
+  sh.dataset.state = stateName;
+  document.body.classList.remove("sheet-peek", "sheet-half", "sheet-full");
+  document.body.classList.add("sheet-" + stateName);
+}
+
+function setupSheetDrag() {
+  const sh = $("sheet"), handle = $("sheet-handle");
+  if (!sh || !handle) return;
+  let startY = 0, startTr = 0, dragging = false, vh = window.innerHeight, moved = 0;
+
+  const stateY = () => {
+    const s = sh.dataset.state;
+    if (s === "peek") return vh - 112;
+    if (s === "half") return vh * 0.5;
+    return Math.max(0, 56 + 8); // full
+  };
+  const snap = (y) => {
+    const peekY = vh - 112, halfY = vh * 0.5, fullY = 64;
+    const d = [
+      ["peek", Math.abs(y - peekY)],
+      ["half", Math.abs(y - halfY)],
+      ["full", Math.abs(y - fullY)],
+    ].sort((a, b) => a[1] - b[1]);
+    return d[0][0];
+  };
+
+  const onDown = (e) => {
+    dragging = true; moved = 0;
+    vh = window.innerHeight;
+    startY = (e.touches ? e.touches[0].clientY : e.clientY);
+    startTr = stateY();
+    sh.classList.add("dragging");
+    try { handle.setPointerCapture?.(e.pointerId); } catch {}
+  };
+  const onMove = (e) => {
+    if (!dragging) return;
+    const y = (e.touches ? e.touches[0].clientY : e.clientY);
+    const dy = y - startY;
+    moved = Math.abs(dy);
+    const nextTr = Math.max(64, Math.min(vh - 60, startTr + dy));
+    sh.style.transform = `translateY(${nextTr}px)`;
+    e.preventDefault?.();
+  };
+  const onUp = (e) => {
+    if (!dragging) return;
+    dragging = false;
+    sh.classList.remove("dragging");
+    sh.style.transform = "";
+    if (moved < 8) {
+      // tap: cicla peek <-> half
+      const cur = sh.dataset.state;
+      setSheetState(cur === "peek" ? "half" : (cur === "half" ? "peek" : "half"));
+      return;
+    }
+    const y = (e.changedTouches ? e.changedTouches[0].clientY : e.clientY);
+    setSheetState(snap(y));
+  };
+
+  handle.addEventListener("pointerdown", onDown);
+  window.addEventListener("pointermove", onMove, { passive: false });
+  window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
+
+  $("sheet-close")?.addEventListener("click", () => setSheetState("peek"));
+}
+
+// ---------- BOTTOM NAV ----------
+function setupBottomNav() {
+  document.querySelectorAll(".bn-item").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const tab = btn.dataset.tab;
+      document.querySelectorAll(".bn-item").forEach(x => x.classList.remove("active"));
+      btn.classList.add("active");
+      switchTo(tab);
+      if ($("sheet").dataset.state === "peek") setSheetState("half");
+      try { navigator.vibrate?.(8); } catch {}
+    });
   });
 }
-setupMobileChrome();
+
+function switchTo(tabId) {
+  document.querySelectorAll(".tab-content").forEach(x => x.classList.remove("active"));
+  $(`tab-${tabId}`)?.classList.add("active");
+  document.querySelectorAll(".bn-item").forEach(x => x.classList.toggle("active", x.dataset.tab === tabId));
+
+  // titolo del bottom-sheet
+  const titles = {
+    zone: "Dettagli zona",
+    dashboard: "Panoramica",
+    news: "News real-time",
+    compare: "Confronta zone",
+    chat: "Assistente AI",
+    meteo: "Meteo & Siccità",
+    info: "L'acqua del Lazio",
+  };
+  const t = $("sheet-title"); if (t) t.textContent = titles[tabId] || "AcquaMap";
+
+  // lazy-load
+  if (tabId === "dashboard" && !state.dashboardLoaded) loadDashboard();
+  if (tabId === "meteo" && !state.meteoLoaded) loadMeteo();
+  if (tabId === "info" && !state.infoLoaded) loadInfo();
+}
+
+// ---------- MODAL SHEETS ----------
+function openModalSheet(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove("hidden");
+  requestAnimationFrame(() => el.classList.add("open"));
+}
+function closeModalSheet(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove("open");
+  el.classList.add("hidden");
+}
+function setupModalSheet(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.querySelectorAll("[data-close]").forEach(x =>
+    x.addEventListener("click", () => closeModalSheet(id)));
+}
+
+// ---------- MENU SHEET ----------
+function setupMenuSheet() {
+  setupModalSheet("menu-sheet");
+  $("menu-btn")?.addEventListener("click", () => openModalSheet("menu-sheet"));
+  document.querySelectorAll("#menu-sheet .ms-item[data-tab]").forEach(b => {
+    b.addEventListener("click", () => {
+      switchTo(b.dataset.tab);
+      closeModalSheet("menu-sheet");
+      setSheetState("half");
+    });
+  });
+  document.querySelectorAll("#menu-sheet .ms-item[data-action='reload']").forEach(b => {
+    b.addEventListener("click", () => location.reload());
+  });
+}
+
+// ---------- SEARCH SHEET ----------
+function setupSearchSheet() {
+  setupModalSheet("search-sheet");
+  $("search-btn")?.addEventListener("click", () => {
+    openModalSheet("search-sheet");
+    setTimeout(() => $("search-input")?.focus(), 220);
+  });
+  const inp = $("search-input"), clr = $("search-clear");
+  inp?.addEventListener("input", () => {
+    if (inp.value) clr.classList.remove("hidden"); else clr.classList.add("hidden");
+  });
+  clr?.addEventListener("click", () => {
+    inp.value = ""; clr.classList.add("hidden");
+    inp.dispatchEvent(new Event("input"));
+    $("search-results").innerHTML = "";
+    inp.focus();
+  });
+  document.querySelectorAll("#search-sheet .chip[data-search]").forEach(c => {
+    c.addEventListener("click", () => {
+      inp.value = c.dataset.search;
+      clr.classList.remove("hidden");
+      inp.dispatchEvent(new Event("input"));
+    });
+  });
+}
+
+// ---------- LAYERS SHEET ----------
+function setupLayersSheet() {
+  setupModalSheet("layers-sheet");
+  $("fab-layers")?.addEventListener("click", () => openModalSheet("layers-sheet"));
+}
+
+// ---------- BASEMAP SHEET ----------
+function setupBasemapSheet() {
+  setupModalSheet("basemap-sheet");
+  $("fab-basemap")?.addEventListener("click", () => openModalSheet("basemap-sheet"));
+  document.querySelectorAll("#basemap-sheet .bm-card[data-bm]").forEach(c => {
+    c.addEventListener("click", () => {
+      document.querySelectorAll("#basemap-sheet .bm-card").forEach(x => x.classList.remove("active"));
+      c.classList.add("active");
+      setBasemap(c.dataset.bm);
+      setTimeout(() => closeModalSheet("basemap-sheet"), 180);
+    });
+  });
+}
+
+// ---------- LOCATE FAB ----------
+function setupLocate() {
+  $("fab-locate")?.addEventListener("click", () => {
+    if (!navigator.geolocation) { showToast("Geolocalizzazione non disponibile"); return; }
+    const btn = $("fab-locate"); btn.classList.add("locating");
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const { latitude: lat, longitude: lng } = pos.coords;
+        map.setView([lat, lng], 14, { animate: true });
+        if (state.meLayer) map.removeLayer(state.meLayer);
+        state.meLayer = L.circleMarker([lat, lng], {
+          radius: 8, color: "#0ea5e9", weight: 3,
+          fillColor: "#0ea5e9", fillOpacity: 0.4,
+        }).addTo(map);
+        btn.classList.remove("locating");
+        showToast("Sei qui");
+      },
+      err => {
+        btn.classList.remove("locating");
+        showToast("Posizione non disponibile");
+      },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
+    );
+  });
+}
+
+// ---------- ESC global ----------
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  ["menu-sheet", "search-sheet", "layers-sheet", "basemap-sheet"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && !el.classList.contains("hidden")) closeModalSheet(id);
+  });
+});
 
 // ---------- ZONE GEOJSON ----------
 function statusStyle(feature) {
   const p = feature.properties || {};
   return {
-    color: p.stroke || "#0369a1",
-    weight: 0.8,
-    fillColor: p.fill || "#94a3b8",
-    fillOpacity: 0.45,
+    color: p.stroke || "#0369a1", weight: 0.8,
+    fillColor: p.fill || "#94a3b8", fillOpacity: 0.45,
   };
 }
-
-// ramp colors for chloropleth
 const RAMP = ["#e0f2fe","#bae6fd","#7dd3fc","#38bdf8","#0ea5e9","#0284c7","#0369a1","#1e40af","#312e81"];
 function rampColor(v, min, max) {
   if (v == null || min == null || max == null || max === min) return "#cbd5e1";
@@ -189,7 +358,6 @@ function rampColor(v, min, max) {
   const idx = Math.min(RAMP.length - 1, Math.floor(t * RAMP.length));
   return RAMP[idx];
 }
-
 function parameterStyle(feature) {
   const name = (feature.properties || {}).name;
   const pd = state.paramData;
@@ -204,11 +372,9 @@ function parameterStyle(feature) {
     fillOpacity: 0.7,
   };
 }
-
 function currentStyle(feature) {
   return state.parameter ? parameterStyle(feature) : statusStyle(feature);
 }
-
 function onEach(feature, layer) {
   const p = feature.properties || {};
   layer.bindTooltip(tooltipHtml(p), {
@@ -231,10 +397,12 @@ async function loadGeoJSON() {
     const s = (f.properties || {}).status;
     if (s === "OK") ok++; else if (s === "ATTENZIONE") warn++; else unk++;
   }
-  $("stats").innerHTML = `<span>📍 ${state.geoData.features.length} zone</span>
-    <span style="color:#16a34a">✓ ${ok} conformi</span>
-    <span style="color:#dc2626">⚠ ${warn} attenzione</span>
-    <span style="color:#64748b">? ${unk} N/D</span>`;
+  const total = state.geoData.features.length;
+  $("stats").innerHTML = `<span>📍 ${total}</span>
+    <span style="color:#16a34a">✓ ${ok}</span>
+    <span style="color:#dc2626">⚠ ${warn}</span>
+    <span style="color:#64748b">? ${unk}</span>`;
+  const zc = $("ms-zone-count"); if (zc) zc.textContent = `${total} zone`;
 }
 
 function refreshZoneStyle() {
@@ -245,7 +413,7 @@ function refreshZoneStyle() {
 // ---------- ZONE DETAIL ----------
 async function selectZone(name, layer) {
   switchTo("zone");
-  document.body.classList.add("sidebar-open"); // mobile: apri il drawer
+  setSheetState("half");
   if (state.selectedLayer) state.geoLayer.resetStyle(state.selectedLayer);
   state.selectedLayer = layer;
   layer.setStyle(SELECTED_STYLE);
@@ -258,13 +426,6 @@ async function selectZone(name, layer) {
   } catch (e) {
     $("zone-panel").innerHTML = `<p class="error">Errore: ${escapeHtml(e.message)}</p>`;
   }
-}
-
-function switchTo(tabId) {
-  document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
-  document.querySelectorAll(".tab-content").forEach(x => x.classList.remove("active"));
-  document.querySelector(`.tab[data-tab="${tabId}"]`)?.classList.add("active");
-  $(`tab-${tabId}`)?.classList.add("active");
 }
 
 function renderZone(d, name) {
@@ -319,7 +480,7 @@ function renderZone(d, name) {
           ${area ? `<b>${escapeHtml(area)}</b> · ` : ""}
           ${comuneOfficial ? `${escapeHtml(comuneOfficial)} · ` : ""}
           ${zoneNum ? `Zona ${escapeHtml(zoneNum)} · ` : ""}
-          aggiornato a ${escapeHtml(d.periodo || "n/d")} ${frBadge} ${provBadge}
+          ${escapeHtml(d.periodo || "n/d")} ${frBadge} ${provBadge}
         </div>
         ${badges ? `<div class="zone-badges">${badges}</div>` : ""}
       </div>
@@ -332,10 +493,10 @@ function renderZone(d, name) {
     </div>
     <div class="zone-actions">
       <button class="btn" id="zone-add-compare" data-name="${escapeHtml(name)}">+ Confronta</button>
-      <a class="btn ghost" href="${API(escapeHtml(d.pdf_url || ''))}" target="_blank" rel="noopener">📄 PDF originale</a>
+      <a class="btn ghost" href="${API(escapeHtml(d.pdf_url || ''))}" target="_blank" rel="noopener">📄 PDF</a>
     </div>
     <table class="params">
-      <thead><tr><th>Parametro</th><th>Unità</th><th>Limite</th><th>Valore</th></tr></thead>
+      <thead><tr><th>Parametro</th><th>U.M.</th><th>Limite</th><th>Valore</th></tr></thead>
       <tbody>${paramsRows}</tbody>
     </table>
     ${sections}
@@ -402,6 +563,7 @@ function refreshNewsMarkers() {
     marker.bindPopup(newsPopupHtml(it), { maxWidth: 340 });
     marker.on("click", () => {
       switchTo("news");
+      setSheetState("half");
       document.querySelectorAll(".news-card").forEach(c => c.classList.remove("active"));
       const card = $(`news-${it._idx}`);
       if (card) { card.classList.add("active"); card.scrollIntoView({ behavior: "smooth", block: "nearest" }); }
@@ -443,8 +605,8 @@ function renderNewsSidebar() {
     const sev = it.severity || "info";
     const link = it.url ? `<a href="${escapeHtml(it.url)}" target="_blank" rel="noopener">Leggi →</a>` : `<span class="hint">no link</span>`;
     const loc = it.location ? `📍 ${escapeHtml(it.location)} · ` : "";
-    const fut = it.is_future ? `<span class="sev sev-future">🔮 futuro</span>` : "";
-    const romaTag = it.is_rome ? `<span class="sev sev-roma" title="Roma o Città Metropolitana">🏛️ Roma</span>` : "";
+    const fut = it.is_future ? `<span class="sev sev-future">🔮</span>` : "";
+    const romaTag = it.is_rome ? `<span class="sev sev-roma" title="Roma o Città Metropolitana">🏛️</span>` : "";
     const apx = (it.geo_quality && it.geo_quality !== "exact")
       ? `<span class="sev sev-approx" title="posizione approssimativa">~</span>` : "";
     return `<div class="news-card ${it.is_future ? "future" : ""} ${it.is_rome ? "is-rome" : ""}" id="news-${it._idx}" data-idx="${it._idx}" style="--c:${it.color}">
@@ -473,9 +635,6 @@ async function loadNews(fresh = false) {
   $("news-list").innerHTML = `<p class="loading">Caricamento news multi-tematica…</p>`;
   $("news-meta").textContent = "";
   try {
-    // NB: il parametro `fresh` viene ignorato dal backend per gli utenti
-    // pubblici (richiede header X-Admin-Token). Le news sono aggiornate
-    // automaticamente lato server una volta ogni `ttl_seconds`.
     const r = await fetch(API(`/api/news${fresh ? "?fresh=1" : ""}`));
     const data = await r.json();
     if (data.error) throw new Error(data.error);
@@ -487,9 +646,8 @@ async function loadNews(fresh = false) {
     const refreshing = data.refreshing ? ' · <em>aggiornamento in corso…</em>' : "";
     $("news-meta").innerHTML = `
       <span>${state.newsItems.length} notizie</span>
-      <span>${escapeHtml(data.model || "")}</span>
-      ${gen ? `<span title="Ultimo aggiornamento globale">aggiornato ${gen.toLocaleString("it-IT")}</span>` : ""}
-      ${next && ttlH ? `<span title="Prossimo refresh automatico globale">prossimo refresh ~${next.toLocaleTimeString("it-IT", {hour:"2-digit", minute:"2-digit"})} (ogni ${ttlH}h)</span>` : ""}
+      ${gen ? `<span title="Ultimo aggiornamento">aggiornato ${gen.toLocaleString("it-IT")}</span>` : ""}
+      ${next && ttlH ? `<span title="Prossimo refresh">prossimo ~${next.toLocaleTimeString("it-IT", {hour:"2-digit", minute:"2-digit"})}</span>` : ""}
       ${refreshing}`;
     renderNewsSidebar();
     refreshNewsMarkers();
@@ -521,7 +679,7 @@ async function loadNasoni() {
       const m = L.marker([n.lat, n.lng], { icon: NASONE_ICON });
       m.bindPopup(`<div class="news-popup">
         <div class="title">💧 Fontanella pubblica</div>
-        <div class="summary">${escapeHtml(n.name || "Nasone / drinking water")}<br/>
+        <div class="summary">${escapeHtml(n.name || "Nasone")}<br/>
         Operatore: ${escapeHtml(n.operator || "—")}<br/>
         ID OSM: <a href="https://www.openstreetmap.org/node/${n.id}" target="_blank">${n.id}</a></div>
       </div>`);
@@ -581,18 +739,17 @@ $("toggle-aqueducts").addEventListener("change", async e => {
   if (e.target.checked) grp.addTo(map); else map.removeLayer(grp);
 });
 
-// ---------- FONTI UFFICIALI (Info tab) ----------
+// ---------- FONTI UFFICIALI ----------
 async function loadOfficialSources() {
-  const el = $("official-sources");
-  if (!el) return;
+  const el = $("official-sources"); if (!el) return;
   try {
     const r = await fetch(API("/api/sources"));
     const d = await r.json();
     el.innerHTML = (d.items || []).map(s => {
       const ato = s.ato ? `<span class="src-pill src-ato">${escapeHtml(s.ato)}</span>` : "";
       const tracked = s.provider ? (s.scraped
-        ? `<span class="src-pill src-scraped" title="Dati integrati in AcquaMap">● Dati in AcquaMap</span>`
-        : `<span class="src-pill src-link" title="Solo link al portale ufficiale">● Solo link</span>`) : "";
+        ? `<span class="src-pill src-scraped">● Dati in AcquaMap</span>`
+        : `<span class="src-pill src-link">● Solo link</span>`) : "";
       return `
       <a class="source-card" href="${s.url}" target="_blank" rel="noopener">
         <div class="source-card-head">
@@ -610,7 +767,7 @@ async function loadOfficialSources() {
   }
 }
 
-// ---------- PARAMETER COROPLETICO ----------
+// ---------- PARAMETER ----------
 async function loadParameterList() {
   const r = await fetch(API("/api/parameters"));
   const d = await r.json();
@@ -641,7 +798,6 @@ async function setParameter(name) {
   const byName = {};
   d.items.forEach(it => { byName[it.name] = it; });
   state.paramData = { ...d, byName };
-  // legend
   const legend = $("param-legend");
   const step = (d.max - d.min) / RAMP.length;
   legend.innerHTML = `<div class="legend-title">${escapeHtml(name)} <small>(${d.items[0]?.unita || ""})</small></div>
@@ -649,8 +805,8 @@ async function setParameter(name) {
       const v = d.min + step * i;
       return `<span style="background:${c}" title="${v.toFixed(3)}"></span>`;
     }).join("")}</div>
-    <div class="legend-range"><span>${d.min.toFixed(2)}</span><span>median ${d.median.toFixed(2)}</span><span>${d.max.toFixed(2)}</span></div>
-    <div class="legend-hint">${d.count} zone · max evidenziato bordo rosso = supero limite</div>`;
+    <div class="legend-range"><span>${d.min.toFixed(2)}</span><span>med ${d.median.toFixed(2)}</span><span>${d.max.toFixed(2)}</span></div>
+    <div class="legend-hint">${d.count} zone · bordo rosso = supero limite</div>`;
   legend.classList.remove("hidden");
   refreshZoneStyle();
 }
@@ -665,14 +821,14 @@ function bindSearch(inputId, resultsId, onPick) {
   input.addEventListener("input", () => {
     clearTimeout(tmo);
     const q = input.value.trim();
-    if (q.length < 2) { box.innerHTML = ""; box.classList.remove("visible"); return; }
+    if (q.length < 2) { box.innerHTML = ""; return; }
     tmo = setTimeout(async () => {
       if (searchAbort) searchAbort.abort();
       searchAbort = new AbortController();
       try {
         const r = await fetch(API(`/api/search?q=${encodeURIComponent(q)}&limit=12`), { signal: searchAbort.signal });
         const d = await r.json();
-        if (!d.items.length) { box.innerHTML = `<div class="sr-empty">Nessun risultato</div>`; box.classList.add("visible"); return; }
+        if (!d.items.length) { box.innerHTML = `<div class="sr-empty">Nessun risultato</div>`; return; }
         box.innerHTML = d.items.map(it => {
           const titleLine = it.display_name
             ? `${it.icon || "🏘️"} ${escapeHtml(it.display_name)}`
@@ -690,12 +846,11 @@ function bindSearch(inputId, resultsId, onPick) {
             </div>
           </div>`;
         }).join("");
-        box.classList.add("visible");
         box.querySelectorAll(".sr-item").forEach(el => {
           el.addEventListener("click", () => {
             onPick(el.dataset.name);
             input.value = "";
-            box.classList.remove("visible");
+            box.innerHTML = "";
           });
         });
       } catch (e) {
@@ -703,8 +858,10 @@ function bindSearch(inputId, resultsId, onPick) {
       }
     }, 180);
   });
-  input.addEventListener("blur", () => setTimeout(() => box.classList.remove("visible"), 200));
-  input.addEventListener("focus", () => { if (box.innerHTML) box.classList.add("visible"); });
+}
+function pickZoneFromSearch(name) {
+  closeModalSheet("search-sheet");
+  pickZoneByName(name);
 }
 function pickZoneByName(name) {
   const layer = findLayerByName(name);
@@ -718,7 +875,7 @@ function findLayerByName(name) {
   });
   return found;
 }
-bindSearch("search-input", "search-results", pickZoneByName);
+bindSearch("search-input", "search-results", pickZoneFromSearch);
 
 // ---------- DASHBOARD ----------
 async function loadDashboard() {
@@ -733,7 +890,6 @@ async function loadDashboard() {
     <div class="kpi unk"><strong>${sb.UNKNOWN || 0}</strong><span>N/D</span></div>
     <div class="kpi"><strong>${d.total_parameters_distinct}</strong><span>parametri</span></div>
   `;
-  // Chart: status pie
   new Chart($("chart-status"), {
     type: "doughnut",
     data: {
@@ -746,7 +902,6 @@ async function loadDashboard() {
     },
     options: { plugins: { legend: { position: "bottom", labels: { font: { size: 11 } } } } },
   });
-  // Chart: exceedances by parameter
   const exP = d.top_exceedances_by_parameter || [];
   new Chart($("chart-exc-param"), {
     type: "bar",
@@ -756,7 +911,6 @@ async function loadDashboard() {
     },
     options: { indexAxis: "y", scales: { x: { beginAtZero: true } }, plugins: { legend: { display: false } } },
   });
-  // Chart: exceedances by comune
   const exC = d.top_exceedances_by_comune || [];
   new Chart($("chart-exc-comune"), {
     type: "bar",
@@ -766,7 +920,6 @@ async function loadDashboard() {
     },
     options: { indexAxis: "y", scales: { x: { beginAtZero: true } }, plugins: { legend: { display: false } } },
   });
-  // Parameter stats table
   const rows = (d.parameter_stats || []).slice(0, 20).map(p => `
     <tr><td>${escapeHtml(p.parametro)}</td>
         <td class="num">${p.count}</td>
@@ -775,8 +928,8 @@ async function loadDashboard() {
         <td class="num">${(+p.mean).toFixed(3)}</td>
         <td class="num">${(+p.max).toFixed(3)}</td></tr>`).join("");
   $("dashboard-table-wrap").innerHTML = `
-    <table class="params"><thead><tr><th>Parametro</th><th>n</th><th>min</th><th>median</th><th>mean</th><th>max</th></tr></thead>
-      <tbody>${rows}</tbody></table>`;
+    <div class="scroll-x"><table class="params"><thead><tr><th>Parametro</th><th>n</th><th>min</th><th>med</th><th>mean</th><th>max</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
 }
 
 // ---------- COMPARE ----------
@@ -784,12 +937,10 @@ bindSearch("compare-input", "compare-suggest", (name) => addCompare(name));
 
 async function addCompare(name) {
   if (state.compareList.includes(name)) return;
-  if (state.compareList.length >= 4) {
-    alert("Massimo 4 zone nel confronto");
-    return;
-  }
+  if (state.compareList.length >= 4) { showToast("Massimo 4 zone"); return; }
   state.compareList.push(name);
   switchTo("compare");
+  setSheetState("half");
   await renderCompare();
 }
 function removeCompare(name) {
@@ -799,7 +950,6 @@ function removeCompare(name) {
 
 async function renderCompare() {
   $("compare-chips").innerHTML = state.compareList.map(n => {
-    // Cerco enrichment nella geoData (ricavata da /api/geojson).
     const f = (state.geoData?.features || []).find(ff => (ff.properties || {}).name === n);
     const p = f ? f.properties : {};
     const lbl = p.display_name ? `${p.icon || "🏘️"} ${p.display_name}` : n;
@@ -823,13 +973,13 @@ async function renderCompare() {
       const item = z.parameters[p];
       if (!item) return `<td class="num">—</td>`;
       const exceed = z.exceedances.some(e => e.parametro === p);
-      return `<td class="num ${exceed ? 'exc' : ''}">${escapeHtml(item.valore || "—")}<br/><small>lim ${escapeHtml(item.limite || "—")}</small></td>`;
+      return `<td class="num ${exceed ? 'exc' : ''}">${escapeHtml(item.valore || "—")}<br/><small>${escapeHtml(item.limite || "—")}</small></td>`;
     }).join("")}</tr>`;
   }).join("");
   $("compare-table-wrap").innerHTML = `<table class="params compare-table"><thead>${head}</thead><tbody>${statusRow}${rows}</tbody></table>`;
 }
 
-// ---------- AI CHAT ----------
+// ---------- CHAT ----------
 function chatAppend(role, text) {
   const div = document.createElement("div");
   div.className = `chat-msg ${role}`;
@@ -838,7 +988,6 @@ function chatAppend(role, text) {
   $("chat-log").scrollTop = $("chat-log").scrollHeight;
   return div;
 }
-
 async function askAI(question) {
   chatAppend("user", question);
   const thinking = chatAppend("assistant", "Sto pensando…");
@@ -867,7 +1016,7 @@ document.querySelectorAll(".chat-suggestions .chip").forEach(b => {
   b.addEventListener("click", () => askAI(b.dataset.q));
 });
 
-// ---------- INFO TAB ----------
+// ---------- INFO ----------
 async function loadInfo() {
   state.infoLoaded = true;
   const r = await fetch(API("/api/aqueducts"));
@@ -881,31 +1030,26 @@ async function loadInfo() {
       <small>${escapeHtml(p.feeds)}</small>
     </li>`;
   }).join("");
-  // numeri chiave
   const dash = await (await fetch(API("/api/dashboard"))).json();
   $("info-numbers").innerHTML = `
-    <div class="kpi"><strong>${dash.total_zones}</strong><span>zone monitorate</span></div>
-    <div class="kpi"><strong>${dash.total_parameters_distinct}</strong><span>parametri distinti</span></div>
-    <div class="kpi"><strong>${(dash.top_exceedances_by_parameter || []).reduce((s, [, c]) => s + c, 0)}</strong><span>superi totali</span></div>
+    <div class="kpi"><strong>${dash.total_zones}</strong><span>zone</span></div>
+    <div class="kpi"><strong>${dash.total_parameters_distinct}</strong><span>parametri</span></div>
+    <div class="kpi"><strong>${(dash.top_exceedances_by_parameter || []).reduce((s, [, c]) => s + c, 0)}</strong><span>superi</span></div>
   `;
   loadOfficialSources();
 }
 
-// ---------- REFRESH NEWS BTN ----------
-// Il bottone NON forza più un refresh AI (costoso). Ricarica solo la cache
-// server-side condivisa: utile se un'altra visita ha appena triggerato un
-// aggiornamento in background (stale-while-revalidate).
 $("refresh-news").addEventListener("click", () => loadNews(false));
 
-// ---------- METEO (DATI REALI ESTERNI) ----------
+// ---------- METEO ----------
 const WCODE = {
   0: ["☀️","sereno"], 1: ["🌤️","poco nuv."], 2: ["⛅","variabile"], 3: ["☁️","coperto"],
   45: ["🌫️","nebbia"], 48: ["🌫️","nebbia gelo"],
   51: ["🌦️","pioviggine"], 53: ["🌦️","pioviggine"], 55: ["🌦️","pioviggine"],
-  61: ["🌧️","pioggia debole"], 63: ["🌧️","pioggia"], 65: ["🌧️","pioggia forte"],
+  61: ["🌧️","pioggia"], 63: ["🌧️","pioggia"], 65: ["🌧️","pioggia forte"],
   71: ["🌨️","neve"], 73: ["🌨️","neve"], 75: ["❄️","neve forte"],
   80: ["🌦️","rovesci"], 81: ["🌧️","rovesci"], 82: ["⛈️","rovesci forti"],
-  95: ["⛈️","temporale"], 96: ["⛈️","temp. grandine"], 99: ["⛈️","temp. grandine"],
+  95: ["⛈️","temporale"], 96: ["⛈️","temp."], 99: ["⛈️","temp."],
 };
 
 async function loadMeteo() {
@@ -915,7 +1059,7 @@ async function loadMeteo() {
     const m = await fetch(API("/api/meteo")).then(r => r.json());
     if (m.error) throw new Error(m.error);
     renderMeteo(m);
-    $("meteo-status").innerText = `Fonte: ${m.source} · ultimo aggiornamento ${new Date(m.updated).toLocaleString("it-IT")}`;
+    $("meteo-status").innerText = `${m.source} · agg. ${new Date(m.updated).toLocaleString("it-IT")}`;
   } catch (e) {
     $("meteo-status").innerHTML = `<span class="error">Errore: ${escapeHtml(e.message)}</span>`;
   }
@@ -927,53 +1071,45 @@ function renderMeteo(m) {
   banner.style.background = (d.color || "#94a3b8") + "22";
   banner.style.borderLeft = `4px solid ${d.color || "#94a3b8"}`;
   banner.style.color = d.color || "#94a3b8";
-  banner.innerHTML = `
-    <strong>${(d.label || "n/d").toUpperCase()}</strong> ·
+  banner.innerHTML = `<strong>${(d.label || "n/d").toUpperCase()}</strong> ·
     indice 90gg vs media = ${d.ratio_90d_vs_normal ?? "n/d"} ·
-    ${m.rain_mm.last_90d} mm caduti vs ${m.rain_mm.expected_90d_from_365d_mean} mm attesi
-  `;
+    ${m.rain_mm.last_90d} mm vs ${m.rain_mm.expected_90d_from_365d_mean} attesi`;
   banner.classList.remove("hidden");
 
   $("meteo-kpis").innerHTML = `
-    <div class="kpi"><strong>${m.rain_mm.last_7d}</strong><span>mm pioggia 7gg</span></div>
-    <div class="kpi"><strong>${m.rain_mm.last_30d}</strong><span>mm pioggia 30gg</span></div>
-    <div class="kpi"><strong>${m.rain_mm.last_90d}</strong><span>mm pioggia 90gg</span></div>
-    <div class="kpi"><strong>${m.rain_mm.last_365d}</strong><span>mm pioggia 365gg</span></div>
-    <div class="kpi"><strong>${m.temp_c.mean_last_30d ?? "—"}°C</strong><span>temp media 30gg</span></div>
+    <div class="kpi"><strong>${m.rain_mm.last_7d}</strong><span>mm 7gg</span></div>
+    <div class="kpi"><strong>${m.rain_mm.last_30d}</strong><span>mm 30gg</span></div>
+    <div class="kpi"><strong>${m.rain_mm.last_90d}</strong><span>mm 90gg</span></div>
+    <div class="kpi"><strong>${m.rain_mm.last_365d}</strong><span>mm 365gg</span></div>
+    <div class="kpi"><strong>${m.temp_c.mean_last_30d ?? "—"}°</strong><span>T media 30gg</span></div>
   `;
 
-  // Chart pioggia 90gg
   const ctxH = $("chart-rain-history").getContext("2d");
   if (state.chartHist) state.chartHist.destroy();
   state.chartHist = new Chart(ctxH, {
     type: "bar",
     data: {
       labels: m.history_90d.map(x => x.date.slice(5)),
-      datasets: [{
-        label: "Pioggia (mm)",
-        data: m.history_90d.map(x => x.rain),
-        backgroundColor: "#0284c7",
-      }],
+      datasets: [{ label: "Pioggia (mm)", data: m.history_90d.map(x => x.rain), backgroundColor: "#0284c7" }],
     },
     options: {
       plugins: { legend: { display: false } },
       scales: {
-        x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12 } },
+        x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } },
         y: { beginAtZero: true, title: { display: true, text: "mm/giorno" } },
       },
     },
   });
 
-  // Chart forecast 7gg combinato
   const ctxF = $("chart-rain-forecast").getContext("2d");
   if (state.chartFcst) state.chartFcst.destroy();
   state.chartFcst = new Chart(ctxF, {
     data: {
       labels: m.forecast_7d.map(x => new Date(x.date).toLocaleDateString("it-IT", { weekday: "short", day: "numeric" })),
       datasets: [
-        { type: "bar",  label: "Pioggia mm",    data: m.forecast_7d.map(x => x.rain), backgroundColor: "#0284c7", yAxisID: "y" },
-        { type: "line", label: "Tmax °C", data: m.forecast_7d.map(x => x.tmax), borderColor: "#dc2626", backgroundColor: "transparent", yAxisID: "y1", tension: 0.3 },
-        { type: "line", label: "Tmin °C", data: m.forecast_7d.map(x => x.tmin), borderColor: "#1d4ed8", backgroundColor: "transparent", yAxisID: "y1", tension: 0.3 },
+        { type: "bar",  label: "Pioggia mm", data: m.forecast_7d.map(x => x.rain), backgroundColor: "#0284c7", yAxisID: "y" },
+        { type: "line", label: "Tmax °C",    data: m.forecast_7d.map(x => x.tmax), borderColor: "#dc2626", backgroundColor: "transparent", yAxisID: "y1", tension: 0.3 },
+        { type: "line", label: "Tmin °C",    data: m.forecast_7d.map(x => x.tmin), borderColor: "#1d4ed8", backgroundColor: "transparent", yAxisID: "y1", tension: 0.3 },
       ],
     },
     options: {
@@ -987,10 +1123,10 @@ function renderMeteo(m) {
   $("forecast-list").innerHTML = m.forecast_7d.map(d => {
     const [emoji, txt] = WCODE[d.weather_code] || ["•", "—"];
     return `<div class="fc-day">
-      <div class="fc-date">${new Date(d.date).toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" })}</div>
+      <div class="fc-date">${new Date(d.date).toLocaleDateString("it-IT", { weekday: "short", day: "numeric" })}</div>
       <div class="fc-icon">${emoji}</div>
       <div class="fc-temp">${Math.round(d.tmin)}° / <strong>${Math.round(d.tmax)}°</strong></div>
-      <div class="fc-rain">💧 ${d.rain} mm</div>
+      <div class="fc-rain">💧 ${d.rain}mm</div>
       <div class="fc-txt">${txt}</div>
     </div>`;
   }).join("");
@@ -998,11 +1134,19 @@ function renderMeteo(m) {
 
 // ---------- BOOT ----------
 (async () => {
-  // NB: niente più auto-refresh client-side ogni 15 min: scatenava una
-  // fetch AI completa per ogni utente/tab e bruciava credito Gemini.
-  // L'aggiornamento è ora gestito dal backend (cache globale + TTL).
-  await loadGeoJSON();
-  await loadParameterList();
+  // shell mobile
+  setSheetState("peek");
+  setupSheetDrag();
+  setupBottomNav();
+  setupMenuSheet();
+  setupSearchSheet();
+  setupLayersSheet();
+  setupBasemapSheet();
+  setupLocate();
+
+  // dati
+  try { await loadGeoJSON(); } catch (e) { console.error(e); showToast("Errore caricamento zone"); }
+  try { await loadParameterList(); } catch (e) { console.error(e); }
   loadNews().catch(e => console.error(e));
-  setInterval(() => loadNews(true), 15 * 60 * 1000);
+  setInterval(() => loadNews(false), 15 * 60 * 1000);
 })();

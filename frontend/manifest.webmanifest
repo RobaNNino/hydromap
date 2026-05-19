@@ -1,0 +1,18 @@
+{
+  "name": "AcquaMap — l'acqua del Lazio",
+  "short_name": "AcquaMap",
+  "description": "Qualità dell'acqua a Roma e nel Lazio: 540+ zone, dati ufficiali, news live, meteo.",
+  "lang": "it",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#020617",
+  "theme_color": "#0c4a6e",
+  "categories": ["utilities", "weather", "health", "news"],
+  "icons": [
+    { "src": "acquamap_LOGO.png", "type": "image/png", "sizes": "512x512", "purpose": "any" },
+    { "src": "acquamap_LOGO.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
+  ]
+}
