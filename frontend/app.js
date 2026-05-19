@@ -14,9 +14,14 @@
 // Configurabile via <meta name="api-base" content="https://..."> in index.html
 // oppure window.API_BASE prima del caricamento dello script.
 // Lasciato vuoto = same-origin (sviluppo locale o monolito).
+// In locale (localhost/127.0.0.1/file://) ignoriamo il meta tag remoto:
+// così `python backend/app.py` serve il frontend con API same-origin senza
+// dipendere dal backend deployato su Render (che può essere in cold-start).
+const _isLocalHost = /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(location.hostname) || location.protocol === "file:";
+const _metaApiBase = _isLocalHost ? "" : (document.querySelector('meta[name="api-base"]')?.content || "");
 const API_BASE = (
   window.API_BASE
-  || document.querySelector('meta[name="api-base"]')?.content
+  || _metaApiBase
   || ""
 ).replace(/\/$/, "");
 const API = (p) => API_BASE + p;
@@ -996,6 +1001,7 @@ function renderMeteo(m) {
   // NB: niente più auto-refresh client-side ogni 15 min: scatenava una
   // fetch AI completa per ogni utente/tab e bruciava credito Gemini.
   // L'aggiornamento è ora gestito dal backend (cache globale + TTL).
+  await loadGeoJSON();
   await loadParameterList();
   loadNews().catch(e => console.error(e));
   setInterval(() => loadNews(true), 15 * 60 * 1000);
