@@ -37,7 +37,7 @@ AcquaMap integra dati dai principali gestori del Lazio. Lo stato attuale:
 | **Acea ATO 5** | Frosinone + 86 comuni | ATO 5 Lazio Meridionale | ✅ 180 zone, PDF parsati |
 | **Acqualatina** | Latina + Frosinone sud | ATO 4 Lazio Meridionale | ✅ 44 zone (poligoni ISTAT), PDF parsati |
 | **Talete** | Viterbo | ATO 1 Lazio Nord | 🔗 Link al portale + ASL VT |
-| **Acqua Pubblica Sabina** | Rieti | ATO 3 Lazio Centrale | ✅ 65 comuni (poligoni ISTAT) — 310 rapporti laboratorio parsati |
+| **Acqua Pubblica Sabina** | Rieti | ATO 3 Lazio Centrale | ✅ 65 comuni (poligoni ISTAT) — 310 rapporti laboratorio parsati (15 parametri per zona: microbiologici + chimico-fisici + organolettici) |
 
 I link a tutti i gestori sono visibili nella tab **Info → Fonti dei dati**.
 I poligoni Acqualatina sono generati dai confini comunali ISTAT (openpolis):

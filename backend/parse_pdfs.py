@@ -40,12 +40,24 @@ def _clean(s: str | None) -> str:
 
 
 def _parse_number(v: str) -> float | None:
-    """Convert italian decimal strings like '17,5' or '<0,2' to float (best effort)."""
+    """Convert italian decimal strings like '17,5', '<0,2', '1,1*10^3' to float.
+
+    Supporta notazione scientifica italiana usata nei rapporti di prova del
+    laboratorio Gruppo Maurizi (es. ``1,1*10^3`` → 1100.0).
+    """
     if not v:
         return None
     s = v.strip().replace("\u00a0", "")
-    if s in {"-", ""}:
+    if s in {"-", "", "/"}:
         return None
+    # Notazione scientifica: "1,1*10^3" → 1.1 * 10^3 = 1100
+    m_sci = re.search(r"([0-9]+(?:[.,][0-9]+)?)\s*\*\s*10\s*\^\s*(-?\d+)", s)
+    if m_sci:
+        try:
+            mantissa = float(m_sci.group(1).replace(",", "."))
+            return mantissa * (10 ** int(m_sci.group(2)))
+        except ValueError:
+            pass
     # Strip operators / units, keep number portion.
     m = re.search(r"[<>]?\s*([0-9]+(?:[.,][0-9]+)?)", s)
     if not m:
@@ -396,22 +408,37 @@ def parse_pdf_aps(path: Path) -> dict:
     (rapporti di prova per Acqua Pubblica Sabina S.p.A. — provincia di
     Rieti + sabina romana).
 
-    Schema PDF:
-      - "Punto di prelievo: COMUNE (RI) - F.P. <descrizione> [- Codice: NNNNNN] ($)"
-      - "Emissione rapporto: DD/MM/YYYY"
-      - "Data di campionamento: DD/MM/YYYY"
-      - Tabella "PROVA METODO RISULTATO LIMITI LOQ U.M." (multi-pagina)
+    Schema PDF (multi-pagina, 1-4 pagine):
+      - Header testuale: "Punto di prelievo: COMUNE (RI|RM) - F.P. <descrizione>"
+      - Tabella "PROVA / METODO / RISULTATO / Incertezza / LIMITI / LOQ / U.M. / Sede"
+        ripartita su più pagine.
 
-    Estrae i parametri chiave (microbiologici + chimico-fisici di base)
-    via regex per riga e applica una compliance euristica.
+    Estrae **tutti** i parametri tabellari (non solo i 12 più comuni) usando
+    ``pdfplumber.extract_tables()`` invece delle regex line-based che non
+    riuscivano a catturare le righe wrappate su più linee.
     """
     name = path.stem
     out: dict = {"name": name, "parameters": [], "sections": {}}
 
+    text_all = ""
+    rows: list[list[str]] = []
     with pdfplumber.open(path) as pdf:
-        text_all = "\n".join((p.extract_text() or "") for p in pdf.pages)
+        for page in pdf.pages:
+            text_all += (page.extract_text() or "") + "\n"
+            for tbl in page.extract_tables() or []:
+                if not tbl or len(tbl) < 2:
+                    continue
+                header = [((c or "").strip()) for c in tbl[0]]
+                # Solo le tabelle "RISULTATO DELLE PROVE".
+                if not header or header[0].upper() != "PROVA":
+                    continue
+                for raw in tbl[1:]:
+                    cells = [(c or "").replace("\n", " ").strip() for c in raw]
+                    cells = [re.sub(r"\s+", " ", c) for c in cells]
+                    if any(cells):
+                        rows.append(cells)
 
-    # ---- metadata ----
+    # ---- metadata (header testuale) ----
     m = re.search(
         r"Punto di prelievo:\s*([^()\-\n]+?)\s*\(\s*R[IM]\s*\)\s*"
         r"(?:-\s*(.*?))?\s*(?:-\s*Codice(?:\s+Comune)?:?\s*\d{6})?\s*\(\$\)",
@@ -426,7 +453,6 @@ def parse_pdf_aps(path: Path) -> dict:
         out["punto_prelievo"] = None
     out["zona"] = out["punto_prelievo"]
 
-    # Periodo: "<mese> YYYY" da data di emissione.
     MESI = [
         "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
         "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre",
@@ -440,72 +466,80 @@ def parse_pdf_aps(path: Path) -> dict:
         out["periodo"] = None
         out["data_emissione"] = None
 
-    # ---- parametri principali (regex per riga) ----
-    # Ogni pattern produce: (label normalizzata, regex sul testo completo).
-    # Cattura il "risultato" (primo token significativo dopo il metodo) e
-    # opzionalmente i "limiti".
-    PARAM_PATTERNS: list[tuple[str, str, str, re.Pattern[str]]] = [
-        # (label, unita, limite_legge, regex)
-        ("Conteggio colonie 22°C", "UFC/ml", "Senza variazioni anomale",
-         re.compile(r"Conteggio delle colonie a\s*\n?\s*UNI EN ISO 6222:2001\s+(\S+)\s+(\[[^\]]+\]|\S+)\s+", re.IGNORECASE)),
-        ("Conteggio colonie 37°C", "UFC/ml", "—",
-         re.compile(r"UNI EN ISO 6222:2001\s+\S+\s+(?:\[[^\]]+\]|\S+)\s+(?:variazioni\s+/\s+UFC/ml\s+Sede\s+\S+\s+)?(?:Conteggio[\s\S]*?UNI EN ISO 6222:2001\s+(\S+)\s+(\[[^\]]+\]|\S+))", re.IGNORECASE)),
-        ("Batteri coliformi", "UFC/100 ml", "0",
-         re.compile(r"Batteri coliformi\s+UNI EN ISO 9308-1:2017\s+(\S+)\s+/\s+(\S+(?:\s*\(D7\))?)\s+", re.IGNORECASE)),
-        ("Escherichia coli", "UFC/100 ml", "0",
-         re.compile(r"Escherichia coli\s+UNI EN ISO 9308-1:2017\s+(\S+)\s+/\s+(\S+(?:\s*\(D7\))?)\s+", re.IGNORECASE)),
-        ("Pseudomonas aeruginosa", "UFC/250 ml", "0",
-         re.compile(r"Pseudomonas aeruginosa\s+ISO 16266:2006\s+(\S+)\s+", re.IGNORECASE)),
-        ("Enterococchi", "UFC/100 ml", "0",
-         re.compile(r"Enterococchi\s+(?:intestinali\s+)?UNI EN ISO 7899-2:2003\s+(\S+)\s+", re.IGNORECASE)),
-        ("pH", "Unità pH", "6,5 — 9,5",
-         re.compile(r"\bpH\s*\(.\)\s+(\S+)\s+", re.IGNORECASE)),
-        ("Conducibilità a 20°C", "µS/cm", "2500",
-         re.compile(r"Conducibilit[àa]\b[^\n]*?\s(\d[\d,]*)\s+(\d+)\s+", re.IGNORECASE)),
-        ("Cloro residuo libero", "mg/L", "0,2",
-         re.compile(r"Cloro\s+residuo\s+libero[^\n]*?\s([<>]?\s*\d[\d,]*)\s+", re.IGNORECASE)),
-        ("Nitrati", "mg/L", "50",
-         re.compile(r"\bNitrati\b[^\n]*?\s([<>]?\s*\d[\d,]*)\s+(\d+)\s+", re.IGNORECASE)),
-        ("Nitriti", "mg/L", "0,5",
-         re.compile(r"\bNitriti\b[^\n]*?\s([<>]?\s*\d[\d,]*)\s+([\d,]+)\s+", re.IGNORECASE)),
-        ("Durezza", "°F", "15 — 50",
-         re.compile(r"Durezza[^\n]*?\s(\d[\d,]*)\s+", re.IGNORECASE)),
-    ]
-    for label, unita, limite_str, rx in PARAM_PATTERNS:
-        m = rx.search(text_all)
-        if not m:
+    # ---- parametri dalle tabelle ----
+    # Schema riga atteso (8 colonne):
+    #   0=PROVA  1=METODO  2=RISULTATO  3=Incertezza  4=LIMITI  5=LOQ  6=U.M.  7=Sede
+    for r in rows:
+        if len(r) < 7:
             continue
-        valore = m.group(1).strip()
+        prova = r[0]
+        risultato = r[2] if len(r) > 2 else ""
+        limiti = r[4] if len(r) > 4 else ""
+        um = r[6] if len(r) > 6 else ""
+        # Nome parametro: rimuovo marker laboratorio "(*)", "(&)", trailing dash/separator.
+        param = re.sub(r"\s*\([*&]\)", "", prova).strip()
+        param = re.sub(r"[-_=]{2,}\s*$", "", param).strip()
+        param = re.sub(r"\s+", " ", param)
+        if not param:
+            continue
+        # Salto righe vuote / placeholder
+        if not risultato or risultato == "/":
+            continue
+        # Pulisco limite: strip riferimenti normativi "(D7)", "(D5)", "((\))" ecc.
+        limite = re.sub(r"\s*\(D\d+\)\s*", "", limiti).strip()
+        limite = re.sub(r"\s*\(\(.*?\)\)\s*", "", limite).strip()
+        limite = re.sub(r"\s+", " ", limite)
+        if limite in {"/", "-"}:
+            limite = ""
+        unita = re.sub(r"\s+", " ", (um or "").strip())
+        if unita in {"/", "-"}:
+            unita = ""
         out["parameters"].append({
-            "parametro": label,
+            "parametro": param,
             "unita": unita,
-            "limite": limite_str,
-            "valore": valore,
-            "valore_num": _parse_number(valore),
-            "limite_num": _parse_number(limite_str),
+            "limite": limite,
+            "valore": risultato,
+            "valore_num": _parse_number(risultato),
+            "limite_num": _parse_number(limite),
         })
 
-    # ---- compliance euristica (microbiologici) ----
-    exceed: list[dict] = []
-    MICRO_ZERO = {
+    # ---- compliance euristica ----
+    # Parametri microbiologici che devono essere = 0.
+    MICRO_ZERO = (
         "batteri coliformi", "escherichia coli",
         "pseudomonas aeruginosa", "enterococchi",
-    }
+    )
+    exceed: list[dict] = []
     for p in out["parameters"]:
+        v_raw = p["valore"] or ""
         v = p["valore_num"]
-        if v is None:
-            continue
+        lim = p["limite_num"]
         label = p["parametro"].lower()
-        if label in MICRO_ZERO and v > 0:
-            exceed.append({"parametro": p["parametro"], "valore": p["valore"], "limite": p["limite"]})
-        elif label == "nitrati" and v > 50:
-            exceed.append({"parametro": p["parametro"], "valore": p["valore"], "limite": p["limite"]})
-        elif label == "nitriti" and v > 0.5:
-            exceed.append({"parametro": p["parametro"], "valore": p["valore"], "limite": p["limite"]})
-        elif label == "ph" and (v < 6.5 or v > 9.5):
-            exceed.append({"parametro": p["parametro"], "valore": p["valore"], "limite": p["limite"]})
-        elif label == "conducibilità a 20°c" and v > 2500:
-            exceed.append({"parametro": p["parametro"], "valore": p["valore"], "limite": p["limite"]})
+        # "<X" = sotto il limite di quantificazione → conforme
+        if v_raw.lstrip().startswith("<"):
+            continue
+        # Microbiologici: anche un solo UFC → superamento
+        if any(k in label for k in MICRO_ZERO):
+            if v is not None and v > 0:
+                exceed.append({
+                    "parametro": p["parametro"],
+                    "valore": p["valore"], "limite": p["limite"],
+                })
+            continue
+        # pH: intervallo 6,5 — 9,5
+        if label == "ph" or label.startswith("ph "):
+            if v is not None and (v < 6.5 or v > 9.5):
+                exceed.append({
+                    "parametro": p["parametro"],
+                    "valore": p["valore"], "limite": p["limite"],
+                })
+            continue
+        # Limite numerico (max) → confronto diretto.
+        if lim is not None and v is not None and v > lim:
+            exceed.append({
+                "parametro": p["parametro"],
+                "valore": p["valore"], "limite": p["limite"],
+            })
 
     out["summary"] = {
         "total_parameters": len(out["parameters"]),
