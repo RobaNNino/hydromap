@@ -287,7 +287,7 @@ if _disk_cache and _disk_cache.get("items"):
 def _news_do_refresh() -> None:
     """Esegue una fetch completa e aggiorna stato + disco. Solo per uso interno."""
     try:
-        data = fetch_news(limit_per_topic=5)
+        data = fetch_news(limit_per_topic=4)
         if data.get("items"):
             data["generated_at"] = int(time.time())
             save_news_cache(data)

@@ -15,10 +15,8 @@ Strategia:
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
-import random
 import re
 import threading
 import time
@@ -40,7 +38,8 @@ GEMINI_MODEL = os.environ.get(
 )
 
 # Finestra di freschezza: scarta notizie più vecchie di tot giorni.
-NEWS_MAX_AGE_DAYS = int(os.environ.get("NEWS_MAX_AGE_DAYS", "30"))
+# Default ridotto a 14gg per avere solo cose realmente attuali.
+NEWS_MAX_AGE_DAYS = int(os.environ.get("NEWS_MAX_AGE_DAYS", "14"))
 
 DATA_DIR = Path(__file__).parent / "data"
 GEOCACHE_FILE = DATA_DIR / "geocache.json"
@@ -70,66 +69,55 @@ def save_news_cache(data: dict) -> None:
     except Exception:
         pass
 
-# Topic = (label, prompt extension, default category, default severity)
-# Priorità ASSOLUTA a Roma e provincia. I topic "nazionali" servono solo
-# come complemento ma vengono pesati meno nell'ordinamento finale.
+# Topic = (label, prompt extension, default category, default severity).
+#
+# Strategia v2 (mag 2026): meno news ma diffuse su TUTTE le province del Lazio.
+# Solo cose IMPORTANTI (guasti/contaminazioni/ordinanze) + manutenzioni
+# programmate. Niente filler informativo (qualità routine, news nazionali
+# generiche) e niente notizie passate (filtrate sotto a 14gg).
 TOPICS = [
-    # ====== TOPIC DEDICATI ROMA (peso maggiore) ======
-    ("roma_acea_avvisi",
-     "avvisi ufficiali Acea Ato 2 e Acea ATO2 SpA per Roma e provincia: "
-     "sospensioni idriche, interruzioni acqua, chiusure forniture, "
-     "abbassamenti di pressione, lavori in corso nei municipi di Roma "
-     "(I, II, III, IV, V, VI, VII, VIII, IX, X, XI, XII, XIII, XIV, XV) "
-     "e comuni serviti (Fiumicino, Ciampino, Pomezia, Anzio, Nettuno, "
-     "Frascati, Marino, Albano, Velletri, Bracciano, Cerveteri, Ladispoli, "
-     "Tivoli, Guidonia, Mentana, Monterotondo). Cerca anche su "
-     "acea.it/ato2 e siti dei comuni",
+    ("prov_roma_eventi",
+     "guasti idrici, interruzioni, sospensioni e ordinanze su acqua "
+     "potabile nella Città Metropolitana di Roma (Acea Ato 2): Roma "
+     "città, Fiumicino, Ciampino, Pomezia, Tivoli, Guidonia, Frascati, "
+     "Bracciano, Cerveteri, Ladispoli, Albano. Solo eventi reali con "
+     "data certa e comune ben identificato",
      "infrastruttura", "warning"),
-    ("roma_guasti",
-     "guasti idrici, rotture condotte, allagamenti da tubature, perdite "
-     "rete acqua a Roma città e quartieri (Trastevere, Testaccio, Garbatella, "
-     "Ostiense, San Lorenzo, Pigneto, Prati, Parioli, Trieste, Salario, "
-     "Nomentano, Tiburtino, San Giovanni, Appio, Tuscolano, Eur, Ostia, "
-     "Aurelio, Monteverde, Boccea, Cassia, Flaminio, Trionfale, Casilino, "
-     "Centocelle, Quadraro, Magliana, Portuense)",
-     "infrastruttura", "alert"),
-    ("roma_qualita",
-     "qualità acqua potabile a Roma e Lazio: analisi, controlli ASL Roma, "
-     "ARPA Lazio, ISS, presenza di arsenico, fluoro, vanadio, nitrati, "
-     "PFAS, cloriti, trialometani nei rubinetti romani; report Acea sui "
-     "parametri delle 14 zone di approvvigionamento di Roma",
-     "controllo", "info"),
-    ("roma_ordinanze",
-     "ordinanze sindacali del Comune di Roma Capitale o comuni della "
-     "Città Metropolitana di Roma: divieto uso acqua potabile, non potabilità, "
-     "uso limitato, revoche; anche ordinanze ASL Roma 1/2/3/4/5/6",
-     "ordinanza", "warning"),
-    ("roma_lavori_pnrr",
-     "lavori PNRR, cantieri rete idrica e fognaria a Roma, nuovo "
-     "raddoppio Peschiera-Capore, ammodernamenti acquedotti romani "
-     "(Marcio, Vergine, Felice, Paolo, Peschiera, Appio Alessandrino), "
-     "interventi su collettori e depuratori (Roma Sud, Roma Nord, "
-     "Roma Est, Ostia, Fregene)",
-     "infrastruttura", "info"),
-    ("roma_nasoni_fontane",
-     "nasoni di Roma (fontanelle pubbliche), Acea, manutenzione, "
-     "chiusure estive, fontane storiche (Trevi, Quattro Fiumi, Tritone) "
-     "e qualità dell'acqua nei nasoni",
-     "infrastruttura", "info"),
-    # ====== TOPIC LAZIO + NAZIONALI (peso minore) ======
-    ("lazio_contaminazione",
-     "contaminazioni acqua potabile nel Lazio fuori Roma: arsenico nei "
-     "Castelli Romani e Viterbese, PFAS, batteri, metalli pesanti; "
-     "provincia di Viterbo, Frosinone, Latina, Rieti",
+    ("prov_frosinone",
+     "guasti, contaminazioni, ordinanze di non potabilità o sospensioni "
+     "acqua potabile in provincia di Frosinone (Acea Ato 5): Frosinone, "
+     "Cassino, Sora, Anagni, Ferentino, Alatri, Veroli, Ceccano, Pontecorvo. "
+     "Indica sempre il comune preciso",
+     "infrastruttura", "warning"),
+    ("prov_latina",
+     "guasti, contaminazioni, ordinanze e sospensioni acqua potabile in "
+     "provincia di Latina (Acqualatina): Latina, Aprilia, Terracina, "
+     "Fondi, Formia, Gaeta, Sabaudia, Cisterna, Sezze, Priverno, Itri, "
+     "Sperlonga. Indica sempre il comune preciso",
+     "infrastruttura", "warning"),
+    ("prov_viterbo",
+     "guasti, contaminazioni (arsenico, fluoro), ordinanze e sospensioni "
+     "acqua potabile in provincia di Viterbo (Talete SpA): Viterbo, "
+     "Civita Castellana, Tarquinia, Montefiascone, Vetralla, Tuscania, "
+     "Bagnoregio, Soriano nel Cimino. Indica sempre il comune preciso",
      "contaminazione", "alert"),
-    ("italia_contaminazione",
-     "contaminazioni dell'acqua potabile (PFAS, batteri, arsenico, "
-     "nitrati, escherichia coli, legionella) in Italia",
+    ("prov_rieti",
+     "guasti, ordinanze, sospensioni acqua potabile in provincia di Rieti "
+     "(APS – Acqua Pubblica Sabina): Rieti, Cittaducale, Poggio Mirteto, "
+     "Magliano Sabina, Fara in Sabina, Montopoli, Borgorose, Antrodoco. "
+     "Indica sempre il comune preciso",
+     "infrastruttura", "warning"),
+    ("manutenzioni_programmate",
+     "manutenzioni programmate, interventi annunciati, sospensioni "
+     "idriche pianificate per i PROSSIMI 14 giorni dai gestori Acea "
+     "Ato 2, Acea Ato 5, Acqualatina, Talete, Acqua Pubblica Sabina. "
+     "Solo eventi futuri con data e comune specifico",
+     "infrastruttura", "info"),
+    ("lazio_contaminazioni_gravi",
+     "contaminazioni gravi acqua potabile nel Lazio: PFAS, arsenico oltre "
+     "limite, escherichia coli, legionella, ordinanze ASL di non "
+     "potabilità. Specifica comune e provincia",
      "contaminazione", "alert"),
-    ("italia_normativa",
-     "novità normative italiane ed europee su acqua potabile, "
-     "direttiva DWD 2020/2184, valori limite PFAS, microplastiche",
-     "normativa", "info"),
 ]
 
 # Comuni serviti da Acea Ato 2 / Città Metropolitana di Roma (per ranking)
@@ -240,38 +228,84 @@ def geocode(location: str) -> tuple[float, float] | None:
     return None
 
 
+# Termini troppo generici da rigettare: non possiamo piazzare un pin preciso
+_GENERIC_LOC_TOKENS = {
+    "italia", "lazio", "provincia", "regione", "nazionale", "sud",
+    "nord", "centro", "penisola", "ato", "",
+}
+
+
+def geocode_item(it: dict) -> tuple[float, float, str] | None:
+    """Geocodifica precisa per un item news.
+
+    Ordine dei tentativi:
+      1) 'Comune, Provincia, Italia' (massima precisione)
+      2) location grezza se contiene una virgola (es. 'Bracciano (RM)')
+    Se nessuno dei due funziona ritorna None: l'item verrà scartato.
+    """
+    comune = (it.get("comune") or "").strip()
+    provincia = (it.get("provincia") or "").strip()
+    location = (it.get("location") or "").strip()
+
+    # rifiuta location generiche tipo 'Italia' / 'Lazio'
+    nrm = _normalize(location)
+    if nrm in _GENERIC_LOC_TOKENS:
+        comune = comune or ""
+    if comune and provincia:
+        ll = geocode(f"{comune}, {provincia}")
+        if ll:
+            return (ll[0], ll[1], f"{comune}, {provincia}")
+    if comune:
+        ll = geocode(comune)
+        if ll:
+            return (ll[0], ll[1], comune)
+    if location and _normalize(location) not in _GENERIC_LOC_TOKENS:
+        ll = geocode(location)
+        if ll:
+            return (ll[0], ll[1], location)
+    return None
+
+
 def _gemini_call(topic_key: str, topic_desc: str, default_cat: str,
-                 default_sev: str, n_items: int = 6) -> tuple[list[dict], list[dict]]:
+                 default_sev: str, n_items: int = 4) -> tuple[list[dict], list[dict]]:
     """Returns (items, grounding_chunks)."""
     today = datetime.utcnow().date()
     min_date = today - timedelta(days=NEWS_MAX_AGE_DAYS)
     prompt = (
         f"Sei un giornalista specializzato in cronaca idrica italiana. "
         f"Oggi è il {today.isoformat()}. "
-        f"Usa Google Search per trovare le {n_items} notizie italiane PIÙ "
-        f"RECENTI (data >= {min_date.isoformat()}) su: {topic_desc}.\n\n"
-        f"Per ciascuna notizia DEVI fornire:\n"
-        f"- una data REALE in formato YYYY-MM-DD (non inventarla, leggila dall'articolo);\n"
-        f"- una LOCATION specifica: comune o quartiere italiano citato, "
-        f"quanto più preciso possibile (es. 'Bracciano (RM)', 'Roma Trastevere', "
-        f"'Frosinone'); se la notizia è nazionale scrivi 'Italia';\n"
-        f"- un URL della fonte originale.\n\n"
-        f"Includi anche manutenzioni o interruzioni FUTURE già annunciate.\n"
+        f"Usa Google Search per trovare al massimo {n_items} notizie REALI "
+        f"e VERIFICABILI su: {topic_desc}.\n\n"
+        f"REGOLE FERREE (se non riesci a rispettarle, NON includere la notizia):\n"
+        f"1. Data dell'articolo >= {min_date.isoformat()} (max 14 giorni fa), "
+        f"   oppure data di un evento programmato per i prossimi 21 giorni.\n"
+        f"2. Severity SOLO 'warning' o 'alert' (cose importanti: guasti, "
+        f"   contaminazioni, ordinanze, sospensioni). Usa 'info' SOLO per "
+        f"   manutenzioni programmate future con data certa.\n"
+        f"3. Location DEVE essere 'Comune, Provincia' italiano specifico "
+        f"   (es. 'Bracciano, Roma' / 'Civita Castellana, Viterbo'). "
+        f"   NON usare 'Italia', 'Lazio', 'provincia di X' generici: scarta "
+        f"   la notizia se non c'è un comune preciso.\n"
+        f"4. La notizia deve avere impatto idrico CONCRETO (utenti senza "
+        f"   acqua, parametro fuori limite, divieto di consumo, lavori in "
+        f"   corso). Niente cronaca generica, niente comunicati istituzionali "
+        f"   vuoti, niente articoli di opinione.\n\n"
         f"Rispondi ESCLUSIVAMENTE con JSON valido senza markdown:\n"
         f'{{"items":[{{'
-        f'"title":"titolo",'
-        f'"summary":"riassunto in 2-3 frasi concrete con numeri, date e luogo specifico",'
+        f'"title":"titolo conciso",'
+        f'"summary":"riassunto in 2 frasi con numeri, comune e impatto",'
         f'"source":"nome testata",'
         f'"url":"URL pagina notizia",'
         f'"date":"YYYY-MM-DD",'
-        f'"location":"Comune/Provincia italiana citata, oppure Italia",'
+        f'"comune":"nome del comune",'
+        f'"provincia":"sigla provincia (RM/FR/LT/VT/RI)",'
+        f'"location":"Comune, Provincia",'
         f'"category":"contaminazione|ordinanza|infrastruttura|siccità|controllo|normativa",'
-        f'"severity":"info|warning|alert",'
+        f'"severity":"warning|alert|info",'
         f'"is_future":false,'
         f'"keywords":["3-5 parole chiave"]'
         f"}}]}}\n"
-        f"Imposta is_future=true se la notizia si riferisce a un evento "
-        f"programmato per i prossimi giorni (manutenzione, sospensione, lavori)."
+        f"Se non trovi nulla che rispetti le regole, restituisci items:[]."
     )
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
@@ -437,7 +471,7 @@ def _host_of(u: str) -> str | None:
     return h
 
 
-def fetch_news(limit_per_topic: int = 6, max_workers: int = 8) -> dict:
+def fetch_news(limit_per_topic: int = 4, max_workers: int = 8) -> dict:
     if not GEMINI_API_KEY:
         return {"error": "GEMINI_API_KEY not set", "items": []}
 
@@ -508,61 +542,48 @@ def fetch_news(limit_per_topic: int = 6, max_workers: int = 8) -> dict:
         fresh.append(it)
     dedup = fresh
 
-    # 4) geocode in parallelo con fallback: ogni item DEVE finire sulla mappa
-    locs = [it.get("location") for it in dedup]
+    # 4) geocode preciso (comune+provincia). Gli item che non
+    #    geocodificano in modo affidabile vengono SCARTATI: niente più
+    #    jitter casuale sopra Roma, ogni pin deve essere reale.
     with ThreadPoolExecutor(max_workers=6) as ex:
-        results = list(ex.map(geocode, locs))
-    for it, ll in zip(dedup, results):
-        if ll:
-            it["lat"], it["lng"] = ll
-            it["geo_quality"] = "exact"
-        else:
-            # tenta di geocodificare i primi keyword (es. nome ente o testata)
-            kw_loc = None
-            for kw in (it.get("keywords") or [])[:3]:
-                if kw and any(c.isalpha() for c in kw):
-                    kw_loc = geocode(kw)
-                    if kw_loc:
-                        break
-            if kw_loc:
-                it["lat"], it["lng"] = kw_loc
-                it["geo_quality"] = "approx"
-            else:
-                # fallback: cluster sopra Roma con jitter deterministico
-                seed = int(hashlib.md5((it.get("title") or "").encode()).hexdigest()[:8], 16)
-                rnd = random.Random(seed)
-                # raggio ~25 km attorno al Campidoglio
-                it["lat"] = 41.8933 + rnd.uniform(-0.18, 0.18)
-                it["lng"] = 12.4830 + rnd.uniform(-0.22, 0.22)
-                it["geo_quality"] = "fallback"
-    # 5) ordina per (priorità Roma, data desc)
-    def _roma_score(it: dict) -> int:
-        """2 = Roma città/municipi, 1 = provincia/Lazio/Acea, 0 = altrove."""
-        hay = " ".join([
-            str(it.get("location") or ""),
-            str(it.get("title") or ""),
-            str(it.get("summary") or ""),
-            " ".join(it.get("keywords") or []),
-        ]).lower()
-        if "roma" in hay or "capitolin" in hay or "capitale" in hay:
-            return 2
-        for tok in ROMA_AREA_TOKENS:
-            if tok in hay:
-                return 1
-        return 0
+        results = list(ex.map(geocode_item, dedup))
+    geo_ok: list[dict] = []
+    for it, res in zip(dedup, results):
+        if not res:
+            continue
+        it["lat"], it["lng"], it["location"] = res
+        it["geo_quality"] = "exact"
+        geo_ok.append(it)
+    dedup = geo_ok
 
+    # 4.bis) filtro importanza: solo warning/alert + manutenzioni programmate
+    important: list[dict] = []
+    for it in dedup:
+        sev = (it.get("severity") or "").lower()
+        if sev in ("alert", "warning"):
+            important.append(it)
+        elif it.get("is_future") and (it.get("category") or "") == "infrastruttura":
+            important.append(it)
+    dedup = important
+    # 5) ordina per data desc (la zonizzazione è garantita dai topic)
     def _date_key(it: dict) -> str:
         d = (it.get("date") or "").strip()
         return d if re.match(r"\d{4}-\d{2}-\d{2}", d) else "0000-00-00"
 
-    # Score combinato: prima Roma, poi data più recente
-    dedup.sort(key=lambda it: (_roma_score(it), _date_key(it)), reverse=True)
+    dedup.sort(key=_date_key, reverse=True)
 
-    # Marca le notizie Roma per evidenza in UI
+    # Marca le notizie Roma solo per il badge in UI (non per il ranking)
     for it in dedup:
-        s = _roma_score(it)
-        it["is_rome"] = s == 2
-        it["is_lazio"] = s >= 1
+        hay = " ".join([
+            str(it.get("location") or ""),
+            str(it.get("provincia") or ""),
+            str(it.get("comune") or ""),
+        ]).lower()
+        prov = (it.get("provincia") or "").lower()
+        it["is_rome"] = (prov == "rm") or ("roma" in hay)
+        it["is_lazio"] = it["is_rome"] or any(
+            p in hay or prov == p for p in ("fr", "lt", "vt", "ri")
+        ) or any(tok in hay for tok in ROMA_AREA_TOKENS)
 
     # 6) metadata categoria
     for it in dedup:
