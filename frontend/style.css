@@ -869,6 +869,9 @@ a:hover { text-decoration: underline; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .toast.hidden { display: none; }
 
+/* DESKTOP TABS (nascoste su mobile, mostrate dentro la sidebar ≥1024px) */
+.desktop-tabs { display: none; }
+
 /* DESKTOP (≥1024px) */
 @media (min-width: 1024px) {
   .bottom-nav { display: none; }
@@ -893,6 +896,35 @@ a:hover { text-decoration: underline; }
   .param-legend { right: calc(460px + 16px); left: auto; max-width: 320px; bottom: 24px; }
   .status-pills { right: calc(460px + 8px); }
   .leaflet-control-attribution { margin-right: 460px !important; margin-bottom: 0 !important; }
+
+  /* Tab strip orizzontale dentro la sidebar */
+  .desktop-tabs {
+    display: flex; flex-wrap: nowrap; overflow-x: auto;
+    gap: 4px; padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+    scrollbar-width: none;
+  }
+  .desktop-tabs::-webkit-scrollbar { display: none; }
+  .dt-tab {
+    flex: 0 0 auto;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-2);
+    padding: 8px 12px;
+    border-radius: var(--radius-pill);
+    font-size: 12px; font-weight: 600;
+    cursor: pointer; white-space: nowrap;
+    font-family: inherit;
+    transition: background .15s, color .15s, border-color .15s;
+  }
+  .dt-tab:hover { background: var(--surface-3); color: var(--text); }
+  .dt-tab.active {
+    background: color-mix(in srgb, var(--primary-2) 14%, transparent);
+    color: var(--primary-2);
+    border-color: color-mix(in srgb, var(--primary-2) 30%, transparent);
+  }
+  /* L'app-bar mostra il pulsante menù anche su desktop come scorciatoia */
 }
 
 @media (hover: hover) {

@@ -270,7 +270,7 @@ from news_engine import (  # noqa: E402
     fetch_news, CATEGORY_META, load_news_cache, save_news_cache,
 )
 
-NEWS_TTL_SECONDS = int(os.environ.get("NEWS_TTL_SECONDS", str(6 * 3600)))
+NEWS_TTL_SECONDS = int(os.environ.get("NEWS_TTL_SECONDS", str(15 * 60)))
 NEWS_ADMIN_TOKEN = os.environ.get("NEWS_ADMIN_TOKEN", "")
 
 _news_state: dict = {"data": None, "ts": 0.0, "refreshing": False}

@@ -5,10 +5,23 @@
  * ============================================================ */
 
 // ---------- API base ----------
-const _isLocalHost = /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(location.hostname) || location.protocol === "file:";
+// In Capacitor (Android/iOS) il WebView serve l'app da https://localhost o capacitor://...
+// e quindi `localhost` NON significa "dev locale": dobbiamo usare l'API remota (meta tag).
+const _cap = window.Capacitor;
+const IS_NATIVE = !!(_cap && (
+  (typeof _cap.isNativePlatform === "function" && _cap.isNativePlatform()) ||
+  (typeof _cap.getPlatform === "function" && _cap.getPlatform() !== "web") ||
+  _cap.platform && _cap.platform !== "web"
+));
+const _isCapacitorScheme = /^capacitor:/i.test(location.protocol);
+const _isLocalHost = !IS_NATIVE && !_isCapacitorScheme && (
+  /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(location.hostname) ||
+  location.protocol === "file:"
+);
 const _metaApiBase = _isLocalHost ? "" : (document.querySelector('meta[name="api-base"]')?.content || "");
 const API_BASE = (window.API_BASE || _metaApiBase || "").replace(/\/$/, "");
 const API = (p) => API_BASE + p;
+window.__ACQUAMAP_DEBUG__ = { IS_NATIVE, API_BASE, host: location.hostname, proto: location.protocol };
 
 // ---------- BASEMAPS ----------
 const BASEMAPS = {
@@ -309,28 +322,56 @@ function setupBasemapSheet() {
 }
 
 // ---------- LOCATE FAB ----------
-function setupLocate() {
-  $("fab-locate")?.addEventListener("click", () => {
-    if (!navigator.geolocation) { showToast("Geolocalizzazione non disponibile"); return; }
-    const btn = $("fab-locate"); btn.classList.add("locating");
+async function _ensureNativeGeoPermission() {
+  const Geo = window.Capacitor?.Plugins?.Geolocation;
+  if (!Geo) return true; // niente plugin -> non blocchiamo
+  try {
+    let perm = await Geo.checkPermissions();
+    const granted = (p) => p && (p.location === "granted" || p.coarseLocation === "granted");
+    if (granted(perm)) return true;
+    perm = await Geo.requestPermissions({ permissions: ["location", "coarseLocation"] });
+    return granted(perm);
+  } catch (e) {
+    console.warn("[geo] permission check failed:", e);
+    return false;
+  }
+}
+async function _getPositionAny() {
+  const Geo = window.Capacitor?.Plugins?.Geolocation;
+  if (Geo) {
+    const pos = await Geo.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+    return { lat: pos.coords.latitude, lng: pos.coords.longitude };
+  }
+  return await new Promise((res, rej) => {
+    if (!navigator.geolocation) return rej(new Error("Geolocalizzazione non disponibile"));
     navigator.geolocation.getCurrentPosition(
-      pos => {
-        const { latitude: lat, longitude: lng } = pos.coords;
-        map.setView([lat, lng], 14, { animate: true });
-        if (state.meLayer) map.removeLayer(state.meLayer);
-        state.meLayer = L.circleMarker([lat, lng], {
-          radius: 8, color: "#0ea5e9", weight: 3,
-          fillColor: "#0ea5e9", fillOpacity: 0.4,
-        }).addTo(map);
-        btn.classList.remove("locating");
-        showToast("Sei qui");
-      },
-      err => {
-        btn.classList.remove("locating");
-        showToast("Posizione non disponibile");
-      },
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
+      p => res({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      err => rej(err),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
     );
+  });
+}
+function setupLocate() {
+  $("fab-locate")?.addEventListener("click", async () => {
+    const btn = $("fab-locate"); btn.classList.add("locating");
+    try {
+      const ok = await _ensureNativeGeoPermission();
+      if (!ok) { showToast("Permesso posizione negato. Abilita la posizione nelle Impostazioni."); return; }
+      const { lat, lng } = await _getPositionAny();
+      map.setView([lat, lng], 14, { animate: true });
+      if (state.meLayer) map.removeLayer(state.meLayer);
+      state.meLayer = L.circleMarker([lat, lng], {
+        radius: 8, color: "#0ea5e9", weight: 3,
+        fillColor: "#0ea5e9", fillOpacity: 0.4,
+      }).addTo(map);
+      showToast("Sei qui");
+    } catch (e) {
+      console.warn("[geo] error:", e);
+      const msg = (e && e.message) ? e.message : "Posizione non disponibile";
+      showToast(/denied|negato|permission/i.test(msg) ? "Permesso posizione negato" : "Posizione non disponibile");
+    } finally {
+      btn.classList.remove("locating");
+    }
   });
 }
 
@@ -494,6 +535,7 @@ function renderZone(d, name) {
     <div class="zone-actions">
       <button class="btn" id="zone-add-compare" data-name="${escapeHtml(name)}">+ Confronta</button>
       <a class="btn ghost" href="${API(escapeHtml(d.pdf_url || ''))}" target="_blank" rel="noopener">📄 PDF</a>
+      <button class="btn ghost" id="zone-share" data-name="${escapeHtml(name)}">📤 Condividi</button>
     </div>
     <table class="params">
       <thead><tr><th>Parametro</th><th>U.M.</th><th>Limite</th><th>Valore</th></tr></thead>
@@ -502,6 +544,33 @@ function renderZone(d, name) {
     ${sections}
   `;
   $("zone-add-compare").addEventListener("click", () => addCompare(name));
+  $("zone-share")?.addEventListener("click", () => shareZone(d, name));
+}
+
+async function shareZone(d, name) {
+  const s = d.summary || {};
+  const enr = d.enrichment || {};
+  const title = `AcquaMap — ${enr.display_name || d.comune || name}`;
+  const status = s.status === "OK" ? "✓ Conforme" : s.status === "ATTENZIONE" ? "⚠ Attenzione" : "Stato n/d";
+  const text = `${title}\n${status} · ${(s.exceedances || []).length} anomalie · ${(d.parameters || []).length} parametri analizzati`;
+  const url = location.href.split("#")[0] + "#zona=" + encodeURIComponent(name);
+  const payload = { title, text, url };
+  try {
+    const Share = window.Capacitor?.Plugins?.Share;
+    if (Share && typeof Share.share === "function") {
+      await Share.share({ title, text, url, dialogTitle: "Condividi zona" });
+      return;
+    }
+  } catch (e) { /* fallback below */ }
+  try {
+    if (navigator.share) { await navigator.share(payload); return; }
+  } catch (e) { /* user cancelled or unsupported */ }
+  try {
+    await navigator.clipboard.writeText(`${text}\n${url}`);
+    showToast("Link copiato negli appunti");
+  } catch {
+    showToast("Condivisione non disponibile");
+  }
 }
 
 // ---------- NEWS ----------
@@ -1039,7 +1108,8 @@ async function loadInfo() {
   loadOfficialSources();
 }
 
-$("refresh-news").addEventListener("click", () => loadNews(false));
+// (Aggiornamento news disabilitato lato utente: refresh automatico ogni 15 min,
+// stesso contenuto condiviso per tutti, gestito server-side per evitare costi.)
 
 // ---------- METEO ----------
 const WCODE = {
@@ -1143,6 +1213,8 @@ function renderMeteo(m) {
   setupLayersSheet();
   setupBasemapSheet();
   setupLocate();
+  setupDesktopTabs();
+  setupNativeIntegrations();
 
   // dati
   try { await loadGeoJSON(); } catch (e) { console.error(e); showToast("Errore caricamento zone"); }
@@ -1150,3 +1222,72 @@ function renderMeteo(m) {
   loadNews().catch(e => console.error(e));
   setInterval(() => loadNews(false), 15 * 60 * 1000);
 })();
+
+// ---------- DESKTOP TABS (≥1024px) ----------
+function setupDesktopTabs() {
+  document.querySelectorAll(".dt-tab[data-tab]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const tab = btn.dataset.tab;
+      document.querySelectorAll(".dt-tab").forEach(x => x.classList.remove("active"));
+      btn.classList.add("active");
+      switchTo(tab);
+    });
+  });
+}
+
+// Mantieni i .dt-tab in sync quando si cambia tab da altri punti (bottom-nav, menu, ecc.)
+const _origSwitchTo = switchTo;
+switchTo = function(tabId) {
+  _origSwitchTo(tabId);
+  document.querySelectorAll(".dt-tab").forEach(x => x.classList.toggle("active", x.dataset.tab === tabId));
+};
+
+// ---------- NATIVE INTEGRATIONS (Capacitor) ----------
+function setupNativeIntegrations() {
+  if (!IS_NATIVE) return;
+  try {
+    // Status bar: stile coerente con la app-bar (chiara o scura).
+    const SB = window.Capacitor?.Plugins?.StatusBar;
+    if (SB) {
+      const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      SB.setStyle?.({ style: dark ? "DARK" : "LIGHT" }).catch(() => {});
+      SB.setBackgroundColor?.({ color: dark ? "#020617" : "#0c4a6e" }).catch(() => {});
+      SB.setOverlaysWebView?.({ overlay: false }).catch(() => {});
+    }
+  } catch (e) { console.warn(e); }
+
+  try {
+    // Quando l'app torna in foreground: ricarica news + geojson silenziosamente.
+    const App = window.Capacitor?.Plugins?.App;
+    if (App && typeof App.addListener === "function") {
+      App.addListener("resume", () => {
+        loadNews(false).catch(() => {});
+        // Aggiorna freschezza zone (silenzioso)
+        fetch(API("/api/geojson")).then(r => r.ok ? r.json() : null).then(d => {
+          if (!d || !state.geoLayer) return;
+          state.geoData = d;
+          state.geoLayer.clearLayers();
+          state.geoLayer.addData(d);
+          state.geoLayer.setStyle(currentStyle);
+        }).catch(() => {});
+      });
+      // Tasto BACK Android: chiudi modali/sheet invece di uscire.
+      App.addListener("backButton", ({ canGoBack }) => {
+        const open = ["menu-sheet", "search-sheet", "layers-sheet", "basemap-sheet"]
+          .find(id => { const el = document.getElementById(id); return el && !el.classList.contains("hidden"); });
+        if (open) { closeModalSheet(open); return; }
+        const sh = $("sheet");
+        if (sh && sh.dataset.state === "full") { setSheetState("half"); return; }
+        if (sh && sh.dataset.state === "half") { setSheetState("peek"); return; }
+        if (canGoBack) history.back(); else App.exitApp?.();
+      });
+    }
+  } catch (e) { console.warn(e); }
+
+  // Haptic leggero al cambio tab (mobile only).
+  document.addEventListener("click", (e) => {
+    if (e.target.closest?.(".bn-item, .ms-item[data-tab], .dt-tab")) {
+      try { window.Capacitor?.Plugins?.Haptics?.impact?.({ style: "LIGHT" }); } catch {}
+    }
+  });
+}

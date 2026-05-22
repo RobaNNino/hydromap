@@ -20,7 +20,12 @@
   "homepage": "https://github.com/RobaNNino/hydromap#readme",
   "dependencies": {
     "@capacitor/android": "^8.3.4",
+    "@capacitor/app": "^8.0.0",
     "@capacitor/cli": "^8.3.4",
-    "@capacitor/core": "^8.3.4"
+    "@capacitor/core": "^8.3.4",
+    "@capacitor/geolocation": "^8.0.0",
+    "@capacitor/haptics": "^8.0.0",
+    "@capacitor/share": "^8.0.0",
+    "@capacitor/status-bar": "^8.0.0"
   }
 }

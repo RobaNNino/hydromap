@@ -22,7 +22,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
-<link rel="stylesheet" href="style.css?v=20260520a" />
+<link rel="stylesheet" href="style.css?v=20260522a" />
 </head>
 <body>
 
@@ -88,6 +88,17 @@
       </button>
     </div>
 
+    <!-- DESKTOP TABS (visibili solo su ≥1024px, riempiono il gap del bottom-nav nascosto) -->
+    <nav class="desktop-tabs" id="desktop-tabs" role="tablist" aria-label="Sezioni">
+      <button class="dt-tab active" data-tab="zone" role="tab">📍 Zona</button>
+      <button class="dt-tab" data-tab="dashboard" role="tab">📊 Dati</button>
+      <button class="dt-tab" data-tab="news" role="tab">📰 News</button>
+      <button class="dt-tab" data-tab="meteo" role="tab">🌧️ Meteo</button>
+      <button class="dt-tab" data-tab="compare" role="tab">⚖️ Confronta</button>
+      <button class="dt-tab" data-tab="chat" role="tab">🤖 AI</button>
+      <button class="dt-tab" data-tab="info" role="tab">ℹ️ Info</button>
+    </nav>
+
     <div class="sheet-scroll">
       <!-- TAB: ZONA -->
       <section id="tab-zone" class="tab-content active">
@@ -121,8 +132,8 @@
         <div class="panel">
           <div class="section-head">
             <h2>📰 News real-time</h2>
-            <button id="refresh-news" class="icon-btn" aria-label="Ricarica" title="Ricarica">⟳</button>
           </div>
+          <p class="hint">Le news sono uguali per tutti e si aggiornano automaticamente ogni 15 minuti.</p>
           <div id="news-filters" class="news-filters chip-row"></div>
           <div id="news-meta" class="news-meta-line"></div>
           <div id="news-list" class="news-list">
@@ -239,6 +250,10 @@
     <div class="ms-panel">
       <div class="ms-handle" data-close></div>
       <h3 class="ms-title">AcquaMap</h3>
+      <button class="ms-item" data-tab="zone">📍 <span>Mappa &amp; Zona</span></button>
+      <button class="ms-item" data-tab="dashboard">📊 <span>Dashboard</span></button>
+      <button class="ms-item" data-tab="news">📰 <span>News real-time</span></button>
+      <button class="ms-item" data-tab="meteo">🌧️ <span>Meteo &amp; Siccità</span></button>
       <button class="ms-item" data-tab="compare">⚖️ <span>Confronta zone</span></button>
       <button class="ms-item" data-tab="chat">🤖 <span>Assistente AI</span></button>
       <button class="ms-item" data-tab="info">ℹ️ <span>L'acqua del Lazio</span></button>
