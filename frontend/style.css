@@ -887,6 +887,12 @@ a:hover { text-decoration: underline; }
     box-shadow: var(--shadow-md);
   }
   .sheet-handle { display: none; }
+  /* Su desktop la sidebar è permanente: la X non avrebbe senso */
+  .sheet-close { display: none; }
+  .sheet-toolbar { padding: 12px 16px 10px 16px; }
+  /* Nessun bottom-nav su desktop ⇒ rimuovo il padding-bottom che lasciava spazio vuoto */
+  .sheet-scroll { padding-bottom: 24px; }
+
   .map-shell { right: 460px; }
   .fab-stack {
     right: calc(460px + 16px);
@@ -897,23 +903,22 @@ a:hover { text-decoration: underline; }
   .status-pills { right: calc(460px + 8px); }
   .leaflet-control-attribution { margin-right: 460px !important; margin-bottom: 0 !important; }
 
-  /* Tab strip orizzontale dentro la sidebar */
+  /* Tab strip orizzontale dentro la sidebar: a capo su due righe per stare nei 460px */
   .desktop-tabs {
-    display: flex; flex-wrap: nowrap; overflow-x: auto;
-    gap: 4px; padding: 6px 10px;
+    display: flex; flex-wrap: wrap;
+    gap: 4px 6px; padding: 8px 10px;
     border-bottom: 1px solid var(--border);
     background: var(--surface-2);
-    scrollbar-width: none;
   }
-  .desktop-tabs::-webkit-scrollbar { display: none; }
   .dt-tab {
     flex: 0 0 auto;
     border: 1px solid transparent;
     background: transparent;
     color: var(--text-2);
-    padding: 8px 12px;
+    padding: 6px 10px;
     border-radius: var(--radius-pill);
     font-size: 12px; font-weight: 600;
+    line-height: 1.1;
     cursor: pointer; white-space: nowrap;
     font-family: inherit;
     transition: background .15s, color .15s, border-color .15s;
@@ -924,7 +929,6 @@ a:hover { text-decoration: underline; }
     color: var(--primary-2);
     border-color: color-mix(in srgb, var(--primary-2) 30%, transparent);
   }
-  /* L'app-bar mostra il pulsante menù anche su desktop come scorciatoia */
 }
 
 @media (hover: hover) {
