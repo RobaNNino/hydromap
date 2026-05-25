@@ -9,11 +9,13 @@ Endpoints:
 """
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import sys
 import threading
 import time
+from datetime import date
 from pathlib import Path
 
 # Permette gli import "flat" (from news_engine import ...) sia quando lanciamo
@@ -22,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from dotenv import load_dotenv
-from flask import Flask, abort, jsonify, request, send_file, send_from_directory
+from flask import Flask, Response, abort, jsonify, request, send_file, send_from_directory
 from flask_cors import CORS
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
@@ -67,6 +69,14 @@ def _load_results() -> dict:
 
 _RESULTS = _load_results()
 _GEOJSON_CACHE: dict | None = None
+# Cache della risposta serializzata (e gzippata) per /api/geojson.
+# Rebuild solo quando cambia la data (freshness dipende da date.today()).
+_GEOJSON_RESP_CACHE: dict = {
+    "date": None,        # date.today() del build
+    "json_bytes": None,  # bytes UTF-8 JSON
+    "gz_bytes": None,    # bytes gzippati
+}
+_GEOJSON_RESP_LOCK = threading.Lock()
 
 
 # ---------- freshness analisi (data analisi → "nuova"/"in scadenza"/"vecchia") ----------
@@ -225,14 +235,51 @@ def _build_enriched_geojson() -> dict:
 
 
 # ---------- routes ----------
+def _serialized_geojson() -> tuple[bytes, bytes]:
+    """Ritorna (json_bytes, gz_bytes) della FeatureCollection arricchita.
+    Ribuild solo quando cambia il giorno (freshness dipende dalla data).
+    Thread-safe; protetto da lock per evitare doppio build sotto carico."""
+    today = date.today()
+    cached_date = _GEOJSON_RESP_CACHE.get("date")
+    if (cached_date == today and _GEOJSON_RESP_CACHE.get("json_bytes")
+            and _GEOJSON_RESP_CACHE.get("gz_bytes")):
+        return _GEOJSON_RESP_CACHE["json_bytes"], _GEOJSON_RESP_CACHE["gz_bytes"]
+    with _GEOJSON_RESP_LOCK:
+        # Double-check after acquiring lock
+        if (_GEOJSON_RESP_CACHE.get("date") == today
+                and _GEOJSON_RESP_CACHE.get("json_bytes")
+                and _GEOJSON_RESP_CACHE.get("gz_bytes")):
+            return (_GEOJSON_RESP_CACHE["json_bytes"],
+                    _GEOJSON_RESP_CACHE["gz_bytes"])
+        data = _build_enriched_geojson()
+        # Ricalcola freshness una sola volta per giorno.
+        for feat in data.get("features", []):
+            p = feat.get("properties") or {}
+            p["freshness"] = _freshness(p.get("periodo"))
+        json_bytes = json.dumps(
+            data, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
+        gz_bytes = gzip.compress(json_bytes, compresslevel=6)
+        _GEOJSON_RESP_CACHE["date"] = today
+        _GEOJSON_RESP_CACHE["json_bytes"] = json_bytes
+        _GEOJSON_RESP_CACHE["gz_bytes"] = gz_bytes
+        return json_bytes, gz_bytes
+
+
 @app.get("/api/geojson")
 def api_geojson():
-    data = _build_enriched_geojson()
-    # Ricalcola la freshness ad ogni richiesta (dipende dalla data corrente).
-    for feat in data.get("features", []):
-        p = feat.get("properties") or {}
-        p["freshness"] = _freshness(p.get("periodo"))
-    return jsonify(data)
+    json_bytes, gz_bytes = _serialized_geojson()
+    accept_enc = (request.headers.get("Accept-Encoding") or "").lower()
+    if "gzip" in accept_enc:
+        resp = Response(gz_bytes, mimetype="application/json")
+        resp.headers["Content-Encoding"] = "gzip"
+        resp.headers["Content-Length"] = str(len(gz_bytes))
+    else:
+        resp = Response(json_bytes, mimetype="application/json")
+        resp.headers["Content-Length"] = str(len(json_bytes))
+    resp.headers["Cache-Control"] = "public, max-age=300"
+    resp.headers["Vary"] = "Accept-Encoding"
+    return resp
 
 
 @app.get("/api/zone/<name>")
