@@ -36,10 +36,11 @@ POLY_CACHE_FILE = DATA_DIR / "abruzzo_polygons_cache.json"
 OUT_GEOJSON = DATA_DIR / "mappa-qualita-abruzzo.json"
 
 PROVIDER_INFO = {
-    "cam":   {"label": "CAM S.p.A.",          "ato": "ATO 2 — Marsica (AQ)",      "url": "https://www.camspa.com/"},
-    "ruzzo": {"label": "Ruzzo Reti S.p.A.",   "ato": "ATO 5 — Teramano (TE)",      "url": "https://www.ruzzo.it/"},
-    "aca":   {"label": "ACA S.p.A.",          "ato": "ATO 4 — Pescarese (PE)",     "url": "https://www.acaspa.it/"},
-    "sasi":  {"label": "SASI S.p.A.",         "ato": "ATO 6 — Chietino (CH)",      "url": "https://www.sasispa.it/"},
+    "cam":       {"label": "CAM S.p.A.",            "ato": "ATO 2 — Marsica (AQ)",       "url": "https://www.camspa.com/"},
+    "ruzzo":     {"label": "Ruzzo Reti S.p.A.",     "ato": "ATO 5 — Teramano (TE)",       "url": "https://www.ruzzo.it/"},
+    "aca":       {"label": "ACA S.p.A.",            "ato": "ATO 4 — Pescarese (PE)",      "url": "https://www.acaspa.it/"},
+    "sasi":      {"label": "SASI S.p.A.",           "ato": "ATO 6 — Chietino (CH)",       "url": "https://www.sasispa.it/"},
+    "gransasso": {"label": "Gran Sasso Acqua S.p.A.","ato": "ATO 1 — Aquilano (AQ)",      "url": "https://www.gransassoacqua.it/"},
 }
 
 
@@ -160,6 +161,37 @@ _MESI_ORDER = {
 }
 
 
+_GRANSASSO_COMUNI = [
+    "L'Aquila", "Acciano", "Barete", "Barisciano", "Cagnano Amiterno",
+    "Calascio", "Campotosto", "Capestrano", "Capitignano", "Caporciano",
+    "Carapelle Calvisio", "Castel del Monte", "Castel di Ieri",
+    "Castelvecchio Calvisio", "Castelvecchio Subequo", "Collepietro",
+    "Fagnano Alto", "Fontecchio", "Fossa", "Gagliano Aterno", "Goriano Sicoli",
+    "Lucoli", "Molina Aterno", "Montereale", "Navelli", "Ocre", "Ofena",
+    "Pizzoli", "Poggio Picenze", "Prata d'Ansidonia", "Rocca di Cambio",
+    "Rocca di Mezzo", "San Demetrio ne' Vestini", "San Pio delle Camere",
+    "Sant'Eusanio Forconese", "Santo Stefano di Sessanio", "Scoppito",
+    "Secinaro", "Tione degli Abruzzi", "Tornimparte", "Villa Sant'Angelo",
+    "Villa Santa Lucia degli Abruzzi",
+]
+
+
+def discover_gransasso() -> list[dict]:
+    """Gran Sasso Acqua pubblica un solo PDF mensile per la fonte principale
+    (Sorgente del Gran Sasso). Assegniamo lo stesso PDF a ciascuno dei comuni
+    serviti nell'ATO 1 Aquilano."""
+    base = SRC_DIR / "GranSasso"
+    if not base.exists():
+        return []
+    pdfs = sorted(base.glob("*.pdf"), key=lambda p: p.stat().st_mtime,
+                  reverse=True)
+    if not pdfs:
+        return []
+    chosen = pdfs[0]
+    return [{"provider": "gransasso", "comune": c, "pdf": chosen}
+            for c in _GRANSASSO_COMUNI]
+
+
 def discover_sasi() -> list[dict]:
     base = SRC_DIR / "SASI_spa" / "Dati Acqua 2026"
     if not base.exists():
@@ -243,6 +275,7 @@ PROV_HINTS = {
     "ruzzo": "TE",    # Teramano
     "aca": "PE",      # Pescarese (alcuni CH/TE)
     "sasi": "CH",     # Chietino
+    "gransasso": "AQ",  # Aquilano nord
 }
 
 
@@ -280,6 +313,7 @@ def main() -> int:
     entries += discover_ruzzo()
     entries += discover_aca()
     entries += discover_sasi()
+    entries += discover_gransasso()
 
     by_prov: dict[str, int] = {}
     # Applica blacklist + alias

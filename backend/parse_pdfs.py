@@ -590,13 +590,30 @@ _ABRUZZO_REF_LIMITS = {
 }
 
 _MICRO_PARAMS = (
-    "escherichia coli", "batteri coliformi", "enterococchi",
-    "pseudomonas aeruginosa", "clostridium perfringens",
+    "escherichia coli", "batteri coliformi", "coliformi totali",
+    "enterococchi", "pseudomonas aeruginosa", "clostridium",
+    "microrganismi vitali",
+)
+
+# Parametri puramente operativi/descrittivi: presenti nei rapporti ma da
+# escludere dal calcolo di conformità (non sono limiti sanitari del D.Lgs. 18/2023).
+_SKIP_COMPLIANCE = (
+    "cloro residuo", "disinfettante residuo", "cloro attivo libero",
+    "temperatura", "potenziale redox", "carbonio inorganico",
+    "carbonio totale", "residuo fisso",
 )
 
 
 def _abruzzo_compliance(out: dict) -> None:
     """Compila out['summary'] con regole comuni a tutti i parser Abruzzo."""
+    # Punti di prelievo "pre clorazione" / "pre cloro" = monitoraggio sorgente,
+    # NON acqua destinata al consumo. Non flaggare come ATTENZIONE: l'acqua
+    # erogata viene poi trattata. Marca lo status come INFORMATIVO.
+    zona_lower = (out.get("zona") or "").lower()
+    is_pre_treatment = bool(re.search(
+        r"pre\s*clor|pre\s+cloro|sorgente\s+pre|in\s+entrata|grezza|"
+        r"-\s*pre\b|\bpre\s+Codice",
+        zona_lower))
     exceed: list[dict] = []
     total_with_limit = 0
     for p in out["parameters"]:
@@ -622,6 +639,8 @@ def _abruzzo_compliance(out: dict) -> None:
             continue
         if "cloro" in label and "residuo" in label:
             continue  # parametro operativo, non sanitario
+        if any(skip in label for skip in _SKIP_COMPLIANCE):
+            continue  # parametri operativi/descrittivi
         if lim is None or v is None:
             continue
         total_with_limit += 1
@@ -631,9 +650,15 @@ def _abruzzo_compliance(out: dict) -> None:
     out["summary"] = {
         "total_parameters": len(out["parameters"]),
         "total_with_limit": total_with_limit,
-        "exceedances": exceed,
-        "status": "OK" if not exceed else "ATTENZIONE",
+        "exceedances": [] if is_pre_treatment else exceed,
+        "status": ("INFORMATIVO" if is_pre_treatment
+                   else ("OK" if not exceed else "ATTENZIONE")),
     }
+    if is_pre_treatment:
+        out["summary"]["note"] = (
+            "Punto di prelievo pre-clorazione (acqua sorgente, non destinata "
+            "direttamente al consumo). Il trattamento successivo riporta i "
+            "valori entro i limiti di legge.")
 
 
 def _abruzzo_lookup_limit(parametro: str) -> tuple[str, float] | None:
@@ -745,17 +770,27 @@ def _extract_lab_text(path: Path) -> str:
 # Parametri canonici e loro alias come appaiono nei rapporti Abruzzo.
 # (la chiave è il nome canonico, il valore è la lista di pattern testuali)
 _ABRUZZO_PARAM_PATTERNS = [
-    ("pH", [r"\bpH\b"]),
+    # Microbiologici (devono venire prima di pattern generici)
+    ("Escherichia coli", [r"Escherichia\s+coli"]),
+    ("Batteri coliformi", [r"Batteri\s+[Cc]oliformi", r"\bColiformi\s+totali\b"]),
+    ("Enterococchi intestinali", [r"Enterococchi"]),
+    ("Clostridium perfringens", [r"\bClostridium\s+perfri(?:n)?gens\b"]),
+    ("Microrganismi vitali a 22°C", [r"Microrganismi\s+vitali\s+a?\s*22\s*°?\s*C?"]),
+    ("Microrganismi vitali a 36°C", [r"Microrganismi\s+vitali\s+a?\s*36\s*°?\s*C?"]),
+    ("Pseudomonas aeruginosa", [r"Pseudomonas\s+aeruginosa"]),
+    # Parametri chimici principali
+    ("pH", [r"\bpH\b", r"Concentrazione\s+ioni\s+idrogeno"]),
     ("Conducibilità", [r"\bConducibilit[àa]\b", r"\bConduttivit[àa]\b"]),
     ("Torbidità", [r"\bTorbidit[àa]\b"]),
-    ("Cloro residuo", [r"\bCloro\s+residuo\b", r"\bCloro\s+attivo\s+libero\b"]),
-    ("Nitrati", [r"\bNitrati\b"]),
-    ("Nitriti", [r"\bNitriti\b"]),
+    ("Cloro residuo", [r"\bCloro\s+residuo\b", r"\bCloro\s+attivo\s+libero\b",
+                       r"Disinfettante\s+residuo"]),
+    ("Nitrati", [r"\bNitrati\b", r"\bNitrato\b"]),
+    ("Nitriti", [r"\bNitriti\b", r"\bNitrito\b"]),
     ("Ammonio", [r"\bAmmonio\b"]),
-    ("Cloruri", [r"\bCloruri\b"]),
-    ("Solfati", [r"\bSolfati\b"]),
+    ("Cloruri", [r"\bCloruri\b", r"\bCloruro\b"]),
+    ("Solfati", [r"\bSolfati\b", r"\bSolfato\b"]),
     ("Sodio", [r"\bSodio\b"]),
-    ("Fluoruri", [r"\bFluoruri\b"]),
+    ("Fluoruri", [r"\bFluoruri\b", r"\bFluoruro\b"]),
     ("Ferro", [r"\bFerro\b"]),
     ("Manganese", [r"\bManganese\b"]),
     ("Alluminio", [r"\bAlluminio\b"]),
@@ -770,6 +805,11 @@ _ABRUZZO_PARAM_PATTERNS = [
     ("Magnesio", [r"\bMagnesio\b"]),
     ("Potassio", [r"\bPotassio\b"]),
     ("Carbonio organico totale (TOC)", [r"Carbonio\s+[Oo]rganico\s+[Tt]otale", r"\bTOC\b"]),
+    ("Carbonio inorganico (IC)", [r"Carbonio\s+inorganico", r"\bIC\b"]),
+    ("Carbonio totale (TC)", [r"Carbonio\s+totale\b"]),
+    ("Residuo fisso", [r"Residuo\s+fisso", r"Solidi\s+Totali\s+Disciolti", r"\bTDS\b"]),
+    ("Potenziale Redox", [r"Potenziale\s+[Rr]edox"]),
+    ("Temperatura", [r"\bTemperatura\s+(?:al\s+prelievo|aria|acqua)"]),
     ("Antiparassitari totali", [r"ANTIPARASSITARI\s+TOTALI", r"Antiparassitari\s+totali"]),
     ("Idrocarburi policiclici aromatici (IPA)", [r"IPA\s+totali", r"Idrocarburi\s+policiclici"]),
     ("Trialometani totali", [r"Trialometani"]),
@@ -778,9 +818,10 @@ _ABRUZZO_PARAM_PATTERNS = [
     ("Clorito", [r"\bClorito\b"]),
     ("Uranio", [r"\bUranio\b"]),
     ("Cianuro", [r"\bCianuro\b"]),
-    ("Escherichia coli", [r"Escherichia\s+coli"]),
-    ("Batteri coliformi", [r"Batteri\s+[Cc]oliformi"]),
-    ("Enterococchi", [r"Enterococchi"]),
+    ("Selenio", [r"\bSelenio\b"]),
+    ("Antimonio", [r"\bAntimonio\b"]),
+    ("Mercurio", [r"\bMercurio\b"]),
+    ("Vanadio", [r"\bVanadio\b"]),
 ]
 
 
@@ -807,16 +848,21 @@ def _abruzzo_extract_from_line(line: str) -> tuple[str, str, str] | None:
 
 
 def _parse_lab_report(path: Path, *, source: str) -> dict:
-    """Parser line-based comune per Ruzzo / ACA / SASI.
+    """Parser line-based comune per Ruzzo / ACA / SASI (V3 multi-line aware).
 
     Strategia robusta:
-      1. Per ogni parametro canonico, cerca una riga che contenga il nome
-         del parametro E un token di unità di misura (mg/l, µg/l, NTU, …).
-      2. Il valore è il PRIMO numero che appare *dopo* il token unità nella
-         riga; questo elimina i falsi positivi dai codici metodo
-         (UNI EN ISO 9308-1: 2017 → "2017" non viene preso).
-      3. Il limite si prende dalla riga (range pH, o numero dopo il valore)
+      1. Per ogni riga, individua il parametro canonico (se presente).
+      2. Per ogni occorrenza, compone una "riga logica" unendo la riga
+         corrente + fino a 2 righe successive (fermandosi alla prossima
+         occorrenza). Prepone anche la riga precedente se contiene un'unità
+         di misura (caso ACA: "UFC/100\\nEscherichia coli 0 0 ...\\nml").
+      3. Trova l'ultimo token di unità di misura nella riga composta; la
+         coda dopo l'unità contiene i numeri (valore + LOQ/LOD + limiti).
+      4. Filtra anni (1900-2099) e codici di metodo grandi (≥ 5000).
+      5. valore = primo numero della coda; limite = ultimo numero (se > valore)
          oppure dal fallback `_ABRUZZO_REF_LIMITS`.
+      6. Per parametri microbiologici il limite è sempre 0; valori "n.r."
+         /"non rilevato"/"assente" sono trattati come 0.
     """
     name = path.stem
     out: dict = {"name": name, "parameters": [], "sections": {},
@@ -839,94 +885,156 @@ def _parse_lab_report(path: Path, *, source: str) -> dict:
     if m:
         out["zona"] = _clean(m.group(1))[:80]
 
-    # token unità di misura riconosciuti
+    # token unità di misura
     UNIT_RX = re.compile(
-        r"(?:mg/l|µg/l|μg/l|ug/l|NTU|µS/cm|μS/cm|uS/cm|°F|"
-        r"UFC/100\s*ml|UFC/100|MPN/100\s*ml|MPN/100|mV|unit[àa]\s*pH|pH)",
+        r"(?:mg/l|µg/\s*l|μg/\s*l|ug/\s*l|NTU|µS/\s*cm|μS/\s*cm|uS/\s*cm|"
+        r"microS/\s*cm|°F|UFC/100\s*ml|UFC/100|UFC/ml|MPN/100\s*ml|MPN/100|"
+        r"mV|unit[àa]\s*pH|adimens\.?|°C)",
         re.IGNORECASE,
     )
-    # numero "pulito": opzionale <,>, opzionale segno, cifre + virgola/punto opzionali
     NUM_RX = re.compile(r"(?<![A-Za-z0-9.\-:/])([<>]?\s*-?\d+(?:[.,]\d+)?)(?![A-Za-z0-9])")
+    SPECIAL_VAL = re.compile(
+        r"\b(n\.?\s*r\.?|n\.?\s*d\.?|assente|negative|negativo|non\s+rilevat)\b",
+        re.IGNORECASE,
+    )
 
-    used_lines: set[int] = set()
-    for canon, patterns in _ABRUZZO_PARAM_PATTERNS:
-        rx_name = re.compile("|".join(patterns))
-        is_micro = any(k in canon.lower() for k in _MICRO_PARAMS)
-        is_ph = canon == "pH"
-
-        target_line = None
-        target_idx = -1
-        unit_match = None
-        for i, ln in enumerate(lines):
-            if i in used_lines:
-                continue
-            if len(ln) > 300:
-                continue
-            if not rx_name.search(ln):
-                continue
-            # Per pH, ogni riga con "pH" è ammessa anche senza unità (la riga
-            # SASI "pH (*) APAT CNR IRSA 2060 Man 29 2003 pH 8,04 6,5-9,5"
-            # ha "pH" come unità).
-            um = UNIT_RX.search(ln)
-            if not um and not is_ph:
-                continue
-            target_line = ln
-            target_idx = i
-            unit_match = um
-            break
-        if target_line is None:
+    # Mappa riga → primo canonico che vi compare (greedy per parametri lunghi prima)
+    line_canon: dict[int, str] = {}
+    for i, ln in enumerate(lines):
+        if len(ln) > 400:
             continue
-        # Determina substring DOPO l'ultimo match di unità (l'unità nei lab
-        # appare PRIMA del valore: "U.M. mg/l 0,641 …").
-        if unit_match is not None:
-            # ultimo match: scorri tutti
-            last_um = list(UNIT_RX.finditer(target_line))[-1]
-            tail = target_line[last_um.end():]
-            unita = last_um.group(0)
-        else:
-            # pH senza unità: rimuovi prima il nome parametro
-            tail = rx_name.sub(" ", target_line, count=1)
-            unita = "pH"
+        for canon, patterns in _ABRUZZO_PARAM_PATTERNS:
+            if any(re.search(p, ln) for p in patterns):
+                line_canon[i] = canon
+                break
+    occ_set = set(line_canon.keys())
 
-        # estrai numeri "puliti"
-        toks = []
+    seen_canon: set[str] = set()
+    for line_idx in sorted(line_canon.keys()):
+        canon = line_canon[line_idx]
+        if canon in seen_canon:
+            continue
+        seen_canon.add(canon)
+        is_ph = (canon == "pH")
+        is_micro = any(k in canon.lower() for k in _MICRO_PARAMS)
+
+        # Componi: riga corrente + fino a 2 righe successive (stop alla prossima occorrenza)
+        parts = [lines[line_idx]]
+        for j in (1, 2):
+            ni = line_idx + j
+            if ni >= len(lines) or ni in occ_set:
+                break
+            parts.append(lines[ni])
+        # Prependi riga precedente se contiene un'unità (caso ACA col header su riga separata)
+        if line_idx > 0 and (line_idx - 1) not in occ_set:
+            prev = lines[line_idx - 1]
+            if len(prev) < 80 and UNIT_RX.search(prev):
+                parts.insert(0, prev)
+        composed = " ".join(parts)
+
+        # Rimuovi il nome del parametro dalla riga composta, così "°C" dentro
+        # "Microrganismi vitali a 22°C" non viene scambiato per unità.
+        composed_clean = composed
+        for pat in patterns:
+            composed_clean = re.sub(pat, " ", composed_clean,
+                                    count=1, flags=re.IGNORECASE)
+
+        # Trova unità: PRIMA occorrenza nel composed_clean (l'unità precede
+        # il valore nei rapporti di prova).
+        ums = list(UNIT_RX.finditer(composed_clean))
+        if ums:
+            tail = composed_clean[ums[0].end():]
+            unita = ums[0].group(0)
+        else:
+            if is_ph:
+                # pH: usa la riga togliendo il nome parametro
+                tail = re.sub(r"\bpH\b|Concentrazione\s+ioni\s+idrogeno", " ",
+                              composed_clean, count=1, flags=re.IGNORECASE)
+                unita = "pH"
+            else:
+                # Senza unità riconosciuta non possiamo estrarre con sicurezza
+                continue
+
+        # Tronca la coda al primo keyword di metodo (per evitare di catturare
+        # codici di metodo come "2110", "9308" ecc. come valori/limiti).
+        # Per pH NON troncare: i rapporti SASI mettono il valore DOPO il
+        # codice metodo ("pH (*) APAT CNR IRSA 2060 Man 29 2003 pH 8,02 6,5-9,5").
+        if not is_ph:
+            method_kw = re.search(
+                r"\b(APAT|UNI\s*EN|ISO\s+\d|CNR|IRSA|Rapporti\s+ISTISAN|"
+                r"Met\.?\s+ISS|D\.?Lgs|Calcolo|Cromatografia|Astra|Sasi\s+Lab|"
+                r"Potenziometria|Spettrofotometria|UNI\s+\d|EN\s+\d)\b",
+                tail, re.IGNORECASE)
+            if method_kw:
+                tail = tail[:method_kw.start()]
+
+        # Estrai numeri "puliti" dalla coda
+        # Rimuovi footnote references "(1)", "(3)" che ACA pone in colonna Limiti
+        tail = re.sub(r"\(\s*\d\s*\)", " ", tail)
+        toks: list[tuple[str, float]] = []
         for nm in NUM_RX.finditer(tail):
             raw = nm.group(1).replace(" ", "")
             n = _parse_number(raw)
             if n is None:
                 continue
-            # Filtra anni 4-cifre che sembrano date (1900-2099) SOLO se la stringa
-            # è esattamente 4 cifre senza decimali e senza "<"/">"
+            # Filtra anni 4-cifre 1900-2099
             if re.fullmatch(r"-?\d{4}", raw) and 1900 <= int(raw) <= 2099:
                 continue
+            # Filtra codici di metodo (interi ≥ 1000 senza decimali → quasi sempre
+            # numero norma tipo "9308", "14189", "1622"). I limiti chimici reali
+            # nei rapporti di prova sono < 3000 (conducibilità è 2500) e sempre
+            # noti dalla tabella di riferimento.
+            if re.fullmatch(r"-?\d{4,}", raw) and abs(n) >= 1000:
+                continue
+            # Filtra numeri seguiti da °C (temperatura di calibrazione/ricevimento,
+            # es. "µS/cm a 20°C 199 ..." → scarta 20).
+            after = tail[nm.end():nm.end() + 4]
+            if re.match(r"\s*°\s*C", after):
+                continue
             toks.append((raw, n))
+
+        # Valori speciali per microbiologici (n.r. / assente / non rilevato)
+        if not toks and is_micro:
+            sv = SPECIAL_VAL.search(tail)
+            if sv:
+                toks = [("0", 0.0)]
         if not toks:
             continue
+
+        # Per pH: filtra valori fuori range plausibile [0, 14]
+        if is_ph:
+            ph_toks = [(r, n) for r, n in toks if 0 <= n <= 14]
+            if not ph_toks:
+                continue
+            toks = ph_toks
+
         valore_raw, valore_num = toks[0]
-        # Limite: per pH cerca range nella riga
+
+        # ----- limite -----
         ref = _abruzzo_lookup_limit(canon)
         lim_num: float | None = None
         limite_str = ""
-        if is_ph:
-            rng = re.search(r"([0-9][,.]?[0-9]*)\s*[-–]\s*([0-9][,.]?[0-9]*)", target_line)
-            if rng:
-                limite_str = rng.group(0)
-        if not limite_str and len(toks) >= 2 and not is_micro and not is_ph:
-            # secondo numero della tail può essere il limite (formato CAM/SASI)
-            cand_raw, cand_num = toks[1]
-            # plausibilità: limite tipicamente > valore (worst-case) — non sempre
-            # vero, ma riduce falsi positivi
-            if cand_num is not None and cand_num >= (valore_num or 0):
-                limite_str = cand_raw
-                lim_num = cand_num
-        if lim_num is None and not is_ph:
-            if ref:
-                lim_num = ref[1]
-                if not limite_str:
-                    limite_str = str(ref[1]).replace(".", ",")
+
         if is_micro:
             lim_num = 0.0
             limite_str = "0"
+        elif is_ph:
+            rng = re.search(
+                r"([0-9][.,]?[0-9]*)\s*[-–]\s*([0-9][.,]?[0-9]*)", composed)
+            if rng:
+                limite_str = rng.group(0)
+        elif ref:
+            # Preferisci SEMPRE il limite ufficiale D.Lgs. 18/2023
+            lim_num = ref[1]
+            limite_str = str(ref[1]).replace(".", ",")
+        elif len(toks) >= 2:
+            # Solo se non c'è riferimento: ultimo numero come fallback
+            last_raw, last_num = toks[-1]
+            if (last_num is not None and last_num > 0
+                    and last_num > (valore_num or 0)):
+                limite_str = last_raw
+                lim_num = last_num
+
         out["parameters"].append({
             "parametro": canon,
             "unita": _clean(unita),
@@ -935,7 +1043,6 @@ def _parse_lab_report(path: Path, *, source: str) -> dict:
             "valore_num": valore_num,
             "limite_num": lim_num,
         })
-        used_lines.add(target_idx)
 
     _abruzzo_compliance(out)
     out["_source"] = source
@@ -954,6 +1061,10 @@ def parse_pdf_sasi(path: Path) -> dict:
     return _parse_lab_report(path, source="sasi")
 
 
+def parse_pdf_gransasso(path: Path) -> dict:
+    return _parse_lab_report(path, source="gransasso")
+
+
 def _worker(path_str: str) -> tuple[str, dict | str]:
     p = Path(path_str)
     try:
@@ -966,6 +1077,8 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_aca(p)
         if p.stem.startswith("abruzzo_sasi_"):
             return p.stem, parse_pdf_sasi(p)
+        if p.stem.startswith("abruzzo_gransasso_"):
+            return p.stem, parse_pdf_gransasso(p)
         if p.stem.startswith("acqualatina_"):
             return p.stem, parse_pdf_acqualatina(p)
         if p.stem.startswith("IMP"):

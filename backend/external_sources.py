@@ -154,6 +154,22 @@ OFFICIAL_SOURCES = [
         "type": "Portale gestore",
         "scraped": True,
     },
+    {
+        "id": "abruzzo_gransasso",
+        "provider": "abruzzo_gransasso",
+        "title": "Gran Sasso Acqua S.p.A. — Aquilano (AQ)",
+        "description": (
+            "Gran Sasso Acqua S.p.A. con sede a L'Aquila gestisce il servizio "
+            "idrico integrato per il territorio aquilano (ATO 1), 42 comuni "
+            "serviti dalla Sorgente del Gran Sasso. Pubblica report mensili "
+            "delle analisi della fonte principale."
+        ),
+        "url": "https://www.gransassoacqua.it/analisi-acqua",
+        "agency": "Gran Sasso Acqua S.p.A.",
+        "ato": "ATO 1 — Aquilano",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
     # ---------- Fonti istituzionali ----------
     {
         "id": "salute",
