@@ -451,6 +451,13 @@ async function loadGeoJSON() {
       });
     },
   }).addTo(map);
+  // Porta in cima i marker puntuali e le linee così sono sempre cliccabili
+  // anche quando sovrappongono poligoni di zone più grandi.
+  state.geoLayer.eachLayer((l) => {
+    if (l instanceof L.CircleMarker || l instanceof L.Polyline && !(l instanceof L.Polygon)) {
+      try { l.bringToFront(); } catch (_) {}
+    }
+  });
   map.fitBounds(state.geoLayer.getBounds(), { padding: [10, 10] });
   let ok = 0, warn = 0, unk = 0;
   for (const f of state.geoData.features) {

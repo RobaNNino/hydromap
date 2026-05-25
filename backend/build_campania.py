@@ -552,10 +552,36 @@ def main() -> int:
                 hint = e.get("provincia") or PROV_HINTS.get(prov)
                 info = fetch_polygon(comune, hint)
                 n_new += 1
-                time.sleep(1.1)
+                time.sleep(1.5)
                 cache[cache_key] = info
                 if n_new % 10 == 0:
                     save_cache(cache)
+            # Per ABC Napoli e Salerno Sistemi NON renderizzare lo stesso
+            # poligono comunale per 10/40 prelievi (creerebbe sovrapposizioni
+            # opache che coprono i Point dei quartieri). Convertilo in Point
+            # con jitter deterministico basato sul nome zona.
+            if (info is not None
+                    and prov in ("abc_napoli", "salerno_sistemi")):
+                gt = (info.get("geometry") or {}).get("type")
+                if gt in ("Polygon", "MultiPolygon"):
+                    import hashlib as _hashlib
+                    seed = (e.get("slug") or zona_label or "").encode("utf-8")
+                    h = _hashlib.md5(seed).hexdigest()
+                    # jitter ~±0.006° ≈ ±650m (sufficiente per separare
+                    # visivamente i prelievi dentro lo stesso comune)
+                    dx = (int(h[0:4], 16) / 0xffff - 0.5) * 0.012
+                    dy = (int(h[4:8], 16) / 0xffff - 0.5) * 0.012
+                    new_lat = info["lat"] + dy
+                    new_lon = info["lon"] + dx
+                    info = {
+                        "geometry": {
+                            "type": "Point",
+                            "coordinates": [new_lon, new_lat],
+                        },
+                        "lat": new_lat,
+                        "lon": new_lon,
+                        "display_name": info.get("display_name", ""),
+                    }
         if not info:
             skipped.append((prov, comune))
             print(f"   ! [{i:4d}] {prov:18s} {comune:30s}  GEOCODE FAIL")
