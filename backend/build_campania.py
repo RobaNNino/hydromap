@@ -476,19 +476,30 @@ def discover_acqua_campania() -> list[dict]:
             continue
         if name in ACQUA_CAMPANIA_DISTRETTI:
             zona_label, comuni = ACQUA_CAMPANIA_DISTRETTI[name]
-            # Usa il primo comune della lista come "comune principale"
-            # (per il geocoding fallback); il Voronoi userà tutti.
-            comune = comuni[0]
-            extra_comuni = comuni[1:] if len(comuni) > 1 else []
-        elif name.startswith("analisi-comune-di-"):
+            # Espandi una feature per ogni comune del distretto/interconnessione
+            # (lo stesso PDF è di riferimento per tutti i comuni serviti).
+            for cm in comuni:
+                if cm == "Napoli":
+                    # Non sovrapporre ABC Napoli con un poligono che copre
+                    # l'intero comune.
+                    continue
+                out.append({
+                    "provider": "acqua_campania",
+                    "comune": cm,
+                    "zona_label": zona_label,
+                    "slug": slugify(f"{name}_{cm}"),
+                    "pdf": pdfs[0],
+                    "n_reports": len(pdfs),
+                    "extra_comuni": [],
+                })
+            continue
+        if name.startswith("analisi-comune-di-"):
             raw = name.removeprefix("analisi-comune-di-")
             comune = pretty_comune(raw)
             zona_label = ""
-            extra_comuni = []
         else:
             comune = pretty_comune(name)
             zona_label = ""
-            extra_comuni = []
         out.append({
             "provider": "acqua_campania",
             "comune": comune,
@@ -496,7 +507,7 @@ def discover_acqua_campania() -> list[dict]:
             "slug": slugify(name),
             "pdf": pdfs[0],
             "n_reports": len(pdfs),
-            "extra_comuni": extra_comuni,
+            "extra_comuni": [],
         })
     return out
 
