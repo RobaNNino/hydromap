@@ -215,8 +215,9 @@ def _build_enriched_geojson() -> dict:
         status_color = {
             "OK": "#16a34a",
             "ATTENZIONE": "#dc2626",
+            "INFORMATIVO": "#0284c7",
             "UNKNOWN": "#94a3b8",
-        }[p["status"]]
+        }.get(p["status"], "#94a3b8")
         p["fill"] = status_color
         p["stroke"] = status_color
     _GEOJSON_CACHE = raw
