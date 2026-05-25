@@ -7,13 +7,16 @@ Costruisce:
   - backend/data/pdfs/campania_<provider>_<slug>.pdf
 
 Provider supportati (cartella sorgente: backend/data/source_pdfs_campania/):
-  - ABC_Napoli          → abc_napoli       (50 punti città di Napoli)
-  - Alto_Calore         → alto_calore      (~129 comuni AV/BN/NA)
-  - Gesesa              → gesesa           (24 comuni/zone BN)
-  - GORI                → gori             (75 comuni NA/SA)
-  - ITL_spa             → itl_spa          (~50 comuni CE, multi-punto → latest)
-  - Nepta_Acqua         → nepta_acqua      (29 punti città di Caserta)
-  - Salerno_Sistemi     → salerno_sistemi  (45 quartieri di Salerno)
+  - ABC_Napoli          → abc_napoli         (50 punti città di Napoli)
+  - Acqua_Campania      → acqua_campania     (24 comuni/distretti, grossista)
+  - Acquedotti_SCPA     → acquedotti_scpa    (8 comuni NA/CE multi-punto)
+  - Alto_Calore         → alto_calore        (~129 comuni AV/BN/NA)
+  - ASIS_Salernitana    → asis_salernitana   (~22 comuni SA multi-fontana)
+  - Gesesa              → gesesa             (24 comuni/zone BN)
+  - GORI                → gori               (75 comuni NA/SA)
+  - ITL_spa             → itl_spa            (~50 comuni CE, multi-punto → latest)
+  - Nepta_Acqua         → nepta_acqua        (29 punti città di Caserta)
+  - Salerno_Sistemi     → salerno_sistemi    (45 quartieri di Salerno)
 """
 from __future__ import annotations
 
@@ -37,24 +40,112 @@ POLY_CACHE_FILE = DATA_DIR / "campania_polygons_cache.json"
 OUT_GEOJSON = DATA_DIR / "mappa-qualita-campania.json"
 
 PROVIDER_INFO = {
-    "abc_napoli":      {"label": "ABC Napoli S.p.A.",          "ato": "ATO 2 — Napoli Volturno",     "url": "https://www.abc.napoli.it/"},
-    "alto_calore":     {"label": "Alto Calore Servizi S.p.A.", "ato": "ATO 1 — Calore Irpino",        "url": "https://www.altocalore.it/"},
-    "gesesa":          {"label": "GESESA S.p.A.",              "ato": "ATO 1 — Calore Irpino",        "url": "https://www.gesesa.it/"},
-    "gori":            {"label": "GORI S.p.A.",                "ato": "ATO 3 — Sarnese Vesuviano",    "url": "https://www.goriacqua.com/"},
-    "itl_spa":         {"label": "I.T.L. S.p.A.",              "ato": "ATO 2 — Napoli Volturno (CE)", "url": "https://www.itlspa.it/"},
-    "nepta_acqua":     {"label": "Nepta Acqua S.r.l.",         "ato": "Caserta (gestione locale)",    "url": ""},
-    "salerno_sistemi": {"label": "Salerno Sistemi S.p.A.",     "ato": "ATO 4 — Sele",                 "url": "https://www.salernosistemi.it/"},
+    "abc_napoli":       {"label": "ABC Napoli S.p.A.",                       "ato": "ATO 2 — Napoli Volturno",     "url": "https://www.abc.napoli.it/"},
+    "acqua_campania":   {"label": "Acqua Campania S.p.A.",                   "ato": "Adduzione regionale",          "url": "https://www.acquacampania.com/"},
+    "acquedotti_scpa":  {"label": "Acquedotti S.C.p.A.",                     "ato": "Campania (NA/CE)",             "url": "https://www.acquedotti.com/"},
+    "alto_calore":      {"label": "Alto Calore Servizi S.p.A.",              "ato": "ATO 1 — Calore Irpino",        "url": "https://www.altocalore.it/"},
+    "asis_salernitana": {"label": "A.S.I.S. Salernitana Reti e Impianti S.p.A.", "ato": "ATO 4 — Sele",             "url": "https://www.asisspa.it/"},
+    "gesesa":           {"label": "GESESA S.p.A.",                           "ato": "ATO 1 — Calore Irpino",        "url": "https://www.gesesa.it/"},
+    "gori":             {"label": "GORI S.p.A.",                             "ato": "ATO 3 — Sarnese Vesuviano",    "url": "https://www.goriacqua.com/"},
+    "itl_spa":          {"label": "I.T.L. S.p.A.",                           "ato": "ATO 2 — Napoli Volturno (CE)", "url": "https://www.itlspa.it/"},
+    "nepta_acqua":      {"label": "Nepta Acqua S.r.l.",                      "ato": "Caserta (gestione locale)",    "url": ""},
+    "salerno_sistemi":  {"label": "Salerno Sistemi S.p.A.",                  "ato": "ATO 4 — Sele",                 "url": "https://www.salernosistemi.it/"},
 }
 
 PROV_HINTS = {
-    "abc_napoli":      "NA",
-    "alto_calore":     "AV",
-    "gesesa":          "BN",
-    "gori":            "NA",
-    "itl_spa":         "CE",
-    "nepta_acqua":     "CE",
-    "salerno_sistemi": "SA",
+    "abc_napoli":       "NA",
+    "acqua_campania":   "CE",
+    "acquedotti_scpa":  "NA",
+    "alto_calore":      "AV",
+    "asis_salernitana": "SA",
+    "gesesa":           "BN",
+    "gori":             "NA",
+    "itl_spa":          "CE",
+    "nepta_acqua":      "CE",
+    "salerno_sistemi":  "SA",
 }
+
+# Provincia per ciascun comune Acquedotti_SCPA (cartella sorgente)
+ACQUEDOTTI_SCPA_PROV = {
+    "Acerra": "NA",
+    "Alvignano": "CE",
+    "Casandrino": "NA",
+    "Castel_Morrone": "CE",
+    "Grumo_Nevano": "NA",
+    "Melito_di_Napoli": "NA",
+    "Orta_di_Atella": "CE",
+    "Qualiano": "NA",
+}
+
+# Distretti / aggregati di Acqua Campania → lista comuni reali
+ACQUA_CAMPANIA_DISTRETTI = {
+    "analisi-distretto-nord-est-crispano-caivano-cesa-frattaminore-succivo-marcianise-orta-di-atella":
+        ("Distretto Nord-Est (Crispano-Caivano-Cesa-Frattaminore-Succivo-Marcianise-Orta di Atella)",
+         ["Crispano", "Caivano", "Cesa", "Frattaminore", "Succivo", "Marcianise", "Orta di Atella"]),
+    "analisi-distretto-nord-ovest-frignano-casaluce-carinaro-gricignano":
+        ("Distretto Nord-Ovest (Frignano-Casaluce-Carinaro-Gricignano)",
+         ["Frignano", "Casaluce", "Carinaro", "Gricignano di Aversa"]),
+    "analisi-distretto-sud-est-s-arpino-frattamaggiore-santimo-grumo-nevano-casandrino":
+        ("Distretto Sud-Est (Sant'Arpino-Frattamaggiore-Sant'Antimo-Grumo Nevano-Casandrino)",
+         ["Sant'Arpino", "Frattamaggiore", "Sant'Antimo", "Grumo Nevano", "Casandrino"]),
+    "analisi-distretto-sud-ovest-aversa-lusciano-parete-trentola":
+        ("Distretto Sud-Ovest (Aversa-Lusciano-Parete-Trentola Ducenta)",
+         ["Aversa", "Lusciano", "Parete", "Trentola-Ducenta"]),
+    "analisi-interconnessione-arzano-porchiera-secondigliano":
+        ("Interconnessione Arzano-Porchiera-Secondigliano",
+         ["Arzano", "Napoli"]),
+    "analisi-interconnessione-serbatoio-di-melito":
+        ("Interconnessione Serbatoio di Melito",
+         ["Melito di Napoli"]),
+    "consegna-napoli-cupa-sfondata-dn-1800":
+        ("Consegna Napoli — Cupa Sfondata DN 1800", ["Napoli"]),
+    "consegna-napoli-cupa-sfondata-dn-2100":
+        ("Consegna Napoli — Cupa Sfondata DN 2100", ["Napoli"]),
+    "us-navy-gricignano":
+        ("US Navy — Gricignano di Aversa", ["Gricignano di Aversa"]),
+}
+
+# Comuni di Acqua Campania fuori regione: serve disabilitare il vincolo
+# "Campania, Italia" nella query Nominatim altrimenti il geocoding fallisce.
+OUTSIDE_CAMPANIA = {
+    "Sesto Campano": "IS",   # Molise
+    "Cassino":       "FR",   # Lazio
+    "Cervaro":       "FR",   # Lazio
+}
+
+
+# Comuni ASIS Salernitana noti (per parsing filename con underscore ambiguo)
+# In ordine di lunghezza decrescente per match più lungo.
+ASIS_COMUNI = [
+    "Sant_Angelo_a_Fasanella",
+    "Castelnuovo_di_Conza",
+    "Pontecagnano_Faiano",
+    "Contursi_Terme",
+    "Roccadaspide",
+    "Castelcivita",
+    "Bellosguardo",
+    "Trentinara",
+    "Ricigliano",
+    "Battipaglia",
+    "Roccadaspide",
+    "Castelcivita",
+    "Bellosguardo",
+    "Trentinara",
+    "Ricigliano",
+    "Perdifumo",
+    "Torchiara",
+    "Prignano",
+    "Bellizzi",
+    "Controne",
+    "Colliano",
+    "Agropoli",
+    "Laureana",
+    "Laviano",
+    "Aquara",
+    "Valva",
+    "Serre",
+    "Eboli",
+]
 
 
 # ---------- utils ----------
@@ -313,6 +404,165 @@ def discover_salerno_sistemi() -> list[dict]:
     return out
 
 
+def _file_date(name: str) -> tuple[int, int, int]:
+    """Estrae (anno, mese, giorno) da una stringa che contiene YYYY-MM-DD
+    o YYYY_MM_DD o YYYY_MM (giorno=0). Ritorna (0,0,0) se non trovato."""
+    m = re.search(r"(20\d{2})[-_](\d{2})[-_](\d{2})", name)
+    if m:
+        return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    m = re.search(r"(20\d{2})[-_](\d{2})", name)
+    if m:
+        return (int(m.group(1)), int(m.group(2)), 0)
+    m = re.search(r"(20\d{2})", name)
+    if m:
+        return (int(m.group(1)), 0, 0)
+    return (0, 0, 0)
+
+
+def discover_acquedotti_scpa() -> list[dict]:
+    """Acquedotti S.C.p.A.: cartella per comune, dentro PDF multi-punto
+    e multi-data nel pattern `YYYY_MM-Nome-Punto.pdf`. Per ogni (comune,
+    punto) tiene il PDF più recente."""
+    base = SRC_DIR / "Acquedotti_SCPA"
+    if not base.exists():
+        return []
+    out: list[dict] = []
+    for comune_dir in sorted(p for p in base.iterdir() if p.is_dir()):
+        comune = pretty_comune(comune_dir.name)
+        prov = ACQUEDOTTI_SCPA_PROV.get(comune_dir.name, "NA")
+        # Raggruppa per "nome punto" (filename senza la data iniziale)
+        groups: dict[str, list[Path]] = {}
+        for p in sorted(comune_dir.glob("*.pdf")):
+            stem = p.stem
+            # rimuove prefisso "YYYY_MM-" o "YYYY_MM_DD-"
+            label = re.sub(r"^\d{4}[_-]\d{2}([_-]\d{2})?[-_]+", "", stem)
+            label = label.replace("-", " ").replace("_", " ").strip()
+            groups.setdefault(label, []).append(p)
+        for label, pdfs in sorted(groups.items()):
+            pdfs.sort(key=lambda p: _file_date(p.name), reverse=True)
+            out.append({
+                "provider": "acquedotti_scpa",
+                "comune": comune,
+                "provincia": prov,
+                "zona_label": label,
+                "slug": slugify(f"{comune}_{label}"),
+                "pdf": pdfs[0],
+                "n_reports": len(pdfs),
+            })
+    return out
+
+
+def discover_acqua_campania() -> list[dict]:
+    """Acqua Campania (grossista regionale): cartella per comune o per
+    distretto/interconnessione/consegna. Per ogni cartella tiene il PDF
+    più recente."""
+    base = SRC_DIR / "Acqua_Campania"
+    if not base.exists():
+        return []
+    out: list[dict] = []
+    for sub in sorted(p for p in base.iterdir() if p.is_dir()):
+        name = sub.name
+        pdfs = sorted(sub.glob("*.pdf"), key=lambda p: _file_date(p.name),
+                      reverse=True)
+        if not pdfs:
+            continue
+        if name in ACQUA_CAMPANIA_DISTRETTI:
+            zona_label, comuni = ACQUA_CAMPANIA_DISTRETTI[name]
+            # Usa il primo comune della lista come "comune principale"
+            # (per il geocoding fallback); il Voronoi userà tutti.
+            comune = comuni[0]
+            extra_comuni = comuni[1:] if len(comuni) > 1 else []
+        elif name.startswith("analisi-comune-di-"):
+            raw = name.removeprefix("analisi-comune-di-")
+            comune = pretty_comune(raw)
+            zona_label = ""
+            extra_comuni = []
+        else:
+            comune = pretty_comune(name)
+            zona_label = ""
+            extra_comuni = []
+        out.append({
+            "provider": "acqua_campania",
+            "comune": comune,
+            "zona_label": zona_label,
+            "slug": slugify(name),
+            "pdf": pdfs[0],
+            "n_reports": len(pdfs),
+            "extra_comuni": extra_comuni,
+        })
+    return out
+
+
+def discover_asis_salernitana() -> list[dict]:
+    """A.S.I.S. Salernitana: 2492 PDF flat con pattern
+    `26__NUMERO_Comune_Tipo_Indirizzo_YYYY-MM-DD.pdf`.
+    Raggruppa per (numero punto, comune, indirizzo) e tiene il PDF più
+    recente. Esempio:
+      26__021_Battipaglia_Fontana_Piazza_Aldo_Moro_2025-02-19.pdf
+        → comune='Battipaglia', tipo='Fontana',
+          indirizzo='Piazza Aldo Moro', id=021
+    """
+    base = SRC_DIR / "ASIS_Salernitana"
+    if not base.exists():
+        return []
+    # Re-sort: comuni più lunghi prima (per match greedy corretto).
+    comuni_sorted = sorted(ASIS_COMUNI, key=len, reverse=True)
+    # Regex precompilata
+    re_main = re.compile(
+        r"^26__(\d+)_(?P<rest>.+?)_(\d{4}-\d{2}-\d{2})$"
+    )
+    groups: dict[tuple, list[tuple[Path, tuple]]] = {}
+    for p in sorted(base.glob("*.pdf")):
+        stem = p.stem
+        m = re_main.match(stem)
+        if not m:
+            continue
+        codice = m.group(1)
+        rest = m.group("rest")
+        date_tuple = _file_date(stem)
+        # Trova il comune nel `rest` (match più lungo)
+        comune_key = None
+        for c in comuni_sorted:
+            if rest.startswith(c + "_") or rest == c:
+                comune_key = c
+                break
+        if comune_key is None:
+            # comune sconosciuto: prova fallback "primo token"
+            tokens = rest.split("_")
+            comune_key = tokens[0]
+            after = "_".join(tokens[1:])
+        else:
+            after = rest[len(comune_key):].lstrip("_")
+        # `after` ora è "Tipo_Indirizzo..." → tipo = primo token
+        if not after:
+            tipo, indirizzo = "Punto", ""
+        else:
+            tokens = after.split("_", 1)
+            tipo = tokens[0]
+            indirizzo = tokens[1] if len(tokens) > 1 else ""
+        comune_pretty = pretty_comune(comune_key)
+        indirizzo_pretty = indirizzo.replace("_", " ").strip()
+        key = (codice, comune_pretty, indirizzo_pretty)
+        groups.setdefault(key, []).append((p, date_tuple, tipo))
+    out: list[dict] = []
+    for (codice, comune, indirizzo), items in sorted(groups.items()):
+        items.sort(key=lambda t: t[1], reverse=True)
+        pdf_latest, _, tipo = items[0]
+        zona_label = (f"{tipo} {indirizzo}".strip()
+                      if indirizzo else tipo)
+        zona_label = f"{zona_label} ({codice})"
+        out.append({
+            "provider": "asis_salernitana",
+            "comune": comune,
+            "provincia": "SA",
+            "zona_label": zona_label,
+            "slug": slugify(f"asis_{codice}_{comune}_{indirizzo}"),
+            "pdf": pdf_latest,
+            "n_reports": len(items),
+        })
+    return out
+
+
 # ---------- geocoding ----------
 _HEADERS = {"User-Agent": "AcquaMap-build/1.0 (acquamap-campania)"}
 _MISSING = object()
@@ -324,22 +574,28 @@ def fetch_polygon(
     *,
     area_hint: str | None = None,
     allow_point: bool = False,
+    region: str | None = "Campania",
 ) -> dict | None:
     """Geocodifica comune (o quartiere/strada se passato come `comune`).
     - `area_hint`: contesto aggiuntivo es. "Salerno" per i quartieri.
     - `allow_point`: se True, accetta anche geometrie Point (es. indirizzi
       stradali, fontanelle, punti di prelievo).
+    - `region`: regione amministrativa per restringere la query
+      (default "Campania"). Passa None per cercare in tutta Italia
+      (necessario per i comuni di Acqua Campania fuori regione:
+      Sesto Campano/IS, Cassino/FR, Cervaro/FR).
     """
     queries: list[str] = []
+    region_suffix = f", {region}, Italia" if region else ", Italia"
     # Prima: query stretta senza area_hint (più precisa per strade/highway)
     if provincia_hint:
-        queries.append(f"{comune}, {provincia_hint}, Campania, Italia")
-    queries.append(f"{comune}, Campania, Italia")
+        queries.append(f"{comune}, {provincia_hint}{region_suffix}")
+    queries.append(f"{comune}{region_suffix}")
     # Poi: query con area_hint (utile per quartieri ambigui es. "Fratte" -> "Fratte, Salerno")
     if area_hint and provincia_hint:
-        queries.append(f"{comune}, {area_hint}, {provincia_hint}, Campania, Italia")
+        queries.append(f"{comune}, {area_hint}, {provincia_hint}{region_suffix}")
     if area_hint:
-        queries.append(f"{comune}, {area_hint}, Campania, Italia")
+        queries.append(f"{comune}, {area_hint}{region_suffix}")
     for q in queries:
         try:
             r = requests.get(
@@ -489,8 +745,13 @@ def _voronoi_tessellate_provider(
     from shapely.ops import voronoi_diagram, unary_union
 
     target_prov = f"campania_{prov_key}"
+    # Per provider sparsi su pi\u00f9 comuni (ASIS, SCPA), filtra anche per
+    # comune: il Voronoi deve essere fatto separatamente per ogni
+    # tessellatura comunale.
     subset = [(f, e) for (f, e) in features
-              if f["properties"].get("provider") == target_prov]
+              if f["properties"].get("provider") == target_prov
+              and (prov_key in ("abc_napoli", "salerno_sistemi")
+                   or f["properties"].get("comune") == comune_name)]
     if len(subset) < 2:
         return
     cache_key = f"{slugify(comune_name)}|{PROV_HINTS.get(prov_key, '')}"
@@ -557,7 +818,10 @@ def main() -> int:
     print("[1/4] discovery PDF per provider…")
     entries: list[dict] = []
     entries += discover_abc_napoli()
+    entries += discover_acqua_campania()
+    entries += discover_acquedotti_scpa()
     entries += discover_alto_calore()
+    entries += discover_asis_salernitana()
     entries += discover_gesesa()
     entries += discover_gori()
     entries += discover_itl_spa()
@@ -593,7 +857,8 @@ def main() -> int:
         # Point cosicchè ogni prelievo sia un segnaposto puntuale.
         # Salerno Sistemi (45 quartieri di Salerno) → cerca prima il quartiere
         # come boundary/suburb; fallback al poligono comunale.
-        if prov in ("abc_napoli", "salerno_sistemi") and zona_label:
+        if prov in ("abc_napoli", "salerno_sistemi",
+                    "asis_salernitana", "acquedotti_scpa") and zona_label:
             # Pulisci "(D01)", "(Q12)" ecc. dal label per la query
             zona_query = re.sub(r"\s*\([A-Z]?\d+\)\s*$", "", zona_label).strip()
             zona_key = f"{slugify(comune)}|zona|{slugify(zona_query)}"
@@ -625,7 +890,13 @@ def main() -> int:
             info = cache.get(cache_key)
             if info is None:
                 hint = e.get("provincia") or PROV_HINTS.get(prov)
-                info = fetch_polygon(comune, hint)
+                # Comuni fuori Campania (solo Acqua Campania): override
+                # provincia e disabilita vincolo regionale.
+                if comune in OUTSIDE_CAMPANIA:
+                    hint = OUTSIDE_CAMPANIA[comune]
+                    info = fetch_polygon(comune, hint, region=None)
+                else:
+                    info = fetch_polygon(comune, hint)
                 n_new += 1
                 time.sleep(1.5)
                 cache[cache_key] = info
@@ -636,7 +907,9 @@ def main() -> int:
             # opache che coprono i Point dei quartieri). Convertilo in Point
             # con jitter deterministico basato sul nome zona.
             if (info is not None
-                    and prov in ("abc_napoli", "salerno_sistemi")):
+                    and prov in ("abc_napoli", "salerno_sistemi",
+                                 "asis_salernitana",
+                                 "acquedotti_scpa")):
                 gt = (info.get("geometry") or {}).get("type")
                 if gt in ("Polygon", "MultiPolygon"):
                     import hashlib as _hashlib
@@ -695,6 +968,39 @@ def main() -> int:
             features, cache, "abc_napoli", "Napoli")
         _voronoi_tessellate_provider(
             features, cache, "salerno_sistemi", "Salerno")
+        # ASIS e Acquedotti SCPA hanno più prelievi per comune sparsi su
+        # comuni diversi: applica Voronoi separatamente per ogni comune
+        # che abbia almeno 2 feature.
+        for multi_prov in ("asis_salernitana", "acquedotti_scpa"):
+            target_prov = f"campania_{multi_prov}"
+            comuni_set: dict[str, int] = {}
+            for f, _ in features:
+                if f["properties"].get("provider") == target_prov:
+                    cn = f["properties"].get("comune") or ""
+                    comuni_set[cn] = comuni_set.get(cn, 0) + 1
+            for cn, n in sorted(comuni_set.items()):
+                if n < 2:
+                    continue
+                # Pre-fetch boundary del comune se manca in cache
+                ck = f"{slugify(cn)}|{PROV_HINTS.get(multi_prov, '')}"
+                if not cache.get(ck) or not cache[ck].get("geometry") \
+                        or cache[ck]["geometry"].get("type") == "Point":
+                    # Trova provincia dal primo entry di quel comune
+                    prov_hint = PROV_HINTS.get(multi_prov, "")
+                    for f, e in features:
+                        if (f["properties"].get("provider") == target_prov
+                                and f["properties"].get("comune") == cn):
+                            prov_hint = (f["properties"].get("provincia_acr")
+                                         or prov_hint)
+                            break
+                    bnd = fetch_polygon(cn, prov_hint)
+                    time.sleep(1.5)
+                    if bnd and bnd.get("geometry", {}).get("type") \
+                            in ("Polygon", "MultiPolygon"):
+                        cache[ck] = bnd
+                        save_cache(cache)
+                _voronoi_tessellate_provider(
+                    features, cache, multi_prov, cn)
     except Exception as exc:
         print(f"   ! Voronoi fallito: {exc}")
 
