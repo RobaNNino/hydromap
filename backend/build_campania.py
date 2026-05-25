@@ -631,7 +631,10 @@ def fetch_polygon(
                 geom = it.get("geojson")
                 if not geom:
                     continue
-                if (geom.get("type") or "") == "Point":
+                gtype = (geom.get("type") or "")
+                # In pass 1 vogliamo solo aree (Polygon/MultiPolygon).
+                # Punti e linee (strade) vengono provati solo in pass 2.
+                if gtype not in ("Polygon", "MultiPolygon"):
                     continue
                 t = (it.get("type") or "").lower()
                 cls = (it.get("class") or "").lower()
@@ -1003,6 +1006,42 @@ def main() -> int:
                     features, cache, multi_prov, cn)
     except Exception as exc:
         print(f"   ! Voronoi fallito: {exc}")
+
+    # ----- Post-process: forza ogni Point/LineString a diventare un
+    # poligono. Sostituisce con il poligono del comune di appartenenza
+    # (recuperato dalla cache o geocodificato ex-novo se mancante).
+    n_forced = 0
+    for f, e in features:
+        gt = (f["geometry"] or {}).get("type")
+        if gt in ("Polygon", "MultiPolygon"):
+            continue
+        prov_key = f["properties"]["provider"].replace("campania_", "", 1)
+        cn = f["properties"].get("comune") or ""
+        prov_hint = (f["properties"].get("provincia_acr")
+                     or PROV_HINTS.get(prov_key, ""))
+        ck = f"{slugify(cn)}|{PROV_HINTS.get(prov_key, '')}"
+        info = cache.get(ck)
+        if (not info
+                or (info.get("geometry") or {}).get("type")
+                not in ("Polygon", "MultiPolygon")):
+            # Geocodifica ex-novo (region=None per comuni fuori-Campania)
+            region = None if cn in OUTSIDE_CAMPANIA else "Campania"
+            hint = (OUTSIDE_CAMPANIA.get(cn) or prov_hint)
+            info = fetch_polygon(cn, hint, region=region)
+            time.sleep(1.5)
+            if info and (info.get("geometry") or {}).get("type") \
+                    in ("Polygon", "MultiPolygon"):
+                cache[ck] = info
+        if info and (info.get("geometry") or {}).get("type") \
+                in ("Polygon", "MultiPolygon"):
+            f["geometry"] = info["geometry"]
+            n_forced += 1
+        else:
+            print(f"   ! impossibile forzare a poligono: "
+                  f"{f['properties']['provider']} / {cn}")
+    if n_forced:
+        save_cache(cache)
+        print(f"   forzati a poligono: {n_forced} feature non-area")
 
     print("[3/4] copia PDF in data/pdfs/ …")
     for feat, entry in features:
