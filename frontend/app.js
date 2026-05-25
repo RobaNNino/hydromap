@@ -437,7 +437,20 @@ function onEach(feature, layer) {
 async function loadGeoJSON() {
   const r = await fetch(API("/api/geojson"));
   state.geoData = await r.json();
-  state.geoLayer = L.geoJSON(state.geoData, { style: currentStyle, onEachFeature: onEach }).addTo(map);
+  state.geoLayer = L.geoJSON(state.geoData, {
+    style: currentStyle,
+    onEachFeature: onEach,
+    pointToLayer: (feature, latlng) => {
+      const st = currentStyle(feature);
+      return L.circleMarker(latlng, {
+        radius: 7,
+        color: st.color,
+        weight: st.weight,
+        fillColor: st.fillColor,
+        fillOpacity: 0.85,
+      });
+    },
+  }).addTo(map);
   map.fitBounds(state.geoLayer.getBounds(), { padding: [10, 10] });
   let ok = 0, warn = 0, unk = 0;
   for (const f of state.geoData.features) {

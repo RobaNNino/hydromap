@@ -315,13 +315,31 @@ def discover_salerno_sistemi() -> list[dict]:
 
 # ---------- geocoding ----------
 _HEADERS = {"User-Agent": "AcquaMap-build/1.0 (acquamap-campania)"}
+_MISSING = object()
 
 
-def fetch_polygon(comune: str, provincia_hint: str | None = None) -> dict | None:
-    queries = []
+def fetch_polygon(
+    comune: str,
+    provincia_hint: str | None = None,
+    *,
+    area_hint: str | None = None,
+    allow_point: bool = False,
+) -> dict | None:
+    """Geocodifica comune (o quartiere/strada se passato come `comune`).
+    - `area_hint`: contesto aggiuntivo es. "Salerno" per i quartieri.
+    - `allow_point`: se True, accetta anche geometrie Point (es. indirizzi
+      stradali, fontanelle, punti di prelievo).
+    """
+    queries: list[str] = []
+    # Prima: query stretta senza area_hint (più precisa per strade/highway)
     if provincia_hint:
         queries.append(f"{comune}, {provincia_hint}, Campania, Italia")
     queries.append(f"{comune}, Campania, Italia")
+    # Poi: query con area_hint (utile per quartieri ambigui es. "Fratte" -> "Fratte, Salerno")
+    if area_hint and provincia_hint:
+        queries.append(f"{comune}, {area_hint}, {provincia_hint}, Campania, Italia")
+    if area_hint:
+        queries.append(f"{comune}, {area_hint}, Campania, Italia")
     for q in queries:
         try:
             r = requests.get(
@@ -334,12 +352,25 @@ def fetch_polygon(comune: str, provincia_hint: str | None = None) -> dict | None
                 timeout=15,
             )
             if r.status_code != 200:
+                print(f"     ! Nominatim HTTP {r.status_code} q={q!r}")
+                time.sleep(3)
                 continue
-            arr = r.json()
+            try:
+                arr = r.json()
+            except (ValueError, requests.exceptions.JSONDecodeError):
+                print(f"     ! Nominatim non-JSON (rate?) q={q!r} body[:80]={r.text[:80]!r}")
+                time.sleep(5)
+                continue
             if not arr:
                 continue
             ok_types = {"administrative", "city", "town", "village",
-                        "municipality", "hamlet"}
+                        "municipality", "hamlet", "suburb", "neighbourhood",
+                        "quarter", "residential"}
+            # Quando stiamo cercando una zona DENTRO un comune (area_hint),
+            # non vogliamo che Nominatim ci restituisca il comune intero.
+            exclude_municipal = bool(area_hint)
+            municipal_types = {"city", "town", "municipality", "administrative"}
+            # Pass 1: cerca un poligono
             for it in arr:
                 geom = it.get("geojson")
                 if not geom:
@@ -348,7 +379,12 @@ def fetch_polygon(comune: str, provincia_hint: str | None = None) -> dict | None
                     continue
                 t = (it.get("type") or "").lower()
                 cls = (it.get("class") or "").lower()
-                if cls != "boundary" and cls != "place" and t not in ok_types:
+                if (cls not in ("boundary", "place")
+                        and t not in ok_types
+                        and cls != "highway"):
+                    continue
+                # Scarta il poligono del comune stesso quando cerchiamo una zona
+                if exclude_municipal and t in municipal_types and cls == "boundary":
                     continue
                 return {
                     "geometry": geom,
@@ -356,6 +392,23 @@ def fetch_polygon(comune: str, provincia_hint: str | None = None) -> dict | None
                     "lon": float(it["lon"]),
                     "display_name": it.get("display_name", ""),
                 }
+            # Pass 2 (solo se richiesto): accetta Point
+            if allow_point:
+                for it in arr:
+                    geom = it.get("geojson")
+                    if not geom:
+                        continue
+                    if (geom.get("type") or "") != "Point":
+                        continue
+                    t = (it.get("type") or "").lower()
+                    if exclude_municipal and t in municipal_types:
+                        continue
+                    return {
+                        "geometry": geom,
+                        "lat": float(it["lat"]),
+                        "lon": float(it["lon"]),
+                        "display_name": it.get("display_name", ""),
+                    }
         except requests.RequestException:
             time.sleep(2)
             continue
@@ -457,17 +510,52 @@ def main() -> int:
     for i, e in enumerate(entries, 1):
         prov = e["provider"]
         comune = e["comune"]
-        # Cache key = comune (poligono comunale è condiviso tra zona/punti)
-        cache_key = f"{slugify(comune)}|{PROV_HINTS.get(prov,'')}"
-        info = cache.get(cache_key)
+        zona_label = e.get("zona_label")
+        info = None
+
+        # ----- Strategie speciali per provider con molti PDF in un solo comune -----
+        # ABC Napoli (50 punti dentro Napoli) → geocodifica la strada/zona come
+        # Point cosicchè ogni prelievo sia un segnaposto puntuale.
+        # Salerno Sistemi (45 quartieri di Salerno) → cerca prima il quartiere
+        # come boundary/suburb; fallback al poligono comunale.
+        if prov in ("abc_napoli", "salerno_sistemi") and zona_label:
+            # Pulisci "(D01)", "(Q12)" ecc. dal label per la query
+            zona_query = re.sub(r"\s*\([A-Z]?\d+\)\s*$", "", zona_label).strip()
+            zona_key = f"{slugify(comune)}|zona|{slugify(zona_query)}"
+            # Se in cache ma None (fallita in passato per rate limit), riprova.
+            cached = cache.get(zona_key, _MISSING)
+            if cached is _MISSING or cached is None:
+                hint = e.get("provincia") or PROV_HINTS.get(prov)
+                # Accetta anche Point per entrambi: per ABC Napoli sono
+                # indirizzi stradali, per Salerno Sistemi sono quartieri
+                # spesso mappati solo come nodo in OSM.
+                info = fetch_polygon(
+                    zona_query,
+                    hint,
+                    area_hint=comune,
+                    allow_point=True,
+                )
+                n_new += 1
+                time.sleep(2.5)
+                cache[zona_key] = info
+                if n_new % 10 == 0:
+                    save_cache(cache)
+            else:
+                info = cached
+
+        # Fallback (sia per gli altri provider che per ABC/Salerno se zona
+        # non trovata): poligono comunale, cached per comune.
         if info is None:
-            hint = e.get("provincia") or PROV_HINTS.get(prov)
-            info = fetch_polygon(comune, hint)
-            n_new += 1
-            time.sleep(1.1)
-            cache[cache_key] = info
-            if n_new % 10 == 0:
-                save_cache(cache)
+            cache_key = f"{slugify(comune)}|{PROV_HINTS.get(prov,'')}"
+            info = cache.get(cache_key)
+            if info is None:
+                hint = e.get("provincia") or PROV_HINTS.get(prov)
+                info = fetch_polygon(comune, hint)
+                n_new += 1
+                time.sleep(1.1)
+                cache[cache_key] = info
+                if n_new % 10 == 0:
+                    save_cache(cache)
         if not info:
             skipped.append((prov, comune))
             print(f"   ! [{i:4d}] {prov:18s} {comune:30s}  GEOCODE FAIL")
