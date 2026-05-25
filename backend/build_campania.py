@@ -344,6 +344,8 @@ def fetch_polygon(comune: str, provincia_hint: str | None = None) -> dict | None
                 geom = it.get("geojson")
                 if not geom:
                     continue
+                if (geom.get("type") or "") == "Point":
+                    continue
                 t = (it.get("type") or "").lower()
                 cls = (it.get("class") or "").lower()
                 if cls != "boundary" and cls != "place" and t not in ok_types:

@@ -236,7 +236,7 @@ def fetch_polygon(comune: str, provincia_hint: str | None = None) -> dict | None
                     "q": q,
                     "format": "json",
                     "polygon_geojson": 1,
-                    "limit": 1,
+                    "limit": 5,
                     "countrycodes": "it",
                     "addressdetails": 1,
                 },
@@ -248,22 +248,26 @@ def fetch_polygon(comune: str, provincia_hint: str | None = None) -> dict | None
             arr = r.json()
             if not arr:
                 continue
-            it = arr[0]
-            geom = it.get("geojson")
-            if not geom:
-                continue
-            t = (it.get("type") or "").lower()
-            cls = (it.get("class") or "").lower()
             # Vogliamo solo amministrative (comune), non POI casuali
             ok_types = {"administrative", "city", "town", "village", "municipality", "hamlet"}
-            if cls != "boundary" and cls != "place" and t not in ok_types:
-                continue
-            return {
-                "geometry": geom,
-                "lat": float(it["lat"]),
-                "lon": float(it["lon"]),
-                "display_name": it.get("display_name", ""),
-            }
+            for it in arr:
+                geom = it.get("geojson")
+                if not geom:
+                    continue
+                # Scarta Point: vogliamo un poligono comunale,
+                # non il centroide / nodo nominale del posto.
+                if (geom.get("type") or "") == "Point":
+                    continue
+                t = (it.get("type") or "").lower()
+                cls = (it.get("class") or "").lower()
+                if cls != "boundary" and cls != "place" and t not in ok_types:
+                    continue
+                return {
+                    "geometry": geom,
+                    "lat": float(it["lat"]),
+                    "lon": float(it["lon"]),
+                    "display_name": it.get("display_name", ""),
+                }
         except requests.RequestException:
             time.sleep(2)
             continue
@@ -287,6 +291,7 @@ COMUNE_ALIASES = {
     "isola_del_gran_sasso": "Isola del Gran Sasso d'Italia",
     "montorio_potabilizzatore_montorio_colle_di_croce_uscita_finale": "Montorio al Vomano",
     "bussi": "Bussi sul Tirino",
+    "popoli": "Popoli Terme",
     "fara_filorum_petri": "Fara Filiorum Petri",
     "casalguida": "Casalanguida",
     "castiglione_m_m": "Castiglione Messer Marino",
