@@ -36,6 +36,7 @@ GEOJSON_FILES: dict[str, Path] = {
     "acea_ato5": ROOT / "mappa-qualita-ato-5.json",
     "acqualatina": ROOT / "mappa-qualita-acqualatina.json",
     "acqua_pubblica_sabina": ROOT / "mappa-qualita-aps.json",
+    "abruzzo": ROOT / "mappa-qualita-abruzzo.json",
 }
 RESULTS_FILE = ROOT / "results.json"
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
@@ -166,7 +167,9 @@ def _build_enriched_geojson() -> dict:
                 continue
             name_to_provider.setdefault(n, prov_id)
             # Marca subito il provider sulla feature (sovrascrive eventuali default).
-            p["_source_provider"] = prov_id
+            # Se la feature porta già `provider` (es. abruzzo_cam vs abruzzo_ruzzo),
+            # rispettalo: rappresenta il sub-gestore reale.
+            p["_source_provider"] = p.get("provider") or prov_id
             merged_features.append(feat)
 
     raw = {"type": "FeatureCollection", "features": merged_features}

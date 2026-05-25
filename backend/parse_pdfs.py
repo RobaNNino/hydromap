@@ -22,6 +22,7 @@ GEOJSON_FILES = {
     "acea_ato5": ROOT / "mappa-qualita-ato-5.json",
     "acqualatina": ROOT / "mappa-qualita-acqualatina.json",
     "acqua_pubblica_sabina": ROOT / "mappa-qualita-aps.json",
+    "abruzzo": ROOT / "mappa-qualita-abruzzo.json",
 }
 OUT_FILE = ROOT / "results.json"
 
@@ -550,10 +551,421 @@ def parse_pdf_aps(path: Path) -> dict:
     return out
 
 
+# ============================================================
+# Parser ABRUZZO (CAM, Ruzzo, ACA, SASI)
+# ============================================================
+
+# Set di parametri tipici di un rapporto di prova di acqua potabile, con
+# limiti di riferimento del D.Lgs. 18/2023 (Allegato I, parte B). Vengono
+# usati come fallback quando il PDF non riporta esplicitamente i limiti
+# (es. SASI, Ruzzo). Solo valori massimi; pH è gestito a parte.
+_ABRUZZO_REF_LIMITS = {
+    "nitrati": ("mg/l", 50.0),
+    "nitriti": ("mg/l", 0.5),
+    "ammonio": ("mg/l", 0.5),
+    "cloruri": ("mg/l", 250.0),
+    "solfati": ("mg/l", 250.0),
+    "sodio": ("mg/l", 200.0),
+    "fluoruri": ("mg/l", 1.5),
+    "ferro": ("µg/l", 200.0),
+    "alluminio": ("µg/l", 200.0),
+    "manganese": ("µg/l", 50.0),
+    "piombo": ("µg/l", 10.0),
+    "nichel": ("µg/l", 20.0),
+    "arsenico": ("µg/l", 10.0),
+    "cadmio": ("µg/l", 5.0),
+    "cromo": ("µg/l", 25.0),
+    "rame": ("mg/l", 2.0),
+    "boro": ("mg/l", 1.5),
+    "conducibilità": ("µS/cm", 2500.0),
+    "conduttività": ("µS/cm", 2500.0),
+    "torbidità": ("NTU", 1.0),
+    "antiparassitari totali": ("µg/l", 0.5),
+    "idrocarburi policiclici aromatici": ("µg/l", 0.1),
+    "trialometani totali": ("µg/l", 100.0),
+    "uranio": ("µg/l", 30.0),
+    "clorato": ("mg/l", 0.25),
+    "clorito": ("mg/l", 0.25),
+    "bromato": ("µg/l", 10.0),
+}
+
+_MICRO_PARAMS = (
+    "escherichia coli", "batteri coliformi", "enterococchi",
+    "pseudomonas aeruginosa", "clostridium perfringens",
+)
+
+
+def _abruzzo_compliance(out: dict) -> None:
+    """Compila out['summary'] con regole comuni a tutti i parser Abruzzo."""
+    exceed: list[dict] = []
+    total_with_limit = 0
+    for p in out["parameters"]:
+        v = p.get("valore_num")
+        lim = p.get("limite_num")
+        val_raw = (p.get("valore") or "").strip()
+        label = (p.get("parametro") or "").lower()
+        if val_raw.startswith("<"):
+            if lim is not None:
+                total_with_limit += 1
+            continue
+        if any(k in label for k in _MICRO_PARAMS):
+            total_with_limit += 1
+            if v is not None and v > 0:
+                exceed.append({"parametro": p["parametro"],
+                               "valore": p["valore"], "limite": p["limite"] or "0"})
+            continue
+        if label == "ph" or label.startswith("ph "):
+            if v is not None and (v < 6.5 or v > 9.5):
+                exceed.append({"parametro": p["parametro"],
+                               "valore": p["valore"], "limite": p["limite"] or "6,5–9,5"})
+            total_with_limit += 1
+            continue
+        if "cloro" in label and "residuo" in label:
+            continue  # parametro operativo, non sanitario
+        if lim is None or v is None:
+            continue
+        total_with_limit += 1
+        if v > lim:
+            exceed.append({"parametro": p["parametro"],
+                           "valore": p["valore"], "limite": p["limite"]})
+    out["summary"] = {
+        "total_parameters": len(out["parameters"]),
+        "total_with_limit": total_with_limit,
+        "exceedances": exceed,
+        "status": "OK" if not exceed else "ATTENZIONE",
+    }
+
+
+def _abruzzo_lookup_limit(parametro: str) -> tuple[str, float] | None:
+    pl = parametro.lower().strip()
+    for key, (um, lim) in _ABRUZZO_REF_LIMITS.items():
+        if key in pl:
+            return um, lim
+    return None
+
+
+def parse_pdf_cam(path: Path) -> dict:
+    """CAM S.p.A. (Marsica) — riepilogo annuale, 1 tabella per comune.
+
+    Schema tabella:
+      r0: [None, None, None, 'PUNTI DI CAMPIONAMENTO', ...]
+      r1: ['PARAMETRO', 'Unità di Misura', 'Limite e valore guida', <punto1>, <punto2>, ...]
+      r2..: dati. La colonna 'limite' ha forma '≥ 6,5 e ≤ 9,5' per pH, '50' per nitrati, ecc.
+
+    Strategia: prendiamo il MASSIMO valore numerico fra tutti i punti di
+    campionamento (worst-case) come rappresentativo del comune.
+    """
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    with pdfplumber.open(path) as pdf:
+        text = pdf.pages[0].extract_text() or ""
+        tables = pdf.pages[0].extract_tables() or []
+    # metadata
+    m = re.search(r"COMUNE DI\s+([^\n]+)", text, re.IGNORECASE)
+    if m:
+        out["comune"] = _clean(m.group(1)).title()
+    m = re.search(r"anno\s+(\d{4})", text, re.IGNORECASE)
+    out["periodo"] = f"anno {m.group(1)}" if m else None
+    out["zona"] = "Rete di distribuzione"
+
+    if not tables:
+        out["summary"] = {"total_parameters": 0, "total_with_limit": 0,
+                          "exceedances": [], "status": "UNKNOWN"}
+        return out
+    tbl = tables[0]
+    # individua riga header (prima riga con prima cella == 'PARAMETRO')
+    header_idx = None
+    for i, r in enumerate(tbl):
+        if r and (r[0] or "").strip().upper() == "PARAMETRO":
+            header_idx = i
+            break
+    if header_idx is None:
+        out["summary"] = {"total_parameters": 0, "total_with_limit": 0,
+                          "exceedances": [], "status": "UNKNOWN"}
+        return out
+    for row in tbl[header_idx + 1:]:
+        if not row or not row[0]:
+            continue
+        parametro = _clean(row[0])
+        if not parametro or len(parametro) < 2:
+            continue
+        unita = _clean(row[1] if len(row) > 1 else "")
+        limite_raw = _clean(row[2] if len(row) > 2 else "")
+        # estrai limite numerico massimo da stringhe tipo "≥ 6,5 e ≤ 9,5" → 9.5
+        nums = re.findall(r"[<>≤≥]?\s*([0-9]+[.,]?[0-9]*)", limite_raw)
+        lim_num = None
+        if nums:
+            try:
+                lim_num = max(float(x.replace(",", ".")) for x in nums)
+            except ValueError:
+                lim_num = None
+        # valori per ogni punto
+        point_vals_raw = [_clean(c) for c in row[3:] if c and _clean(c) not in {"/", "-"}]
+        if not point_vals_raw:
+            continue
+        # Scegli rappresentante: il MASSIMO valore numerico, oppure il primo
+        # se nessuno è numerico (qualitativo: "Accettabile").
+        nums_v = []
+        for v in point_vals_raw:
+            n = _parse_number(v)
+            if n is not None:
+                nums_v.append((n, v))
+        if nums_v:
+            chosen = max(nums_v, key=lambda x: x[0])
+            valore = chosen[1]
+            valore_num = chosen[0]
+        else:
+            valore = point_vals_raw[0]
+            valore_num = None
+        out["parameters"].append({
+            "parametro": parametro,
+            "unita": unita,
+            "limite": limite_raw,
+            "valore": valore,
+            "valore_num": valore_num,
+            "limite_num": lim_num,
+        })
+    _abruzzo_compliance(out)
+    return out
+
+
+# regex helper: numero italiano con virgola o punto, eventualmente con segno < >
+_NUM_RE = re.compile(r"[<>]?\s*-?\d+(?:[.,]\d+)?")
+
+
+def _extract_lab_text(path: Path) -> str:
+    parts = []
+    with pdfplumber.open(path) as pdf:
+        for page in pdf.pages:
+            parts.append(page.extract_text() or "")
+    return "\n".join(parts)
+
+
+# Parametri canonici e loro alias come appaiono nei rapporti Abruzzo.
+# (la chiave è il nome canonico, il valore è la lista di pattern testuali)
+_ABRUZZO_PARAM_PATTERNS = [
+    ("pH", [r"\bpH\b"]),
+    ("Conducibilità", [r"\bConducibilit[àa]\b", r"\bConduttivit[àa]\b"]),
+    ("Torbidità", [r"\bTorbidit[àa]\b"]),
+    ("Cloro residuo", [r"\bCloro\s+residuo\b", r"\bCloro\s+attivo\s+libero\b"]),
+    ("Nitrati", [r"\bNitrati\b"]),
+    ("Nitriti", [r"\bNitriti\b"]),
+    ("Ammonio", [r"\bAmmonio\b"]),
+    ("Cloruri", [r"\bCloruri\b"]),
+    ("Solfati", [r"\bSolfati\b"]),
+    ("Sodio", [r"\bSodio\b"]),
+    ("Fluoruri", [r"\bFluoruri\b"]),
+    ("Ferro", [r"\bFerro\b"]),
+    ("Manganese", [r"\bManganese\b"]),
+    ("Alluminio", [r"\bAlluminio\b"]),
+    ("Piombo", [r"\bPiombo\b"]),
+    ("Nichel", [r"\bNichel\b"]),
+    ("Arsenico", [r"\bArsenico\b"]),
+    ("Cromo", [r"\bCromo(?:\s+totale)?\b"]),
+    ("Rame", [r"\bRame\b"]),
+    ("Boro", [r"\bBoro\b"]),
+    ("Durezza", [r"\bDurezza\b"]),
+    ("Calcio", [r"\bCalcio\b"]),
+    ("Magnesio", [r"\bMagnesio\b"]),
+    ("Potassio", [r"\bPotassio\b"]),
+    ("Carbonio organico totale (TOC)", [r"Carbonio\s+[Oo]rganico\s+[Tt]otale", r"\bTOC\b"]),
+    ("Antiparassitari totali", [r"ANTIPARASSITARI\s+TOTALI", r"Antiparassitari\s+totali"]),
+    ("Idrocarburi policiclici aromatici (IPA)", [r"IPA\s+totali", r"Idrocarburi\s+policiclici"]),
+    ("Trialometani totali", [r"Trialometani"]),
+    ("Bromato", [r"\bBromato\b"]),
+    ("Clorato", [r"\bClorato\b"]),
+    ("Clorito", [r"\bClorito\b"]),
+    ("Uranio", [r"\bUranio\b"]),
+    ("Cianuro", [r"\bCianuro\b"]),
+    ("Escherichia coli", [r"Escherichia\s+coli"]),
+    ("Batteri coliformi", [r"Batteri\s+[Cc]oliformi"]),
+    ("Enterococchi", [r"Enterococchi"]),
+]
+
+
+def _abruzzo_extract_from_line(line: str) -> tuple[str, str, str] | None:
+    """Da una riga testuale tipo:
+        'Nitrati mg/l 1,5 50' (CAM/SASI)
+        'pH (*) APAT CNR IRSA 2060 Man 29 2003 pH 8,04 6,5-9,5' (SASI)
+        '--> -IPA totali " µg/l <0,002 ≤ 0.1 Calcolo' (ACA)
+        'Nichel µg/l 20 1 1 1 /' (CAM multi-punto: già gestito da parser cam)
+    estrae (valore, unita_hint, limite_hint) dal testo. Ritorna None se non
+    si trova un numero plausibile."""
+    # cattura tutti i numeri/<numeri
+    nums = list(re.finditer(_NUM_RE, line))
+    if not nums:
+        return None
+    # unità: cerchiamo token tipici mg/l, µg/l, NTU, µS/cm, °F, UFC/100ml, mV, pH
+    um_match = re.search(
+        r"\b(mg/l|µg/l|μg/l|ug/l|NTU|µS/cm|μS/cm|uS/cm|°F|UFC/100\s*ml|MPN/100\s*ml|UFC/100|MPN/100|mV|unit[àa]\s*pH|pH)\b",
+        line, re.IGNORECASE)
+    unita = um_match.group(1) if um_match else ""
+    # range pH: "6,5-9,5" o "≥ 6,5 e ≤ 9,5"
+    rng = re.search(r"([0-9]+[,\.][0-9]+)\s*[-–]\s*([0-9]+[,\.][0-9]+)", line)
+    return ("", unita, rng.group(0) if rng else "")
+
+
+def _parse_lab_report(path: Path, *, source: str) -> dict:
+    """Parser line-based comune per Ruzzo / ACA / SASI.
+
+    Strategia robusta:
+      1. Per ogni parametro canonico, cerca una riga che contenga il nome
+         del parametro E un token di unità di misura (mg/l, µg/l, NTU, …).
+      2. Il valore è il PRIMO numero che appare *dopo* il token unità nella
+         riga; questo elimina i falsi positivi dai codici metodo
+         (UNI EN ISO 9308-1: 2017 → "2017" non viene preso).
+      3. Il limite si prende dalla riga (range pH, o numero dopo il valore)
+         oppure dal fallback `_ABRUZZO_REF_LIMITS`.
+    """
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    text = _extract_lab_text(path)
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+
+    # ---- metadata ----
+    m = re.search(r"Comune(?:\s+di)?\s*[:\-]?\s*([A-Z][\wÀ-ÿ\s'’\-]+)", text)
+    if m:
+        cand = _clean(m.group(1))
+        cand = re.split(r"\s+(?:Punto|Codice|Tipologia|Prodotto|Sorgente|Data|Rif)", cand)[0]
+        out["comune"] = cand[:60].title()
+    m = re.search(
+        r"Data\s+(?:di\s+)?[Pp]relievo\s*[:\-]?\s*"
+        r"(\d{1,2}[\-/](?:\d{1,2}|[a-zA-Z]{3})[\-/]\d{2,4})", text)
+    if m:
+        out["periodo"] = m.group(1)
+    m = re.search(r"Punto(?:\s+di)?\s*[Pp]relievo\s*[:\-]?\s*([^\n]+)", text)
+    if m:
+        out["zona"] = _clean(m.group(1))[:80]
+
+    # token unità di misura riconosciuti
+    UNIT_RX = re.compile(
+        r"(?:mg/l|µg/l|μg/l|ug/l|NTU|µS/cm|μS/cm|uS/cm|°F|"
+        r"UFC/100\s*ml|UFC/100|MPN/100\s*ml|MPN/100|mV|unit[àa]\s*pH|pH)",
+        re.IGNORECASE,
+    )
+    # numero "pulito": opzionale <,>, opzionale segno, cifre + virgola/punto opzionali
+    NUM_RX = re.compile(r"(?<![A-Za-z0-9.\-:/])([<>]?\s*-?\d+(?:[.,]\d+)?)(?![A-Za-z0-9])")
+
+    used_lines: set[int] = set()
+    for canon, patterns in _ABRUZZO_PARAM_PATTERNS:
+        rx_name = re.compile("|".join(patterns))
+        is_micro = any(k in canon.lower() for k in _MICRO_PARAMS)
+        is_ph = canon == "pH"
+
+        target_line = None
+        target_idx = -1
+        unit_match = None
+        for i, ln in enumerate(lines):
+            if i in used_lines:
+                continue
+            if len(ln) > 300:
+                continue
+            if not rx_name.search(ln):
+                continue
+            # Per pH, ogni riga con "pH" è ammessa anche senza unità (la riga
+            # SASI "pH (*) APAT CNR IRSA 2060 Man 29 2003 pH 8,04 6,5-9,5"
+            # ha "pH" come unità).
+            um = UNIT_RX.search(ln)
+            if not um and not is_ph:
+                continue
+            target_line = ln
+            target_idx = i
+            unit_match = um
+            break
+        if target_line is None:
+            continue
+        # Determina substring DOPO l'ultimo match di unità (l'unità nei lab
+        # appare PRIMA del valore: "U.M. mg/l 0,641 …").
+        if unit_match is not None:
+            # ultimo match: scorri tutti
+            last_um = list(UNIT_RX.finditer(target_line))[-1]
+            tail = target_line[last_um.end():]
+            unita = last_um.group(0)
+        else:
+            # pH senza unità: rimuovi prima il nome parametro
+            tail = rx_name.sub(" ", target_line, count=1)
+            unita = "pH"
+
+        # estrai numeri "puliti"
+        toks = []
+        for nm in NUM_RX.finditer(tail):
+            raw = nm.group(1).replace(" ", "")
+            n = _parse_number(raw)
+            if n is None:
+                continue
+            # Filtra anni 4-cifre che sembrano date (1900-2099) SOLO se la stringa
+            # è esattamente 4 cifre senza decimali e senza "<"/">"
+            if re.fullmatch(r"-?\d{4}", raw) and 1900 <= int(raw) <= 2099:
+                continue
+            toks.append((raw, n))
+        if not toks:
+            continue
+        valore_raw, valore_num = toks[0]
+        # Limite: per pH cerca range nella riga
+        ref = _abruzzo_lookup_limit(canon)
+        lim_num: float | None = None
+        limite_str = ""
+        if is_ph:
+            rng = re.search(r"([0-9][,.]?[0-9]*)\s*[-–]\s*([0-9][,.]?[0-9]*)", target_line)
+            if rng:
+                limite_str = rng.group(0)
+        if not limite_str and len(toks) >= 2 and not is_micro and not is_ph:
+            # secondo numero della tail può essere il limite (formato CAM/SASI)
+            cand_raw, cand_num = toks[1]
+            # plausibilità: limite tipicamente > valore (worst-case) — non sempre
+            # vero, ma riduce falsi positivi
+            if cand_num is not None and cand_num >= (valore_num or 0):
+                limite_str = cand_raw
+                lim_num = cand_num
+        if lim_num is None and not is_ph:
+            if ref:
+                lim_num = ref[1]
+                if not limite_str:
+                    limite_str = str(ref[1]).replace(".", ",")
+        if is_micro:
+            lim_num = 0.0
+            limite_str = "0"
+        out["parameters"].append({
+            "parametro": canon,
+            "unita": _clean(unita),
+            "limite": limite_str,
+            "valore": valore_raw,
+            "valore_num": valore_num,
+            "limite_num": lim_num,
+        })
+        used_lines.add(target_idx)
+
+    _abruzzo_compliance(out)
+    out["_source"] = source
+    return out
+
+
+def parse_pdf_ruzzo(path: Path) -> dict:
+    return _parse_lab_report(path, source="ruzzo")
+
+
+def parse_pdf_aca(path: Path) -> dict:
+    return _parse_lab_report(path, source="aca")
+
+
+def parse_pdf_sasi(path: Path) -> dict:
+    return _parse_lab_report(path, source="sasi")
+
+
 def _worker(path_str: str) -> tuple[str, dict | str]:
     p = Path(path_str)
     try:
         # Dispatch in base al prefisso del nome file.
+        if p.stem.startswith("abruzzo_cam_"):
+            return p.stem, parse_pdf_cam(p)
+        if p.stem.startswith("abruzzo_ruzzo_"):
+            return p.stem, parse_pdf_ruzzo(p)
+        if p.stem.startswith("abruzzo_aca_"):
+            return p.stem, parse_pdf_aca(p)
+        if p.stem.startswith("abruzzo_sasi_"):
+            return p.stem, parse_pdf_sasi(p)
         if p.stem.startswith("acqualatina_"):
             return p.stem, parse_pdf_acqualatina(p)
         if p.stem.startswith("IMP"):
@@ -574,9 +986,14 @@ def main() -> int:
         except Exception:
             continue
         for feat in data.get("features", []):
-            n = (feat.get("properties") or {}).get("name")
+            props = feat.get("properties") or {}
+            n = props.get("name")
             if n:
-                name_to_provider.setdefault(n, prov_id)
+                # Se la feature porta un suo `provider` (sub-tipo, es.
+                # abruzzo_cam / abruzzo_ruzzo), preferiscilo al provider id
+                # del file GeoJSON contenitore.
+                feat_prov = props.get("provider") or prov_id
+                name_to_provider.setdefault(n, feat_prov)
         print(f"[provider] {prov_id}: {len(data.get('features', []))} features")
 
     if not name_to_provider:

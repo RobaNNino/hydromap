@@ -229,7 +229,7 @@ function switchTo(tabId) {
     compare: "Confronta zone",
     chat: "Assistente AI",
     meteo: "Meteo & Siccità",
-    info: "L'acqua del Lazio",
+    info: "L'acqua di Lazio e Abruzzo",
   };
   const t = $("sheet-title"); if (t) t.textContent = titles[tabId] || "AcquaMap";
 

@@ -1,7 +1,7 @@
 {
-  "name": "AcquaMap — l'acqua del Lazio",
+  "name": "AcquaMap — l'acqua di Lazio e Abruzzo",
   "short_name": "AcquaMap",
-  "description": "Qualità dell'acqua a Roma e nel Lazio: 540+ zone, dati ufficiali, news live, meteo.",
+  "description": "Qualità dell'acqua in Lazio e Abruzzo: 720+ zone, 8 gestori ufficiali, news live, meteo.",
   "lang": "it",
   "dir": "ltr",
   "start_url": "./",

@@ -15,3 +15,9 @@ ai.txt
 ai2.txt
 # NOTA: backend/data/pdfs/ e backend/data/results.json DEVONO essere committati
 # per il deploy backend (Render legge questi file da disco).
+
+# Sorgenti originali Abruzzo (~2000 PDF di rapporti di prova grezzi):
+# i PDF rappresentativi per comune vengono copiati in backend/data/pdfs/
+# da build_abruzzo.py, quindi questa cartella non serve a runtime.
+backend/data/source_pdfs_abruzzo/
+backend/data/abruzzo_polygons_cache.json
