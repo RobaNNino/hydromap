@@ -378,10 +378,16 @@ function setupLocate() {
 // ---------- ESC global ----------
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
-  ["menu-sheet", "search-sheet", "layers-sheet", "basemap-sheet"].forEach(id => {
+  // 1) chiudi prima eventuali modal-sheet aperte
+  const openModal = ["menu-sheet", "search-sheet", "layers-sheet", "basemap-sheet"].find(id => {
     const el = document.getElementById(id);
-    if (el && !el.classList.contains("hidden")) closeModalSheet(id);
+    return el && !el.classList.contains("hidden");
   });
+  if (openModal) { closeModalSheet(openModal); return; }
+  // 2) altrimenti riduci il bottom-sheet principale
+  const sh = $("sheet");
+  if (sh && sh.dataset.state === "full") { setSheetState("half"); return; }
+  if (sh && sh.dataset.state === "half") { setSheetState("peek"); return; }
 });
 
 // ---------- ZONE GEOJSON ----------
@@ -869,7 +875,8 @@ async function setParameter(name) {
   state.paramData = { ...d, byName };
   const legend = $("param-legend");
   const step = (d.max - d.min) / RAMP.length;
-  legend.innerHTML = `<div class="legend-title">${escapeHtml(name)} <small>(${d.items[0]?.unita || ""})</small></div>
+  legend.innerHTML = `<button class="legend-close" id="legend-close" aria-label="Chiudi legenda" title="Chiudi">✕</button>
+    <div class="legend-title">${escapeHtml(name)} <small>(${d.items[0]?.unita || ""})</small></div>
     <div class="legend-bar">${RAMP.map((c, i) => {
       const v = d.min + step * i;
       return `<span style="background:${c}" title="${v.toFixed(3)}"></span>`;
@@ -877,6 +884,11 @@ async function setParameter(name) {
     <div class="legend-range"><span>${d.min.toFixed(2)}</span><span>med ${d.median.toFixed(2)}</span><span>${d.max.toFixed(2)}</span></div>
     <div class="legend-hint">${d.count} zone · bordo rosso = supero limite</div>`;
   legend.classList.remove("hidden");
+  $("legend-close")?.addEventListener("click", () => {
+    const sel = $("param-select");
+    if (sel) sel.value = "";
+    setParameter("");
+  });
   refreshZoneStyle();
 }
 $("param-select").addEventListener("change", e => setParameter(e.target.value));
@@ -1141,10 +1153,12 @@ function renderMeteo(m) {
   banner.style.background = (d.color || "#94a3b8") + "22";
   banner.style.borderLeft = `4px solid ${d.color || "#94a3b8"}`;
   banner.style.color = d.color || "#94a3b8";
-  banner.innerHTML = `<strong>${(d.label || "n/d").toUpperCase()}</strong> ·
+  banner.innerHTML = `<div class="drought-text"><strong>${(d.label || "n/d").toUpperCase()}</strong> ·
     indice 90gg vs media = ${d.ratio_90d_vs_normal ?? "n/d"} ·
-    ${m.rain_mm.last_90d} mm vs ${m.rain_mm.expected_90d_from_365d_mean} attesi`;
+    ${m.rain_mm.last_90d} mm vs ${m.rain_mm.expected_90d_from_365d_mean} attesi</div>
+    <button class="drought-close" id="drought-dismiss" aria-label="Chiudi" title="Chiudi">✕</button>`;
   banner.classList.remove("hidden");
+  $("drought-dismiss")?.addEventListener("click", () => banner.classList.add("hidden"));
 
   $("meteo-kpis").innerHTML = `
     <div class="kpi"><strong>${m.rain_mm.last_7d}</strong><span>mm 7gg</span></div>

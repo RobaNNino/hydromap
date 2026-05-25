@@ -22,7 +22,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
-<link rel="stylesheet" href="style.css?v=20260522b" />
+<link rel="stylesheet" href="style.css?v=20260525b" />
 </head>
 <body>
 
@@ -249,7 +249,12 @@
     <div class="ms-backdrop" data-close></div>
     <div class="ms-panel">
       <div class="ms-handle" data-close></div>
-      <h3 class="ms-title">AcquaMap</h3>
+      <div class="ms-header">
+        <h3 class="ms-title">AcquaMap</h3>
+        <button class="ms-close" data-close aria-label="Chiudi">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+        </button>
+      </div>
       <button class="ms-item" data-tab="zone">📍 <span>Mappa &amp; Zona</span></button>
       <button class="ms-item" data-tab="dashboard">📊 <span>Dashboard</span></button>
       <button class="ms-item" data-tab="news">📰 <span>News real-time</span></button>
@@ -271,6 +276,12 @@
     <div class="ms-backdrop" data-close></div>
     <div class="ms-panel ms-top">
       <div class="ms-handle" data-close></div>
+      <div class="ms-header">
+        <h3 class="ms-title">Cerca</h3>
+        <button class="ms-close" data-close aria-label="Chiudi">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+        </button>
+      </div>
       <div class="search-input-wrap">
         <svg class="search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
         <input type="text" id="search-input" placeholder="Comune, zona, parametro…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
@@ -296,7 +307,12 @@
     <div class="ms-backdrop" data-close></div>
     <div class="ms-panel">
       <div class="ms-handle" data-close></div>
-      <h3 class="ms-title">Livelli e parametri</h3>
+      <div class="ms-header">
+        <h3 class="ms-title">Livelli e parametri</h3>
+        <button class="ms-close" data-close aria-label="Chiudi">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+        </button>
+      </div>
 
       <div class="ms-section">
         <div class="ms-section-lbl">Livelli</div>
@@ -332,7 +348,12 @@
     <div class="ms-backdrop" data-close></div>
     <div class="ms-panel">
       <div class="ms-handle" data-close></div>
-      <h3 class="ms-title">Mappa di base</h3>
+      <div class="ms-header">
+        <h3 class="ms-title">Mappa di base</h3>
+        <button class="ms-close" data-close aria-label="Chiudi">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+        </button>
+      </div>
       <div class="bm-grid" id="bm-grid">
         <button class="bm-card active" data-bm="osm">
           <div class="bm-thumb bm-osm"></div>
@@ -366,6 +387,6 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="app.js?v=20260520a"></script>
+<script src="app.js?v=20260525a"></script>
 </body>
 </html>

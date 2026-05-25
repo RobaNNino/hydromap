@@ -152,7 +152,17 @@ button { font-family: inherit; }
   z-index: 450; font-size: 12px;
 }
 .param-legend.hidden { display: none; }
-.legend-title { font-weight: 600; margin-bottom: 6px; color: var(--text); }
+.legend-close {
+  position: absolute; top: 4px; right: 6px;
+  width: 22px; height: 22px;
+  border: none; background: transparent;
+  color: var(--text-2); font-size: 14px; line-height: 1;
+  cursor: pointer; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s, color .15s;
+}
+.legend-close:hover { background: var(--surface-3); color: var(--text); }
+.legend-title { font-weight: 600; margin-bottom: 6px; color: var(--text); padding-right: 22px; }
 .legend-title small { color: var(--muted); font-weight: 400; }
 .legend-bar { display: flex; height: 12px; border-radius: 4px; overflow: hidden; }
 .legend-bar span { flex: 1; }
@@ -328,6 +338,24 @@ a:hover { text-decoration: underline; }
   margin: 0 auto 10px auto;
 }
 .ms-title { margin: 4px 0 14px 0; font-size: 17px; font-weight: 700; color: var(--text); }
+.ms-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin: 4px 0 14px 0;
+}
+.ms-header .ms-title { margin: 0; flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ms-close {
+  width: 34px; height: 34px; flex-shrink: 0;
+  border: none; background: var(--surface-3); color: var(--text-2);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: background .15s;
+}
+.ms-close:hover { background: var(--border-2); color: var(--text); }
+.ms-close:active { background: var(--border-2); }
+.ms-close svg { width: 16px; height: 16px; }
 .ms-item {
   display: flex; align-items: center; gap: 12px; width: 100%;
   border: none; background: transparent;
@@ -835,8 +863,21 @@ a:hover { text-decoration: underline; }
 .drought-banner {
   padding: 10px 14px; border-radius: var(--radius);
   margin: 8px 0 12px 0; font-size: 13px;
+  display: flex; align-items: center; gap: 10px;
 }
 .drought-banner.hidden { display: none; }
+.drought-text { flex: 1; min-width: 0; }
+.drought-close {
+  flex-shrink: 0;
+  width: 26px; height: 26px;
+  border: none; background: transparent;
+  color: currentColor; opacity: .7;
+  font-size: 14px; line-height: 1; cursor: pointer;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity .15s, background .15s;
+}
+.drought-close:hover { opacity: 1; background: rgba(0,0,0,.06); }
 .forecast-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
