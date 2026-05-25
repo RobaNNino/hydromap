@@ -476,6 +476,81 @@ COMUNE_ALIASES = {
 }
 
 
+def _voronoi_tessellate_provider(
+        features: list[tuple[dict, dict]],
+        cache: dict,
+        prov_key: str,
+        comune_name: str) -> None:
+    """Sostituisce la geometry di ogni feature del provider con la cella
+    Voronoi corrispondente, clippata al confine del comune. Garantisce
+    poligoni adiacenti che coprono il comune senza sovrapposizioni."""
+    from shapely.geometry import (
+        MultiPoint, Point as SPoint, shape, mapping)
+    from shapely.ops import voronoi_diagram, unary_union
+
+    target_prov = f"campania_{prov_key}"
+    subset = [(f, e) for (f, e) in features
+              if f["properties"].get("provider") == target_prov]
+    if len(subset) < 2:
+        return
+    cache_key = f"{slugify(comune_name)}|{PROV_HINTS.get(prov_key, '')}"
+    comune_info = cache.get(cache_key)
+    if not comune_info or not comune_info.get("geometry"):
+        print(f"   ! Voronoi {prov_key}: manca poligono comune in cache")
+        return
+    boundary = shape(comune_info["geometry"])
+    if not boundary.is_valid:
+        boundary = boundary.buffer(0)
+    # Deduplica i seed coincidenti (Voronoi non gestisce punti duplicati):
+    # se due feature hanno lat/lon identici, sposta leggermente il secondo.
+    seen: dict[tuple, int] = {}
+    seeds: list[tuple[float, float]] = []
+    for f, _ in subset:
+        lon = float(f["properties"]["lon"])
+        lat = float(f["properties"]["lat"])
+        key = (round(lon, 6), round(lat, 6))
+        if key in seen:
+            seen[key] += 1
+            # sposta di ~50m in cerchio attorno
+            import math as _math
+            ang = seen[key] * 2.39996  # spirale a golden angle
+            r = 0.0006 * (1 + seen[key] / 10)
+            lon += r * _math.cos(ang)
+            lat += r * _math.sin(ang)
+        else:
+            seen[key] = 0
+        seeds.append((lon, lat))
+    pts = [SPoint(x, y) for x, y in seeds]
+    mp = MultiPoint(pts)
+    envelope = boundary.buffer(0.15).envelope
+    vd = voronoi_diagram(mp, envelope=envelope)
+    cells = list(vd.geoms)
+    # Associa ogni cella al seed che la genera (covers); fallback distanza.
+    n_clipped = 0
+    for (f, _), p in zip(subset, pts):
+        chosen = None
+        for c in cells:
+            if c.covers(p):
+                chosen = c
+                break
+        if chosen is None:
+            chosen = min(cells, key=lambda c: c.distance(p))
+        clipped = chosen.intersection(boundary)
+        if clipped.is_empty or clipped.area == 0:
+            # micro-buffer di sicurezza (caso patologico: seed fuori boundary)
+            clipped = p.buffer(0.0008).intersection(boundary)
+            if clipped.is_empty:
+                clipped = p.buffer(0.0008)
+        if clipped.geom_type == "GeometryCollection":
+            polys = [g for g in clipped.geoms
+                     if g.geom_type in ("Polygon", "MultiPolygon")]
+            clipped = unary_union(polys) if polys else p.buffer(0.0008)
+        f["geometry"] = mapping(clipped)
+        n_clipped += 1
+    print(f"   Voronoi {prov_key}: {n_clipped} celle clippate "
+          f"({comune_name})")
+
+
 def main() -> int:
     PDF_OUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -608,6 +683,20 @@ def main() -> int:
 
     save_cache(cache)
     print(f"   geocodificati: {len(features)}  /  skippati: {len(skipped)}")
+
+    # ----- Voronoi tassellazione per ABC Napoli e Salerno Sistemi -----
+    # Tutti i prelievi di questi provider sono concentrati in un singolo
+    # comune (Napoli / Salerno) e fino ad ora venivano resi come Point o
+    # LineString. L'utente vuole invece poligoni adiacenti che dividano
+    # il territorio comunale senza sovrapposizioni: applico un Voronoi
+    # sui seed (lat/lon) clippato al confine del comune.
+    try:
+        _voronoi_tessellate_provider(
+            features, cache, "abc_napoli", "Napoli")
+        _voronoi_tessellate_provider(
+            features, cache, "salerno_sistemi", "Salerno")
+    except Exception as exc:
+        print(f"   ! Voronoi fallito: {exc}")
 
     print("[3/4] copia PDF in data/pdfs/ …")
     for feat, entry in features:
