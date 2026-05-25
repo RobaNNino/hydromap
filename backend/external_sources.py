@@ -170,6 +170,112 @@ OFFICIAL_SOURCES = [
         "type": "Portale gestore",
         "scraped": True,
     },
+    # ---------- Campania ----------
+    {
+        "id": "campania_abc_napoli",
+        "provider": "campania_abc_napoli",
+        "title": "ABC Napoli — Acqua Bene Comune",
+        "description": (
+            "ABC Napoli S.p.A. (Acqua Bene Comune) gestisce il servizio idrico "
+            "della città di Napoli. Pubblica i report semestrali dei punti di "
+            "campionamento (fontanelle e prese pubbliche)."
+        ),
+        "url": "https://www.abc.napoli.it/qualita-dellacqua",
+        "agency": "ABC Napoli S.p.A.",
+        "ato": "ATO 2 — Napoli Volturno",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "campania_alto_calore",
+        "provider": "campania_alto_calore",
+        "title": "Alto Calore Servizi — Avellino / Benevento",
+        "description": (
+            "Alto Calore Servizi S.p.A. gestisce il servizio idrico integrato "
+            "per oltre 120 comuni delle province di Avellino e Benevento. "
+            "Pubblica un report semestrale per ciascun comune."
+        ),
+        "url": "https://www.altocalore.it/qualita-acqua/",
+        "agency": "Alto Calore Servizi S.p.A.",
+        "ato": "ATO 1 — Calore Irpino",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "campania_gesesa",
+        "provider": "campania_gesesa",
+        "title": "GESESA — Benevento e Sannio",
+        "description": (
+            "GESESA S.p.A. gestisce il servizio idrico della città di "
+            "Benevento e di una ventina di comuni del Sannio. Pubblica un "
+            "monitoraggio annuale con riferimento al D.Lgs. 18/2023."
+        ),
+        "url": "https://www.gesesa.it/qualita-dellacqua/",
+        "agency": "GESESA S.p.A.",
+        "ato": "ATO 1 — Calore Irpino",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "campania_gori",
+        "provider": "campania_gori",
+        "title": "GORI — Vesuviano e Penisola Sorrentina",
+        "description": (
+            "GORI S.p.A. gestisce il servizio idrico integrato di 75 comuni "
+            "tra Napoli e Salerno (area vesuviana, agro sarnese-nocerino, "
+            "penisola sorrentina). Pubblica certificati di garanzia semestrali."
+        ),
+        "url": "https://www.goriacqua.com/qualita-dellacqua/",
+        "agency": "GORI S.p.A.",
+        "ato": "ATO 3 — Sarnese Vesuviano",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "campania_itl_spa",
+        "provider": "campania_itl_spa",
+        "title": "I.T.L. S.p.A. — Casertano",
+        "description": (
+            "I.T.L. S.p.A. (Caserta) gestisce il servizio idrico per numerosi "
+            "comuni della provincia di Caserta. Pubblica rapporti di prova "
+            "puntuali per ciascun sito di campionamento, eseguiti dal "
+            "laboratorio Natura S.r.l."
+        ),
+        "url": "https://www.itlspa.it/",
+        "agency": "I.T.L. S.p.A.",
+        "ato": "ATO 2 — Napoli Volturno (CE)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "campania_nepta_acqua",
+        "provider": "campania_nepta_acqua",
+        "title": "Nepta Acqua — Caserta",
+        "description": (
+            "Nepta Acqua gestisce il servizio idrico del comune di Caserta, "
+            "pubblicando i risultati dei controlli per ciascun punto di "
+            "prelievo della rete cittadina."
+        ),
+        "url": "",
+        "agency": "Nepta Acqua S.r.l.",
+        "ato": "Caserta (gestione locale)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "campania_salerno_sistemi",
+        "provider": "campania_salerno_sistemi",
+        "title": "Salerno Sistemi — Salerno",
+        "description": (
+            "Salerno Sistemi S.p.A. gestisce il servizio idrico della città di "
+            "Salerno, pubblicando dati per ciascun quartiere/zona della rete."
+        ),
+        "url": "https://serviziidrici.grupposistemisalerno.it/qualita-dellacqua/",
+        "agency": "Salerno Sistemi S.p.A.",
+        "ato": "ATO 4 — Sele",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
     # ---------- Fonti istituzionali ----------
     {
         "id": "salute",

@@ -23,6 +23,7 @@ GEOJSON_FILES = {
     "acqualatina": ROOT / "mappa-qualita-acqualatina.json",
     "acqua_pubblica_sabina": ROOT / "mappa-qualita-aps.json",
     "abruzzo": ROOT / "mappa-qualita-abruzzo.json",
+    "campania": ROOT / "mappa-qualita-campania.json",
 }
 OUT_FILE = ROOT / "results.json"
 
@@ -904,7 +905,7 @@ def _parse_lab_report(path: Path, *, source: str) -> dict:
         if len(ln) > 400:
             continue
         for canon, patterns in _ABRUZZO_PARAM_PATTERNS:
-            if any(re.search(p, ln) for p in patterns):
+            if any(re.search(p, ln, re.IGNORECASE) for p in patterns):
                 line_canon[i] = canon
                 break
     occ_set = set(line_canon.keys())
@@ -919,17 +920,33 @@ def _parse_lab_report(path: Path, *, source: str) -> dict:
         is_micro = any(k in canon.lower() for k in _MICRO_PARAMS)
 
         # Componi: riga corrente + fino a 2 righe successive (stop alla prossima occorrenza)
-        parts = [lines[line_idx]]
-        for j in (1, 2):
-            ni = line_idx + j
-            if ni >= len(lines) or ni in occ_set:
-                break
-            parts.append(lines[ni])
-        # Prependi riga precedente se contiene un'unità (caso ACA col header su riga separata)
-        if line_idx > 0 and (line_idx - 1) not in occ_set:
-            prev = lines[line_idx - 1]
-            if len(prev) < 80 and UNIT_RX.search(prev):
-                parts.insert(0, prev)
+        cur = lines[line_idx]
+        # Verifica se la riga corrente ha già unità + almeno un numero a destra
+        # → in tal caso NON serve estendere (evita di "rubare" valori da righe
+        # vicine quando il PDF mette ogni parametro su una riga distinta).
+        cur_clean = cur
+        for pat in patterns:
+            cur_clean = re.sub(pat, " ", cur_clean, count=1, flags=re.IGNORECASE)
+        cur_um = UNIT_RX.search(cur_clean)
+        cur_has_value = bool(cur_um and NUM_RX.search(cur_clean[cur_um.end():]))
+        cur_has_ph_value = is_ph and any(
+            0 <= (_parse_number(nm.group(1).replace(" ", "")) or -99) <= 14
+            for nm in NUM_RX.finditer(cur_clean))
+        self_contained = cur_has_value or cur_has_ph_value
+
+        parts = [cur]
+        if not self_contained:
+            for j in (1, 2):
+                ni = line_idx + j
+                if ni >= len(lines) or ni in occ_set:
+                    break
+                parts.append(lines[ni])
+            # Prependi riga precedente se contiene un'unità (caso ACA col header
+            # su riga separata) — SOLO se la riga corrente non ha già unità.
+            if line_idx > 0 and (line_idx - 1) not in occ_set and not cur_um:
+                prev = lines[line_idx - 1]
+                if len(prev) < 80 and UNIT_RX.search(prev):
+                    parts.insert(0, prev)
         composed = " ".join(parts)
 
         # Rimuovi il nome del parametro dalla riga composta, così "°C" dentro
@@ -1065,6 +1082,18 @@ def parse_pdf_gransasso(path: Path) -> dict:
     return _parse_lab_report(path, source="gransasso")
 
 
+# Wrapper Campania: usano tutti il parser generico lab_report che funziona
+# bene sui formati tabellari di ABC/Alto Calore/Gesesa/GORI/ITL/Nepta/Salerno.
+def parse_pdf_campania(path: Path) -> dict:
+    # Estrae il sotto-provider dal nome file:
+    # campania_<provider>_<slug>.pdf  → source = "campania_<provider>"
+    parts = path.stem.split("_", 2)
+    src = "campania"
+    if len(parts) >= 2 and parts[0] == "campania":
+        src = f"campania_{parts[1]}"
+    return _parse_lab_report(path, source=src)
+
+
 def _worker(path_str: str) -> tuple[str, dict | str]:
     p = Path(path_str)
     try:
@@ -1079,6 +1108,8 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_sasi(p)
         if p.stem.startswith("abruzzo_gransasso_"):
             return p.stem, parse_pdf_gransasso(p)
+        if p.stem.startswith("campania_"):
+            return p.stem, parse_pdf_campania(p)
         if p.stem.startswith("acqualatina_"):
             return p.stem, parse_pdf_acqualatina(p)
         if p.stem.startswith("IMP"):

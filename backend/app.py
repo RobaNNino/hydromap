@@ -37,6 +37,7 @@ GEOJSON_FILES: dict[str, Path] = {
     "acqualatina": ROOT / "mappa-qualita-acqualatina.json",
     "acqua_pubblica_sabina": ROOT / "mappa-qualita-aps.json",
     "abruzzo": ROOT / "mappa-qualita-abruzzo.json",
+    "campania": ROOT / "mappa-qualita-campania.json",
 }
 RESULTS_FILE = ROOT / "results.json"
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
