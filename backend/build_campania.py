@@ -459,9 +459,17 @@ def discover_acqua_campania() -> list[dict]:
     base = SRC_DIR / "Acqua_Campania"
     if not base.exists():
         return []
+    # Zone che ricoprirebbero l'intero comune di Napoli, coprendo le 50
+    # celle Voronoi di ABC Napoli (l'utente vuole che ABC resti visibile).
+    skip_keys = {
+        "consegna-napoli-cupa-sfondata-dn-1800",
+        "consegna-napoli-cupa-sfondata-dn-2100",
+    }
     out: list[dict] = []
     for sub in sorted(p for p in base.iterdir() if p.is_dir()):
         name = sub.name
+        if name in skip_keys:
+            continue
         pdfs = sorted(sub.glob("*.pdf"), key=lambda p: _file_date(p.name),
                       reverse=True)
         if not pdfs:
