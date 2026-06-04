@@ -38,6 +38,18 @@ DATA_DIR = HERE / "data"
 PDF_OUT_DIR = DATA_DIR / "pdfs"
 POLY_CACHE_FILE = DATA_DIR / "campania_polygons_cache.json"
 OUT_GEOJSON = DATA_DIR / "mappa-qualita-campania.json"
+# Poligoni reali dei distretti ABC Napoli estratti dalla mappa ufficiale
+# (backend/extract_abc_districts.py): { "D01": {"name","pdf","ring"}, ... }
+ABC_DISTRICTS_FILE = DATA_DIR / "abc_napoli_districts.json"
+
+
+def load_abc_districts() -> dict[str, dict]:
+    if ABC_DISTRICTS_FILE.exists():
+        try:
+            return json.loads(ABC_DISTRICTS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
 
 PROVIDER_INFO = {
     "abc_napoli":       {"label": "ABC Napoli S.p.A.",                       "ato": "ATO 2 — Napoli Volturno",     "url": "https://www.abc.napoli.it/"},
@@ -218,6 +230,7 @@ def discover_abc_napoli() -> list[dict]:
             "provider": "abc_napoli",
             "comune": "Napoli",
             "zona_label": zona_label,
+            "codice": codice,
             "slug": slugify(f"{codice}_{label}"),
             "pdf": p,
         })
@@ -891,6 +904,7 @@ def main() -> int:
 
     print("[2/4] geocoding poligoni (Nominatim, cache)…")
     cache = load_cache()
+    abc_districts = load_abc_districts()
     features = []
     skipped: list[tuple[str, str]] = []
     n_new = 0
@@ -900,12 +914,37 @@ def main() -> int:
         zona_label = e.get("zona_label")
         info = None
 
+        # ----- ABC Napoli: poligono REALE del distretto -----
+        # Usa i poligoni ufficiali estratti dalla mappa ABC (per codice
+        # distretto Dxx) invece di geocodificare/tassellare. Ogni distretto
+        # ha il suo poligono esatto così come pubblicato dal gestore.
+        if prov == "abc_napoli":
+            cod = e.get("codice")
+            dist = abc_districts.get(cod)
+            if dist and dist.get("ring"):
+                ring = dist["ring"]
+                try:
+                    from shapely.geometry import Polygon as _Poly
+                    c = _Poly(ring).centroid
+                    clat, clon = c.y, c.x
+                except Exception:
+                    xs = [p[0] for p in ring]
+                    ys = [p[1] for p in ring]
+                    clon = sum(xs) / len(xs)
+                    clat = sum(ys) / len(ys)
+                info = {
+                    "geometry": {"type": "Polygon", "coordinates": [ring]},
+                    "lat": clat,
+                    "lon": clon,
+                    "display_name": dist.get("name", ""),
+                }
+
         # ----- Strategie speciali per provider con molti PDF in un solo comune -----
         # ABC Napoli (50 punti dentro Napoli) → geocodifica la strada/zona come
         # Point cosicchè ogni prelievo sia un segnaposto puntuale.
         # Salerno Sistemi (45 quartieri di Salerno) → cerca prima il quartiere
         # come boundary/suburb; fallback al poligono comunale.
-        if prov in ("abc_napoli", "salerno_sistemi",
+        if info is None and prov in ("salerno_sistemi",
                     "asis_salernitana", "acquedotti_scpa") and zona_label:
             # Pulisci "(D01)", "(Q12)" ecc. dal label per la query
             zona_query = re.sub(r"\s*\([A-Z]?\d+\)\s*$", "", zona_label).strip()
@@ -955,7 +994,7 @@ def main() -> int:
             # opache che coprono i Point dei quartieri). Convertilo in Point
             # con jitter deterministico basato sul nome zona.
             if (info is not None
-                    and prov in ("abc_napoli", "salerno_sistemi",
+                    and prov in ("salerno_sistemi",
                                  "asis_salernitana",
                                  "acquedotti_scpa")):
                 gt = (info.get("geometry") or {}).get("type")
@@ -1012,8 +1051,6 @@ def main() -> int:
     # il territorio comunale senza sovrapposizioni: applico un Voronoi
     # sui seed (lat/lon) clippato al confine del comune.
     try:
-        _voronoi_tessellate_provider(
-            features, cache, "abc_napoli", "Napoli")
         _voronoi_tessellate_provider(
             features, cache, "salerno_sistemi", "Salerno")
         # ASIS e Acquedotti SCPA hanno più prelievi per comune sparsi su
