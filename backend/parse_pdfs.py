@@ -26,6 +26,7 @@ GEOJSON_FILES = {
     "campania": ROOT / "mappa-qualita-campania.json",
     "molise": ROOT / "mappa-qualita-molise.json",
     "puglia": ROOT / "mappa-qualita-puglia.json",
+    "basilicata": ROOT / "mappa-qualita-basilicata.json",
     "lazio_extra": ROOT / "mappa-qualita-lazio-extra.json",
 }
 OUT_FILE = ROOT / "results.json"
@@ -763,12 +764,20 @@ def parse_pdf_cam(path: Path) -> dict:
 _NUM_RE = re.compile(r"[<>]?\s*-?\d+(?:[.,]\d+)?")
 
 
+# Sostituisce i codici CID prodotti da font senza mappa (frequenti nei referti
+# AL Lab / Acquedotto Lucano): (cid:151)=µ, (cid:131)=°, (cid:147)=±.
+_CID_SUBS = [("(cid:151)", "µ"), ("(cid:131)", "°"), ("(cid:147)", "±")]
+
+
 def _extract_lab_text(path: Path) -> str:
     parts = []
     with pdfplumber.open(path) as pdf:
         for page in pdf.pages:
             parts.append(page.extract_text() or "")
-    return "\n".join(parts)
+    t = "\n".join(parts)
+    for bad, good in _CID_SUBS:
+        t = t.replace(bad, good)
+    return t
 
 
 # Parametri canonici e loro alias come appaiono nei rapporti Abruzzo.
@@ -1464,6 +1473,42 @@ def parse_pdf_puglia(path: Path) -> dict:
     return out
 
 
+def parse_pdf_basilicata(path: Path) -> dict:
+    """Parser per i referti di Acquedotto Lucano S.p.A. (Basilicata).
+
+    Due laboratori coinvolti:
+    - Lab 1843 (AL interno): colonne «Nome prova | Metodo | Unità | Valore | LdR | Limiti».
+      I font usano codici CID (corretti da _extract_lab_text): (cid:151)=µ, ecc.
+    - Lab 0648 (SCA esterno): colonne «Parametri | Un.Misura | Risultati | U | Metodi | …».
+
+    Il parser generico _parse_lab_report (Abruzzo) funziona su entrambi i layout
+    perché in entrambi l'unità precede il valore. Qui aggiungiamo solo:
+    1. La correzione CID (già in _extract_lab_text).
+    2. Un'estrazione precisa del comune dall'intestazione «Comune: NOME».
+    """
+    out = _parse_lab_report(path, source="basilicata_al")
+    # Il regex generico cattura troppo ("ABRIOLA\nLuogo di prelievo" → title-case errato).
+    # Re-estraiamo il comune dalla prima riga «^Comune: NOME$».
+    text = _extract_lab_text(path)
+    m = re.search(r"^Comune\s*:\s*([A-ZÀÈÌÒÙÀ-ÿ][^\n]{0,50})", text, re.MULTILINE)
+    if m:
+        comune_raw = m.group(1).strip()
+        # Togli eventuale testo sulla stessa riga oltre il comune (es. note)
+        comune_raw = re.split(r"\s{3,}|\t", comune_raw)[0]
+        out["comune"] = comune_raw.title()
+    # Se il formato è SCA (niente riga «Comune:»), prova dalla descrizione campione.
+    if not out.get("comune") or len(out.get("comune", "")) > 50:
+        m2 = re.search(
+            r"[Ss]erbatoio\s+[^\-\n]{0,60}[-–]\s*([A-ZÀÈÌÒÙ][a-zA-ZÀ-ÿ\s'']+?)"
+            r"\s*(?:\([A-Z]{2}\))?\s*\n",
+            text,
+        )
+        if m2:
+            out["comune"] = m2.group(1).strip().title()
+    out["_source"] = "basilicata_al"
+    return out
+
+
 def parse_pdf_molise(path: Path) -> dict:
     # molise_*_<slug>.pdf → rapporti di prova GRIM / Lab Ambiente e Sicurezza.
     # Layout "valore prima dell'unità"; le scansioni di provincia non hanno
@@ -1574,6 +1619,8 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_molise(p)
         if p.stem.startswith("puglia_aqp_"):
             return p.stem, parse_pdf_puglia(p)
+        if p.stem.startswith("basilicata_al_"):
+            return p.stem, parse_pdf_basilicata(p)
         if p.stem.startswith("lazio_idrica_"):
             return p.stem, parse_pdf_lazio_idrica(p)
         if p.stem.startswith("acqualatina_"):

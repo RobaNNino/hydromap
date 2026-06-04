@@ -22,5 +22,11 @@ ai2.txt
 backend/data/source_pdfs_abruzzo/
 backend/data/abruzzo_polygons_cache.json
 
+# Sorgenti originali Basilicata (~258 PDF Acquedotto Lucano, ~170 MB):
+# i PDF rappresentativi per comune vengono copiati in backend/data/pdfs/
+# da build_basilicata.py, quindi questa cartella non serve a runtime.
+backend/acquedottolucano_pdf/
+backend/data/basilicata_polygons_cache.json
+
 # build logs
 *.log

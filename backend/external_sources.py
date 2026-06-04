@@ -187,6 +187,23 @@ OFFICIAL_SOURCES = [
         "type": "Portale gestore",
         "scraped": True,
     },
+    # ---------- Basilicata ----------
+    {
+        "id": "basilicata_al",
+        "provider": "basilicata_al",
+        "title": "Acquedotto Lucano — Basilicata",
+        "description": (
+            "Acquedotto Lucano S.p.A. gestisce il servizio idrico integrato "
+            "in tutti i 131 comuni della Basilicata. Pubblica i rapporti di "
+            "prova per i punti di prelievo (serbatoi e abitati) della rete "
+            "acquedottistica regionale."
+        ),
+        "url": "https://www.acquedottolucano.it/qualita-acqua",
+        "agency": "Acquedotto Lucano S.p.A.",
+        "ato": "EGRIB — Ente di Governo per i Rifiuti e le Risorse Idriche della Basilicata",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
     # ---------- Lazio (extra) ----------
     {
         "id": "lazio_idrica_ardea",
