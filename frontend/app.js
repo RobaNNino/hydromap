@@ -497,7 +497,10 @@ async function selectZone(name, layer) {
 
 function renderZone(d, name) {
   const s = d.summary || {};
-  const badgeClass = s.status === "OK" ? "ok" : s.status === "ATTENZIONE" ? "warn" : "unk";
+  const badgeClass = s.status === "OK" ? "ok" : s.status === "ATTENZIONE" ? "warn" : s.status === "INFORMATIVO" ? "info" : "unk";
+  const noteBlock = s.note
+    ? `<div class="zone-note">ℹ️ ${escapeHtml(s.note)}</div>`
+    : "";
   const exceedSet = new Set((s.exceedances || []).map(x => x.parametro));
   const paramsRows = (d.parameters || []).map(p => {
     const cls = exceedSet.has(p.parametro) ? "exceed" : "";
@@ -563,6 +566,7 @@ function renderZone(d, name) {
       <a class="btn ghost" href="${API(escapeHtml(d.pdf_url || ''))}" target="_blank" rel="noopener">📄 PDF</a>
       <button class="btn ghost" id="zone-share" data-name="${escapeHtml(name)}">📤 Condividi</button>
     </div>
+    ${noteBlock}
     <table class="params">
       <thead><tr><th>Parametro</th><th>U.M.</th><th>Limite</th><th>Valore</th></tr></thead>
       <tbody>${paramsRows}</tbody>

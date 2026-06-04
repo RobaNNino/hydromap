@@ -1098,12 +1098,84 @@ def parse_pdf_campania(path: Path) -> dict:
 
 def parse_pdf_molise(path: Path) -> dict:
     # molise_acea_<slug>.pdf → rapporti di prova GRIM (formato tabellare).
-    return _parse_lab_report(path, source="molise_acea")
+    out = _parse_lab_report(path, source="molise_acea")
+    # Alcuni rapporti GRIM (province CB/IS) sono scansioni senza layer di
+    # testo: pdfplumber non estrae parametri. Segnala che il documento è
+    # comunque consultabile/scaricabile dalla mappa.
+    if not out.get("parameters"):
+        out.setdefault("summary", {})
+        out["summary"].setdefault("total_parameters", 0)
+        out["summary"].setdefault("total_with_limit", 0)
+        out["summary"].setdefault("exceedances", [])
+        out["summary"]["status"] = "INFORMATIVO"
+        out["summary"]["note"] = (
+            "Rapporto di prova fornito come documento scansionato: i singoli "
+            "parametri non sono estraibili automaticamente. Il referto "
+            "completo è consultabile e scaricabile dalla mappa.")
+    return out
+
 
 
 def parse_pdf_lazio_idrica(path: Path) -> dict:
     # lazio_idrica_<slug>.pdf → rapporti di prova Idrica (formato tabellare).
-    return _parse_lab_report(path, source="lazio_idrica_ardea")
+    out = _parse_lab_report(path, source="lazio_idrica_ardea")
+    # Il PDF Idrica/Ardea è una scansione (nessun layer testo): pdfplumber
+    # non estrae parametri. Fallback con i dati trascritti dal rapporto di
+    # prova (campionamento 07/04/2025, D.Lgs 18/2023, tutti entro i limiti).
+    if path.stem == "lazio_idrica_ardea" and not out.get("parameters"):
+        out = _ardea_curated_report(path.stem)
+    return out
+
+
+def _ardea_curated_report(name: str) -> dict:
+    """Dati trascritti dal rapporto di prova Idrica S.p.A. per Ardea (RM).
+
+    Fonte: PDF scansionato 'analisi-delle-acque-04.25.pdf' (campionamento
+    07/04/2025, norma D.Lgs n.18 del 23 febbraio 2023). Punto rappresentativo:
+    Fontanella Via Lazio (centro storico). Tutti i valori entro i limiti.
+    """
+    def P(parametro, unita, valore, limite, valore_num=None, limite_num=None):
+        return {"parametro": parametro, "unita": unita, "limite": limite,
+                "valore": valore, "valore_num": valore_num,
+                "limite_num": limite_num}
+
+    params = [
+        P("Carica batterica a 22 °C", "UFC/mL", "0", "S.V.A.", 0.0, None),
+        P("Coliformi a 37 °C", "UFC/100 mL", "0", "0", 0.0, 0.0),
+        P("Escherichia coli", "UFC/100 mL", "0", "0", 0.0, 0.0),
+        P("Clostridium perfringens", "UFC/100 mL", "0", "0", 0.0, 0.0),
+        P("Enterococchi", "UFC/100 mL", "0", "0", 0.0, 0.0),
+        P("Colore", "-", "Incolore", "S.V.A."),
+        P("Torbidità", "-", "Limpida", "S.V.A."),
+        P("Odore", "-", "Inodore", "S.V.A."),
+        P("Sapore", "-", "Insapore", "S.V.A."),
+        P("pH", "unità pH", "6,5", "6,5 - 9,5", 6.5, None),
+        P("Conduttività", "µS/cm a 20°C", "609", "2500", 609.0, 2500.0),
+        P("Nitrito", "mg/L", "< 0,1", "0,50", 0.1, 0.5),
+        P("Ammonio", "mg/L", "< 0,1", "0,50", 0.1, 0.5),
+        P("Alluminio", "µg/L", "< 25", "200", 25.0, 200.0),
+        P("Ferro", "µg/L", "< 20", "200", 20.0, 200.0),
+        P("Arsenico", "µg/L", "< 3", "10", 3.0, 10.0),
+        P("Disinfettante residuo", "mg/L Cl2", "0,20", "-", 0.2, None),
+    ]
+    total_with_limit = sum(1 for p in params if p["limite_num"] is not None)
+    return {
+        "name": name,
+        "parameters": params,
+        "sections": {},
+        "comune": "Ardea",
+        "zona": "Rete di distribuzione (fontanelle e serbatoio)",
+        "periodo": "aprile 2025",
+        "summary": {
+            "total_parameters": len(params),
+            "total_with_limit": total_with_limit,
+            "exceedances": [],
+            "status": "OK",
+        },
+        "_source": "lazio_idrica_ardea",
+        "provider": "lazio_idrica_ardea",
+    }
+
 
 
 def _worker(path_str: str) -> tuple[str, dict | str]:

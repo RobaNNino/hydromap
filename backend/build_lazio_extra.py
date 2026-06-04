@@ -133,7 +133,8 @@ def main() -> int:
             print(f"   ! comune sconosciuto (skip): {comune}")
             continue
         provider_id, label, ato, prov_hint = meta
-        pdfs = sorted(comune_dir.glob("*.pdf")) + sorted(comune_dir.glob("*.PDF"))
+        pdfs = sorted({p.resolve() for p in comune_dir.iterdir()
+                       if p.is_file() and p.suffix.lower() == ".pdf"})
         if not pdfs:
             print(f"   ! nessun PDF in {comune_dir}")
             continue
@@ -236,7 +237,7 @@ def main() -> int:
     fc = {"type": "FeatureCollection", "features": features,
           "_built_at": datetime.now(timezone.utc).isoformat()}
     OUT_GEOJSON.write_text(json.dumps(fc, ensure_ascii=False), encoding="utf-8")
-    print(f"   OK  {len(features)} features → {OUT_GEOJSON.name}")
+    print(f"   OK  {len(features)} features -> {OUT_GEOJSON.name}")
     return 0
 
 
