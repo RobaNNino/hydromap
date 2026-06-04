@@ -7,7 +7,7 @@ services:
     plan: free                          # cambia in 'starter' se vuoi più memoria/no-sleep
     region: frankfurt                   # 'frankfurt' o 'oregon'
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn backend.app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120
+    startCommand: gunicorn backend.app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
     healthCheckPath: /api/geojson
     autoDeploy: true
     envVars:

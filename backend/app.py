@@ -9,6 +9,7 @@ Endpoints:
 """
 from __future__ import annotations
 
+import gc
 import gzip
 import json
 import os
@@ -266,6 +267,13 @@ def _serialized_geojson() -> tuple[bytes, bytes]:
         _GEOJSON_RESP_CACHE["date"] = today
         _GEOJSON_RESP_CACHE["json_bytes"] = json_bytes
         _GEOJSON_RESP_CACHE["gz_bytes"] = gz_bytes
+        # Le richieste vengono servite dai byte cache-ati: il dict parsato delle
+        # geometrie (decine di MB) non serve più finché non si ricostruisce il
+        # giorno dopo. Liberarlo tiene la memoria sotto il limite di Render (512MB).
+        global _GEOJSON_CACHE
+        _GEOJSON_CACHE = None
+        data = None
+        gc.collect()
         return json_bytes, gz_bytes
 
 
