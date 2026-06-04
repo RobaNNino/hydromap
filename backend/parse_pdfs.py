@@ -28,6 +28,7 @@ GEOJSON_FILES = {
     "puglia": ROOT / "mappa-qualita-puglia.json",
     "basilicata": ROOT / "mappa-qualita-basilicata.json",
     "toscana_nuoveacque": ROOT / "mappa-qualita-nuoveacque.json",
+    "toscana_gaia": ROOT / "mappa-qualita-gaia.json",
     "lazio_extra": ROOT / "mappa-qualita-lazio-extra.json",
 }
 OUT_FILE = ROOT / "results.json"
@@ -1694,6 +1695,70 @@ def parse_pdf_nuoveacque(path: Path) -> dict:
     return out
 
 
+def parse_pdf_gaia(path: Path) -> dict:
+    """GAIA S.p.A. (Lucca/Massa-Carrara/Pistoia) — scheda «Qualità dell'acqua».
+
+    PDF ricostruiti da ``scrape_gaia.py`` con tabella reportlab a 4 colonne:
+        ``Parametri | Unità di Misura | Valore Medio | Limiti Normativi``
+    Esempi di limite:
+        ``> 6,5 e < 9,5``                   (pH, range → non vincolante)
+        ``Valore consigliato 15 - 50``      (durezza, indicatore)
+        ``Valore massimo consigliato 1500`` (residuo, indicatore)
+        ``-``                               (nessun limite)
+        ``0,50`` / ``2500`` / ``50``        (limite sanitario numerico)
+    """
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    with pdfplumber.open(path) as pdf:
+        text = pdf.pages[0].extract_text() or ""
+        tables = pdf.pages[0].extract_tables() or []
+
+    m = re.search(r"Comune:\s*(.+)", text)
+    if m:
+        out["comune"] = _clean(m.group(1)).title()
+    m = re.search(r"Località:\s*(.+)", text)
+    if m:
+        out["zona"] = _clean(m.group(1)).title()
+    m = re.search(r"Periodo di riferimento:\s*(.+)", text)
+    if m:
+        out["periodo"] = _clean(m.group(1))
+
+    for tbl in tables:
+        for row in tbl:
+            if not row or len(row) < 4:
+                continue
+            parametro = _clean(row[0])
+            if not parametro or parametro.lower() == "parametri":
+                continue
+            unita = _clean(row[1])
+            valore = _clean(row[2])
+            limite_raw = _clean(row[3])
+            if not valore:
+                continue
+
+            limite_num = None
+            low = limite_raw.lower()
+            if not limite_raw or limite_raw == "-" or "consigliat" in low or " e " in low:
+                # indicatore/range/non vincolante → nessun limite sanitario secco
+                limite_num = None
+            else:
+                limite_num = _parse_number(limite_raw)
+
+            out["parameters"].append({
+                "parametro": parametro,
+                "unita": unita,
+                "limite": limite_raw,
+                "valore": valore,
+                "valore_num": _parse_number(valore),
+                "limite_num": limite_num,
+            })
+
+    _abruzzo_compliance(out)
+    out["_source"] = "toscana_gaia"
+    return out
+
+
 def _worker(path_str: str) -> tuple[str, dict | str]:
     p = Path(path_str)
     try:
@@ -1718,6 +1783,8 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_basilicata(p)
         if p.stem.startswith("nuoveacque_"):
             return p.stem, parse_pdf_nuoveacque(p)
+        if p.stem.startswith("gaia_"):
+            return p.stem, parse_pdf_gaia(p)
         if p.stem.startswith("lazio_idrica_"):
             return p.stem, parse_pdf_lazio_idrica(p)
         if p.stem.startswith("acqualatina_"):

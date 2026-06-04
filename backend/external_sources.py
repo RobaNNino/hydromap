@@ -221,6 +221,23 @@ OFFICIAL_SOURCES = [
         "type": "Portale gestore",
         "scraped": True,
     },
+    # ---------- Toscana (GAIA) ----------
+    {
+        "id": "toscana_gaia",
+        "provider": "toscana_gaia",
+        "title": "GAIA — Toscana Nord (LU/MS/PT)",
+        "description": (
+            "GAIA S.p.A. gestisce il servizio idrico integrato nei comuni "
+            "dell'Ambito Toscana Nord (Lucca, Massa-Carrara e montagna "
+            "pistoiese). Pubblica i valori medi semestrali per ciascun punto "
+            "di prelievo della rete acquedottistica."
+        ),
+        "url": "https://www.gaia-spa.it/analisiweb_v2/",
+        "agency": "GAIA S.p.A.",
+        "ato": "Autorità Idrica Toscana — Conferenza Territoriale n.1 Toscana Nord",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
     # ---------- Lazio (extra) ----------
     {
         "id": "lazio_idrica_ardea",
