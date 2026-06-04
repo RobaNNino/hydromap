@@ -238,6 +238,38 @@ OFFICIAL_SOURCES = [
         "type": "Portale gestore",
         "scraped": True,
     },
+    # ---------- Toscana (Publiacqua) ----------
+    {
+        "id": "toscana_publiacqua",
+        "provider": "toscana_publiacqua",
+        "title": "Publiacqua - Medio Valdarno (FI/PO/PT/AR)",
+        "description": (
+            "Publiacqua S.p.A. gestisce il servizio idrico integrato in larga "
+            "parte dell'Ambito Medio Valdarno. Pubblica schede semestrali con "
+            "valori medi, limiti di legge e coordinate del punto/zona."
+        ),
+        "url": "https://www.publiacqua.it/qualita-acqua",
+        "agency": "Publiacqua S.p.A.",
+        "ato": "Autorita Idrica Toscana - Conferenza Territoriale n.3 Medio Valdarno",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    # ---------- Toscana (Acque) ----------
+    {
+        "id": "toscana_acque",
+        "provider": "toscana_acque",
+        "title": "Acque - Basso Valdarno",
+        "description": (
+            "Acque S.p.A. gestisce il servizio idrico integrato nell'Ambito "
+            "Basso Valdarno. Pubblica schede RIS con parametri analitici, "
+            "riferimenti normativi e decorrenza dei valori."
+        ),
+        "url": "https://www.acque.net/",
+        "agency": "Acque S.p.A.",
+        "ato": "Autorita Idrica Toscana - Conferenza Territoriale n.2 Basso Valdarno",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
     # ---------- Lazio (extra) ----------
     {
         "id": "lazio_idrica_ardea",

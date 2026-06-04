@@ -36,5 +36,10 @@ backend/data/nuoveacque_polygons_cache.json
 # Sorgenti GAIA (497 PDF ricostruiti, Lucca/MS/Pistoia) — non ancora integrati.
 backend/gaia_pdf/
 
+# Sorgenti Toscana Publiacqua/Acque: i PDF runtime vengono copiati
+# in backend/data/pdfs/ dai builder dedicati.
+backend/publiacqua_pdf/
+backend/acque_pdf/
+
 # build logs
 *.log

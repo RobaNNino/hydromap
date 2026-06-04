@@ -29,6 +29,8 @@ GEOJSON_FILES = {
     "basilicata": ROOT / "mappa-qualita-basilicata.json",
     "toscana_nuoveacque": ROOT / "mappa-qualita-nuoveacque.json",
     "toscana_gaia": ROOT / "mappa-qualita-gaia.json",
+    "toscana_publiacqua": ROOT / "mappa-qualita-publiacqua.json",
+    "toscana_acque": ROOT / "mappa-qualita-acque.json",
     "lazio_extra": ROOT / "mappa-qualita-lazio-extra.json",
 }
 OUT_FILE = ROOT / "results.json"
@@ -1759,6 +1761,117 @@ def parse_pdf_gaia(path: Path) -> dict:
     return out
 
 
+def _parse_toscana_limit(raw: str) -> float | None:
+    low = (raw or "").lower()
+    if not raw or raw in {"-", "/"} or "consigliat" in low:
+        return None
+    if "<=" in raw or ">=" in raw or " e " in low or "-" in raw:
+        return None
+    return _parse_number(raw)
+
+
+def parse_pdf_publiacqua(path: Path) -> dict:
+    """Publiacqua S.p.A. - schede qualita acqua ricostruite in PDF."""
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    with pdfplumber.open(path) as pdf:
+        text = pdf.pages[0].extract_text() or ""
+        tables = pdf.pages[0].extract_tables() or []
+
+    meta: dict[str, str] = {}
+    if tables:
+        for row in tables[0]:
+            if row and len(row) >= 2:
+                meta[_clean(row[0]).lower()] = _clean(row[1])
+    out["comune"] = meta.get("comune")
+    out["zona"] = meta.get("indirizzo") or meta.get("codice") or name
+    periodo = meta.get("periodo")
+    if periodo:
+        out["periodo"] = periodo.replace("Periodo di riferimento:", "").strip()
+    else:
+        m = re.search(r"Periodo di riferimento:\s*(.+)", text)
+        if m:
+            out["periodo"] = _clean(m.group(1))
+
+    for tbl in tables[1:]:
+        for row in tbl:
+            if not row or len(row) < 4:
+                continue
+            parametro = _clean(row[0])
+            if not parametro or parametro.lower() == "parametro":
+                continue
+            valore = _clean(row[1])
+            limite_raw = _clean(row[2])
+            unita = _clean(row[3])
+            if not valore:
+                continue
+            out["parameters"].append({
+                "parametro": parametro,
+                "unita": unita,
+                "limite": limite_raw,
+                "valore": valore,
+                "valore_num": _parse_number(valore),
+                "limite_num": _parse_toscana_limit(limite_raw),
+            })
+
+    _abruzzo_compliance(out)
+    out["_source"] = "toscana_publiacqua"
+    return out
+
+
+def parse_pdf_acque(path: Path) -> dict:
+    """Acque S.p.A. - schede RIS di qualita acqua potabile."""
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    with pdfplumber.open(path) as pdf:
+        text = pdf.pages[0].extract_text() or ""
+        tables = pdf.pages[0].extract_tables() or []
+
+    m = re.search(r"RIS:\s*(.+)", text)
+    if m:
+        out["zona"] = _clean(m.group(1))
+    elif tables:
+        for row in tables[0]:
+            if row and len(row) >= 2 and _clean(row[0]).lower() == "codice":
+                out["zona"] = _clean(row[1])
+                break
+
+    for tbl in tables:
+        if not tbl:
+            continue
+        header = [_clean(c).lower() for c in (tbl[0] or [])]
+        if len(header) < 5 or "parametro" not in header[0]:
+            continue
+        for row in tbl[1:]:
+            if not row or len(row) < 5:
+                continue
+            parametro = _clean(row[0])
+            if not parametro:
+                continue
+            unita = _clean(row[1])
+            valore = _clean(row[2])
+            limite_raw = _clean(row[3])
+            decorrenza = _clean(row[4])
+            if decorrenza and out["periodo"] is None:
+                out["periodo"] = decorrenza
+            if not valore:
+                continue
+            out["parameters"].append({
+                "parametro": parametro,
+                "unita": unita,
+                "limite": limite_raw,
+                "valore": valore,
+                "valore_num": _parse_number(valore),
+                "limite_num": _parse_toscana_limit(limite_raw),
+            })
+
+    _abruzzo_compliance(out)
+    out["_source"] = "toscana_acque"
+    return out
+
+
 def _worker(path_str: str) -> tuple[str, dict | str]:
     p = Path(path_str)
     try:
@@ -1785,6 +1898,10 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_nuoveacque(p)
         if p.stem.startswith("gaia_"):
             return p.stem, parse_pdf_gaia(p)
+        if p.stem.startswith("publiacqua_"):
+            return p.stem, parse_pdf_publiacqua(p)
+        if p.stem.startswith("acque_"):
+            return p.stem, parse_pdf_acque(p)
         if p.stem.startswith("lazio_idrica_"):
             return p.stem, parse_pdf_lazio_idrica(p)
         if p.stem.startswith("acqualatina_"):
