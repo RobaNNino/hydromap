@@ -21,3 +21,6 @@ ai2.txt
 # da build_abruzzo.py, quindi questa cartella non serve a runtime.
 backend/data/source_pdfs_abruzzo/
 backend/data/abruzzo_polygons_cache.json
+
+# build logs
+*.log

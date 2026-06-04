@@ -170,6 +170,39 @@ OFFICIAL_SOURCES = [
         "type": "Portale gestore",
         "scraped": True,
     },
+    # ---------- Molise ----------
+    {
+        "id": "molise_acea",
+        "provider": "molise_acea",
+        "title": "Acea Molise — Campobasso e Isernia",
+        "description": (
+            "Acea Molise (Gruppo Acea) gestisce il servizio idrico integrato "
+            "in numerosi comuni delle province di Campobasso e Isernia. "
+            "Pubblica i rapporti di prova GRIM per ciascun punto di prelievo "
+            "della rete acquedottistica regionale."
+        ),
+        "url": "https://www.aceamolise.a-acqua.it/qualita-acqua",
+        "agency": "Acea Molise S.r.l.",
+        "ato": "ATO Unico Molise",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    # ---------- Lazio (extra) ----------
+    {
+        "id": "lazio_idrica_ardea",
+        "provider": "lazio_idrica_ardea",
+        "title": "Idrica — Ardea (RM)",
+        "description": (
+            "Idrica S.p.A. gestisce il servizio idrico del comune di Ardea "
+            "(Roma). Pubblica i rapporti di prova per i punti di prelievo "
+            "della rete cittadina (fontanelle e serbatoi)."
+        ),
+        "url": "https://www.idricaspa.it/",
+        "agency": "Idrica S.p.A.",
+        "ato": "ATO 2 — Lazio Centrale (Roma)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
     # ---------- Campania ----------
     {
         "id": "campania_abc_napoli",
@@ -273,6 +306,21 @@ OFFICIAL_SOURCES = [
         "url": "https://serviziidrici.grupposistemisalerno.it/qualita-dellacqua/",
         "agency": "Salerno Sistemi S.p.A.",
         "ato": "ATO 4 — Sele",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "campania_ausino",
+        "provider": "campania_ausino",
+        "title": "Ausino — Costiera Amalfitana e Picentini (SA)",
+        "description": (
+            "Ausino S.p.A. Servizi Idrici Integrati gestisce il servizio idrico "
+            "per i comuni della Costiera Amalfitana e dei Monti Picentini in "
+            "provincia di Salerno. Pubblica un report per ciascun comune servito."
+        ),
+        "url": "https://www.ausino.it/",
+        "agency": "Ausino S.p.A.",
+        "ato": "ATO 4 — Sele (SA)",
         "type": "Portale gestore",
         "scraped": True,
     },

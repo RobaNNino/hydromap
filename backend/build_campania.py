@@ -45,6 +45,7 @@ PROVIDER_INFO = {
     "acquedotti_scpa":  {"label": "Acquedotti S.C.p.A.",                     "ato": "Campania (NA/CE)",             "url": "https://www.acquedotti.com/"},
     "alto_calore":      {"label": "Alto Calore Servizi S.p.A.",              "ato": "ATO 1 — Calore Irpino",        "url": "https://www.altocalore.it/"},
     "asis_salernitana": {"label": "A.S.I.S. Salernitana Reti e Impianti S.p.A.", "ato": "ATO 4 — Sele",             "url": "https://www.asisspa.it/"},
+    "ausino":           {"label": "Ausino S.p.A. Servizi Idrici Integrati",  "ato": "ATO 4 — Sele (SA)",          "url": "https://www.ausino.it/"},
     "gesesa":           {"label": "GESESA S.p.A.",                           "ato": "ATO 1 — Calore Irpino",        "url": "https://www.gesesa.it/"},
     "gori":             {"label": "GORI S.p.A.",                             "ato": "ATO 3 — Sarnese Vesuviano",    "url": "https://www.goriacqua.com/"},
     "itl_spa":          {"label": "I.T.L. S.p.A.",                           "ato": "ATO 2 — Napoli Volturno (CE)", "url": "https://www.itlspa.it/"},
@@ -58,6 +59,7 @@ PROV_HINTS = {
     "acquedotti_scpa":  "NA",
     "alto_calore":      "AV",
     "asis_salernitana": "SA",
+    "ausino":           "SA",
     "gesesa":           "BN",
     "gori":             "NA",
     "itl_spa":          "CE",
@@ -280,6 +282,29 @@ def discover_gesesa() -> list[dict]:
         seen.add(key)
         out.append({
             "provider": "gesesa",
+            "comune": comune,
+            "slug": slugify(comune),
+            "pdf": p,
+        })
+    return out
+
+
+def discover_ausino() -> list[dict]:
+    """Ausino S.p.A. (ATO 4 Sele, area salernitana / Costiera Amalfitana /
+    Monti Picentini): 1 PDF per comune, nome file = COMUNE.pdf."""
+    base = SRC_DIR / "Ausino"
+    if not base.exists():
+        return []
+    out = []
+    seen = set()
+    for p in sorted(base.glob("*.pdf")):
+        comune = pretty_comune(decode_html_entities(p.stem))
+        key = comune.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({
+            "provider": "ausino",
             "comune": comune,
             "slug": slugify(comune),
             "pdf": p,
@@ -844,6 +869,7 @@ def main() -> int:
     entries += discover_acquedotti_scpa()
     entries += discover_alto_calore()
     entries += discover_asis_salernitana()
+    entries += discover_ausino()
     entries += discover_gesesa()
     entries += discover_gori()
     entries += discover_itl_spa()

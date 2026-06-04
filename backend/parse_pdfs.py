@@ -24,6 +24,8 @@ GEOJSON_FILES = {
     "acqua_pubblica_sabina": ROOT / "mappa-qualita-aps.json",
     "abruzzo": ROOT / "mappa-qualita-abruzzo.json",
     "campania": ROOT / "mappa-qualita-campania.json",
+    "molise": ROOT / "mappa-qualita-molise.json",
+    "lazio_extra": ROOT / "mappa-qualita-lazio-extra.json",
 }
 OUT_FILE = ROOT / "results.json"
 
@@ -1094,6 +1096,16 @@ def parse_pdf_campania(path: Path) -> dict:
     return _parse_lab_report(path, source=src)
 
 
+def parse_pdf_molise(path: Path) -> dict:
+    # molise_acea_<slug>.pdf → rapporti di prova GRIM (formato tabellare).
+    return _parse_lab_report(path, source="molise_acea")
+
+
+def parse_pdf_lazio_idrica(path: Path) -> dict:
+    # lazio_idrica_<slug>.pdf → rapporti di prova Idrica (formato tabellare).
+    return _parse_lab_report(path, source="lazio_idrica_ardea")
+
+
 def _worker(path_str: str) -> tuple[str, dict | str]:
     p = Path(path_str)
     try:
@@ -1110,6 +1122,10 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_gransasso(p)
         if p.stem.startswith("campania_"):
             return p.stem, parse_pdf_campania(p)
+        if p.stem.startswith("molise_"):
+            return p.stem, parse_pdf_molise(p)
+        if p.stem.startswith("lazio_idrica_"):
+            return p.stem, parse_pdf_lazio_idrica(p)
         if p.stem.startswith("acqualatina_"):
             return p.stem, parse_pdf_acqualatina(p)
         if p.stem.startswith("IMP"):
