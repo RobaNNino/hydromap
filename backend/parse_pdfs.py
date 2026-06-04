@@ -25,6 +25,7 @@ GEOJSON_FILES = {
     "abruzzo": ROOT / "mappa-qualita-abruzzo.json",
     "campania": ROOT / "mappa-qualita-campania.json",
     "molise": ROOT / "mappa-qualita-molise.json",
+    "puglia": ROOT / "mappa-qualita-puglia.json",
     "lazio_extra": ROOT / "mappa-qualita-lazio-extra.json",
 }
 OUT_FILE = ROOT / "results.json"
@@ -1367,6 +1368,102 @@ def _parse_grim_rows(path: Path, *, source: str) -> dict:
     return out
 
 
+# ---- Acquedotto Pugliese (AQP) — schede semestrali "Qualità dell'Acqua" ----
+# Layout testuale pulito, una riga per parametro:
+#   "<Parametro> <Valore> <Limite di legge> <Unità di misura> <Frequenza>"
+# Il valore PRECEDE il limite che PRECEDE l'unità. "s.v.r." = senza valore di
+# riferimento (nessun limite). Il PDF riporta già i limiti di legge.
+_AQP_UNIT_CORE = re.compile(
+    r"(?:µg/\s*l|μg/\s*l|mg/\s*l|µS/\s*cm|μS/\s*cm|NTU|"
+    r"numero\s*/\s*\d*\s*ml|unit[àa]\s+di\s+pH|__)",
+    re.IGNORECASE,
+)
+_AQP_SVR_RX = re.compile(r"s\.?\s*v\.?\s*r\.?", re.IGNORECASE)
+
+
+def parse_pdf_puglia(path: Path) -> dict:
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    lines: list[str] = []
+    with pdfplumber.open(path) as pdf:
+        for page in pdf.pages:
+            t = page.extract_text() or ""
+            lines.extend(t.splitlines())
+    full = "\n".join(lines)
+
+    m = re.search(r"Comune\s*/\s*Zona\s*:\s*([^\n]+)", full, re.IGNORECASE)
+    if m:
+        z = _clean(m.group(1))
+        out["comune"] = re.sub(r"\([A-Z]{2}\)\s*$", "", z).strip()
+        out["zona"] = z
+    m = re.search(r"Semestre\s*:\s*([^\n]+)", full, re.IGNORECASE)
+    if m:
+        out["periodo"] = _clean(m.group(1))
+
+    seen: set[str] = set()
+    for raw in lines:
+        line = _clean(raw)
+        if not line:
+            continue
+        um = None
+        for mm in _AQP_UNIT_CORE.finditer(line):
+            um = mm  # ultima occorrenza dell'unità nella riga
+        if not um:
+            continue
+        unita = _clean(line[um.start():])
+        # rimuovi la frequenza finale (intero) dall'unità
+        unita = re.sub(r"\s+\d+\s*$", "", unita).strip()
+        unita = re.sub(r"\s+", " ", unita)
+        head = line[:um.start()].strip()
+        if not head:
+            continue
+
+        # pH: il limite è un range ("‡6,5 e £9,5"); il valore è il 1° numero.
+        if re.match(r"^pH\b", head, re.IGNORECASE):
+            mv = re.search(r"^pH\s+([<>]?\d+(?:[.,]\d+)?)", head, re.IGNORECASE)
+            if not mv or "pH" in seen:
+                continue
+            seen.add("pH")
+            out["parameters"].append({
+                "parametro": "pH", "unita": "Unità di pH",
+                "limite": "6,5 - 9,5", "valore": mv.group(1),
+                "valore_num": _parse_number(mv.group(1)), "limite_num": None})
+            continue
+
+        toks = head.split()
+        if len(toks) < 3:
+            continue
+        # gli ultimi due token sono Valore e Limite; il resto è il parametro
+        val_tok, lim_tok = toks[-2], toks[-1]
+        parametro = _clean(" ".join(toks[:-2]))
+        if not parametro or parametro.lower() in seen:
+            continue
+
+        def _is_val(t: str) -> bool:
+            return bool(re.match(r"^[<>]?\d", t)) or bool(_AQP_SVR_RX.fullmatch(t))
+
+        if not _is_val(val_tok) or not _is_val(lim_tok):
+            continue
+
+        seen.add(parametro.lower())
+        valore_num = _parse_number(val_tok)
+        if _AQP_SVR_RX.fullmatch(lim_tok):
+            limite_str, limite_num = "", None
+        else:
+            limite_num = _parse_number(lim_tok)
+            limite_str = lim_tok
+        valore_str = "" if _AQP_SVR_RX.fullmatch(val_tok) else val_tok
+        out["parameters"].append({
+            "parametro": parametro, "unita": unita,
+            "limite": limite_str, "valore": valore_str,
+            "valore_num": valore_num, "limite_num": limite_num})
+
+    _abruzzo_compliance(out)
+    out["_source"] = "puglia_aqp"
+    return out
+
+
 def parse_pdf_molise(path: Path) -> dict:
     # molise_*_<slug>.pdf → rapporti di prova GRIM / Lab Ambiente e Sicurezza.
     # Layout "valore prima dell'unità"; le scansioni di provincia non hanno
@@ -1475,6 +1572,8 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_campania(p)
         if p.stem.startswith("molise_"):
             return p.stem, parse_pdf_molise(p)
+        if p.stem.startswith("puglia_aqp_"):
+            return p.stem, parse_pdf_puglia(p)
         if p.stem.startswith("lazio_idrica_"):
             return p.stem, parse_pdf_lazio_idrica(p)
         if p.stem.startswith("acqualatina_"):
