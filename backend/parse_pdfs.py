@@ -1096,12 +1096,291 @@ def parse_pdf_campania(path: Path) -> dict:
     return _parse_lab_report(path, source=src)
 
 
+# ======================================================================
+# GRIM / Lab Ambiente e Sicurezza (Molise) — parser per layout tabellare
+# "Prova | Risultato | Unità | Incertezza | Metodo | Classificazione |
+# Limiti", in cui il VALORE precede l'unità. Molti rapporti di provincia
+# sono scansioni senza layer testo → si usa OCR (RapidOCR) ricostruendo
+# le righe della tabella dalle bounding box.
+# ======================================================================
+_OCR_ENGINE = None
+
+
+def _get_ocr():
+    global _OCR_ENGINE
+    if _OCR_ENGINE is None:
+        from rapidocr_onnxruntime import RapidOCR
+        _OCR_ENGINE = RapidOCR()
+    return _OCR_ENGINE
+
+
+def _cluster_rows(items: list[tuple[float, float, str]],
+                  tol: float) -> list[str]:
+    """items = [(y_center, x_center, text)] → righe ordinate per y, testo
+    concatenato per x crescente. tol = tolleranza verticale (stessa riga)."""
+    items = sorted(items, key=lambda t: t[0])
+    rows: list[list[tuple[float, str]]] = []
+    cur: list[tuple[float, str]] = []
+    cur_y: float | None = None
+    for cy, cx, txt in items:
+        if cur_y is None or abs(cy - cur_y) <= tol:
+            cur.append((cx, txt))
+            cur_y = cy if cur_y is None else (cur_y + cy) / 2.0
+        else:
+            rows.append(cur)
+            cur = [(cx, txt)]
+            cur_y = cy
+    if cur:
+        rows.append(cur)
+    out = []
+    for r in rows:
+        r.sort(key=lambda t: t[0])
+        out.append(" ".join(t[1] for t in r))
+    return out
+
+
+def _grim_reconstruct_rows(path: Path) -> list[str]:
+    """Ricostruisce le righe della tabella. Usa il layer testo (pdfplumber)
+    se presente, altrimenti OCR della pagina renderizzata."""
+    rows: list[str] = []
+    import fitz  # PyMuPDF
+    with pdfplumber.open(path) as pdf:
+        plumber_pages = []
+        for page in pdf.pages:
+            words = page.extract_words() or []
+            plumber_pages.append(words)
+    doc = fitz.open(path)
+    for i, page in enumerate(doc):
+        words = plumber_pages[i] if i < len(plumber_pages) else []
+        if words:
+            items = [((w["top"] + w["bottom"]) / 2.0,
+                      (w["x0"] + w["x1"]) / 2.0, w["text"]) for w in words]
+            rows.extend(_cluster_rows(items, tol=3.0))
+        else:
+            import numpy as np
+            pix = page.get_pixmap(dpi=300)
+            img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+                pix.height, pix.width, pix.n)
+            if pix.n == 4:
+                img = img[:, :, :3]
+            res, _ = _get_ocr()(img)
+            if res:
+                items = []
+                for box, txt, _conf in res:
+                    ys = [p[1] for p in box]
+                    xs = [p[0] for p in box]
+                    items.append((sum(ys) / 4.0, sum(xs) / 4.0, txt))
+                rows.extend(_cluster_rows(items, tol=14.0))
+    doc.close()
+    return rows
+
+
+# pattern allentati (gli OCR concatenano spesso le parole) — \s+ → \s*
+_GRIM_PARAM_PATTERNS = [
+    (canon, [p.replace(r"\s+", r"\s*") for p in pats])
+    for canon, pats in _ABRUZZO_PARAM_PATTERNS
+]
+_GRIM_UNIT_RX = re.compile(
+    r"(?:mg/\s*l|µg/\s*l|μg/\s*l|ug/\s*l|µg/\s*1|μg/\s*1|mg/\s*1|"
+    r"NTU|µS/\s*cm|μS/\s*cm|uS/\s*cm|Hazen|°F|"
+    r"UFC\s*/\s*\d*\s*m?l|MPN\s*/\s*\d*\s*m?l|mV|unit[àa]\s*di\s*pH|"
+    r"unit[àa]\s*pH|adimens\.?)",
+    re.IGNORECASE,
+)
+_GRIM_METHOD_RX = re.compile(
+    r"(?i)\b(?:APAT|UNIENISO|UNIEN|UNIISO|UNI|ISO|CNR|IRSA|EN|Man|"
+    r"Rapporti|ISTISAN|Met|Calcolo|Cromatografia|Spettro\w*|"
+    r"Potenziom\w*)[\w:.\-/]*"
+)
+_GRIM_NUM_RX = re.compile(
+    r"(?<![A-Za-z0-9.\-:/])([<>]?\s*-?\d+(?:[.,]\d+)?)(?![A-Za-z0-9])")
+
+
+def _grim_unit_kind(u: str) -> str | None:
+    """Restituisce 'mg' o 'ug' (microgrammi) dal testo unità, altrimenti None."""
+    s = (u or "").lower().replace(" ", "")
+    if "µg/" in s or "μg/" in s or "ug/" in s or "µg/1" in s or "μg/1" in s:
+        return "ug"
+    if "mg/" in s:
+        return "mg"
+    return None
+
+
+def _parse_grim_rows(path: Path, *, source: str) -> dict:
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    rows = _grim_reconstruct_rows(path)
+    full = "\n".join(rows)
+
+    # ---- metadata ----
+    m = re.search(r"Comune\s+di\s+([A-Z][\wÀ-ÿ'’\-]+)", full)
+    if m:
+        out["comune"] = _clean(m.group(1)).title()
+    m = re.search(r"Luogo\s+di\s+campionamento\s*:?\s*([^\n]+)", full,
+                  re.IGNORECASE)
+    if m:
+        out["zona"] = _clean(m.group(1))[:80]
+    m = re.search(r"Data\s+campionamento\s*:?\s*(\d{1,2}/\d{1,2}/\d{2,4})",
+                  full, re.IGNORECASE)
+    if m:
+        out["periodo"] = m.group(1)
+
+    seen: set[str] = set()
+    for row in rows:
+        if len(row) > 300:
+            continue
+        canon = None
+        pats = None
+        for c, ps in _GRIM_PARAM_PATTERNS:
+            if any(re.search(p, row, re.IGNORECASE) for p in ps):
+                canon = c
+                pats = ps
+                break
+        if not canon or canon in seen:
+            continue
+
+        is_micro = any(k in canon.lower() for k in _MICRO_PARAMS)
+        is_ph = (canon == "pH")
+
+        if is_ph:
+            # Il pH va letto SOLO dalla riga analitica "… unità di pH …".
+            # Le righe preliminari (es. "VALORI RILEVATI AL PRELIEVO PH 8.1
+            # CL 0.3 …") contengono numeri di altri campi (cloro) che
+            # falserebbero il valore. Il risultato è il numero subito prima
+            # della dicitura "unità di pH".
+            mph = re.search(r"unit[àa]\s*(?:di\s*)?pH", row, re.IGNORECASE)
+            if not mph:
+                continue  # riga non analitica → lascia che matchi una migliore
+            head = row[:mph.start()]
+            head = _GRIM_METHOD_RX.sub(" ", head)
+            head = re.sub(r"[±]\s*\d+(?:[.,]\d+)?", " ", head)
+            ph_toks: list[tuple[str, float]] = []
+            for nm in _GRIM_NUM_RX.finditer(head):
+                raw = nm.group(1).replace(" ", "")
+                n = _parse_number(raw)
+                if n is None:
+                    continue
+                # OCR: virgola persa (es. "73" = 7,3)
+                if re.fullmatch(r"\d{2}", raw) and n > 14:
+                    n = n / 10.0
+                    raw = f"{n:g}".replace(".", ",")
+                if 0 <= n <= 14:
+                    ph_toks.append((raw, n))
+            if not ph_toks:
+                continue
+            seen.add(canon)
+            valore_raw, valore_num = ph_toks[-1]
+            limite_str = ""
+            rng = re.search(
+                r"([0-9][.,]?[0-9]*)\s*[-–]\s*([0-9][.,]?[0-9]*)", row)
+            if rng:
+                limite_str = rng.group(0)
+            out["parameters"].append({
+                "parametro": canon, "unita": "unità di pH",
+                "limite": limite_str, "valore": valore_raw,
+                "valore_num": valore_num, "limite_num": None})
+            continue
+
+        # rimuovi il nome del parametro (così "22" in "...a 22°C" o "12" in
+        # "(C12)" non vengano scambiati per valori).
+        work = row
+        for p in pats:
+            work = re.sub(p, " ", work, count=1, flags=re.IGNORECASE)
+
+        # Il layout è "Prova VALORE Unità Incertezza Metodo ... Limite":
+        # il risultato è il numero IMMEDIATAMENTE prima dell'unità di misura.
+        um = _GRIM_UNIT_RX.search(work)
+        unita = _clean(um.group(0)) if um else ""
+        head = work[:um.start()] if um else (work if is_ph else "")
+        # togli incertezza e codici metodo eventualmente presenti nel "head"
+        head = _GRIM_METHOD_RX.sub(" ", head)
+        head = re.sub(r"[±]\s*\d+(?:[.,]\d+)?", " ", head)
+
+        toks: list[tuple[str, float]] = []
+        for nm in _GRIM_NUM_RX.finditer(head):
+            raw = nm.group(1).replace(" ", "")
+            n = _parse_number(raw)
+            if n is None:
+                continue
+            if re.fullmatch(r"-?\d{4}", raw) and 1900 <= int(raw) <= 2099:
+                continue
+            after = head[nm.end():nm.end() + 4]
+            if re.match(r"\s*°\s*C", after):
+                continue
+            toks.append((raw, n))
+
+        if is_ph:
+            toks = [(r, n) for r, n in toks if 0 <= n <= 14]
+
+        if not toks:
+            if is_micro:
+                # micro senza colonia rilevata → assente
+                seen.add(canon)
+                out["parameters"].append({
+                    "parametro": canon, "unita": "UFC",
+                    "limite": "0", "valore": "0",
+                    "valore_num": 0.0, "limite_num": 0.0})
+            # non-micro senza numero valido prima dell'unità: salta
+            # (evita di scambiare il valore-limite per il risultato).
+            continue
+
+        seen.add(canon)
+        # il risultato è il numero più vicino all'unità (ultimo del head)
+        valore_raw, valore_num = toks[-1]
+
+        # limite (in unità coerente col valore per il confronto)
+        lim_num = None
+        limite_str = ""
+        if is_micro:
+            lim_num, limite_str = 0.0, "0"
+        elif is_ph:
+            rng = re.search(r"([0-9][.,]?[0-9]*)\s*[-–]\s*([0-9][.,]?[0-9]*)",
+                            row)
+            if rng:
+                limite_str = rng.group(0)
+        else:
+            ref = _abruzzo_lookup_limit(canon)
+            if ref:
+                ref_um, ref_lim = ref
+                lim_num = ref_lim
+                rk, refk = _grim_unit_kind(unita), _grim_unit_kind(ref_um)
+                # normalizza mg/l ↔ µg/l per un confronto corretto
+                if rk and refk and rk != refk:
+                    if refk == "mg" and rk == "ug":
+                        lim_num = ref_lim * 1000.0
+                    elif refk == "ug" and rk == "mg":
+                        lim_num = ref_lim / 1000.0
+                limite_str = (f"{lim_num:g}").replace(".", ",")
+
+        out["parameters"].append({
+            "parametro": canon,
+            "unita": unita,
+            "limite": limite_str,
+            "valore": valore_raw,
+            "valore_num": valore_num,
+            "limite_num": lim_num,
+        })
+
+    _abruzzo_compliance(out)
+    out["_source"] = source
+    return out
+
+
 def parse_pdf_molise(path: Path) -> dict:
-    # molise_acea_<slug>.pdf → rapporti di prova GRIM (formato tabellare).
-    out = _parse_lab_report(path, source="molise_acea")
-    # Alcuni rapporti GRIM (province CB/IS) sono scansioni senza layer di
-    # testo: pdfplumber non estrae parametri. Segnala che il documento è
-    # comunque consultabile/scaricabile dalla mappa.
+    # molise_*_<slug>.pdf → rapporti di prova GRIM / Lab Ambiente e Sicurezza.
+    # Layout "valore prima dell'unità"; le scansioni di provincia non hanno
+    # layer testo → si ricostruisce la tabella via OCR.
+    try:
+        out = _parse_grim_rows(path, source="molise_acea")
+    except Exception as exc:
+        print(f"   ! GRIM parse fail {path.name}: {exc}")
+        out = {"name": path.stem, "parameters": [], "sections": {},
+               "comune": None, "zona": None, "periodo": None}
+    # Fallback al parser generico se la ricostruzione non ha prodotto nulla.
+    if not out.get("parameters"):
+        out = _parse_lab_report(path, source="molise_acea")
+    # Se proprio nessun parametro è estraibile, segnala documento informativo.
     if not out.get("parameters"):
         out.setdefault("summary", {})
         out["summary"].setdefault("total_parameters", 0)

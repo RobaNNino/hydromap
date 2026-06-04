@@ -254,8 +254,7 @@ def fetch_acea_areas() -> list[dict]:
 
 # ---------- main ----------
 def main() -> int:
-    from shapely.geometry import shape, mapping, Point, MultiPoint
-    from shapely.ops import voronoi_diagram, unary_union
+    from shapely.geometry import shape
 
     PDF_OUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -267,10 +266,9 @@ def main() -> int:
     acea_areas = fetch_acea_areas()
     print(f"   aree qualità Acea: {len(acea_areas)}")
 
-    print("[3/5] geocoding centroidi comuni (Nominatim, ~1s/comune)…")
+    print("[3/5] geocoding poligoni comunali (Nominatim, ~1s/comune)…")
     cache = load_cache()
-    # Ogni "seed" è un punto-dato con un PDF reale associato.
-    seeds: list[dict] = []
+    features = []
     skipped: list[str] = []
     n_new = 0
     for i, e in enumerate(entries, 1):
@@ -289,81 +287,51 @@ def main() -> int:
             skipped.append(comune)
             print(f"   ! [{i:2d}] {comune:30s}  GEOCODE FAIL")
             continue
-        seeds.append({
-            "name": f"molise_acea_{slugify(comune)}",
-            "comune": comune,
-            "zona_label": None,
-            "provincia_acr": prov,
-            "lat": info["lat"],
-            "lon": info["lon"],
-            "pdf": e["pdf"],
-        })
-    save_cache(cache)
-
-    # Seeds delle 3 aree Acea (Termoli) — dati reali, parametri estraibili.
-    for a in acea_areas:
-        seeds.append({
-            "name": f"molise_termoli_{a['slug']}",
-            "comune": "Termoli",
-            "zona_label": a["name"],
-            "provincia_acr": "CB",
-            "lat": a["lat"],
-            "lon": a["lon"],
-            "pdf": a["pdf"],
-        })
-
-    print(f"   seed totali (punti-dato): {len(seeds)}  /  "
-          f"skippati: {len(skipped)}")
-
-    print("[4/5] tassellazione Voronoi sull'intera regione Molise…")
-    region_geom = fetch_region_boundary()
-    if not region_geom:
-        print("   ! confine regionale non disponibile: uso inviluppo dei seed")
-    bnd = shape(region_geom) if region_geom else None
-    pts = [Point(s["lon"], s["lat"]) for s in seeds]
-    mp = MultiPoint(pts)
-    if bnd is None:
-        bnd = mp.convex_hull.buffer(0.1)
-    try:
-        regions = list(voronoi_diagram(mp, envelope=bnd).geoms)
-    except Exception as exc:
-        print(f"   ! voronoi fail: {exc}")
-        regions = []
-
-    features = []
-    for s, pt in zip(seeds, pts):
-        cell = next((reg for reg in regions if reg.covers(pt)), None)
-        if cell is None:
-            cell = pt.buffer(0.03)
-        clipped = cell.intersection(bnd)
-        if clipped.is_empty or clipped.area == 0:
-            clipped = pt.buffer(0.02).intersection(bnd)
-        if clipped.is_empty:
-            clipped = pt.buffer(0.02)
-        if clipped.geom_type == "GeometryCollection":
-            polys = [g for g in clipped.geoms
-                     if g.geom_type in ("Polygon", "MultiPolygon")]
-            clipped = unary_union(polys) if polys else pt.buffer(0.02)
+        slug = slugify(comune)
         feat = {
             "type": "Feature",
-            "geometry": mapping(clipped),
+            "geometry": info["geometry"],
             "properties": {
-                "name": s["name"],
-                "comune": s["comune"],
-                "zona_label": s["zona_label"],
-                "provincia_acr": s["provincia_acr"],
+                "name": f"molise_acea_{slug}",
+                "comune": comune,
+                "zona_label": None,
+                "provincia_acr": prov,
                 "regione": "Molise",
                 "provider": "molise_acea",
                 "provider_label": PROVIDER_INFO["acea"]["label"],
                 "provider_ato": PROVIDER_INFO["acea"]["ato"],
-                "lat": s["lat"],
-                "lon": s["lon"],
-                "_src_pdf": str(s["pdf"]) if s.get("pdf") else None,
+                "lat": info["lat"],
+                "lon": info["lon"],
+                "_src_pdf": str(e["pdf"]),
             },
         }
         features.append(feat)
+    save_cache(cache)
 
-    print("[5/5] copia PDF in data/pdfs/ e scrive geojson…")
+    # Aree qualità Acea (Termoli): poligoni REALI dalla mappa ufficiale,
+    # con rapporti di prova testuali (parametri estraibili).
+    for a in acea_areas:
+        features.append({
+            "type": "Feature",
+            "geometry": a["geometry"],
+            "properties": {
+                "name": f"molise_termoli_{a['slug']}",
+                "comune": "Termoli",
+                "zona_label": a["name"],
+                "provincia_acr": "CB",
+                "regione": "Molise",
+                "provider": "molise_acea",
+                "provider_label": PROVIDER_INFO["acea"]["label"],
+                "provider_ato": PROVIDER_INFO["acea"]["ato"],
+                "lat": a["lat"],
+                "lon": a["lon"],
+                "_src_pdf": str(a["pdf"]) if a.get("pdf") else None,
+            },
+        })
+
+    print(f"   poligoni totali: {len(features)}  /  skippati: {len(skipped)}")
+
+    print("[4/5] copia PDF in data/pdfs/ …")
     for f in features:
         src = f["properties"].pop("_src_pdf", None)
         if not src:
@@ -374,13 +342,14 @@ def main() -> int:
         except Exception as exc:
             print(f"   ! copy fail {dest.name}: {exc}")
 
+    print(f"[5/5] scrive {OUT_GEOJSON.name} …")
     fc = {"type": "FeatureCollection", "features": features,
           "_built_at": datetime.now(timezone.utc).isoformat()}
     OUT_GEOJSON.write_text(json.dumps(fc, ensure_ascii=False), encoding="utf-8")
-    print(f"   OK  {len(features)} features (regione interamente coperta)")
+    print(f"   OK  {len(features)} features (poligoni reali, no tassellazione)")
 
     if skipped:
-        print(f"\n[skipped] {len(skipped)} comuni senza centroide:")
+        print(f"\n[skipped] {len(skipped)} comuni senza poligono:")
         for com in skipped:
             print(f"   - {com}")
 
