@@ -229,7 +229,7 @@ function switchTo(tabId) {
     compare: "Confronta zone",
     chat: "Assistente AI",
     meteo: "Meteo & Siccità",
-    info: "L'acqua di Lazio, Abruzzo, Campania, Molise, Puglia e Basilicata",
+    info: "L'acqua di Lazio, Abruzzo, Campania, Molise, Puglia, Basilicata e Toscana",
   };
   const t = $("sheet-title"); if (t) t.textContent = titles[tabId] || "AcquaMap";
 

@@ -27,6 +27,7 @@ GEOJSON_FILES = {
     "molise": ROOT / "mappa-qualita-molise.json",
     "puglia": ROOT / "mappa-qualita-puglia.json",
     "basilicata": ROOT / "mappa-qualita-basilicata.json",
+    "toscana_nuoveacque": ROOT / "mappa-qualita-nuoveacque.json",
     "lazio_extra": ROOT / "mappa-qualita-lazio-extra.json",
 }
 OUT_FILE = ROOT / "results.json"
@@ -1598,6 +1599,100 @@ def _ardea_curated_report(name: str) -> dict:
     }
 
 
+_NA_NUM = re.compile(r"[<>]?\d+(?:[.,]\d+)?")
+
+
+def parse_pdf_nuoveacque(path: Path) -> dict:
+    """Nuove Acque S.p.A. (Arezzo/Siena) — scheda «Qualità dell'acqua».
+
+    Layout testuale pulito, una riga per parametro:
+        ``<Parametro> <Valore> <Unità> <Limite>``
+    Esempi:
+        ``pH 7,96 tra 6,5 e 9,5``            (nessuna unità, limite = range)
+        ``Durezza 22,11 °F Valore consigliato tra 15 e 50``
+        ``Conducibilità 406,42 µScm-1 2500``
+        ``Bicarbonati 208,16 mg/L HCO3 NL``  (unità multi-token, NL = nessun limite)
+    """
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    with pdfplumber.open(path) as pdf:
+        text = pdf.pages[0].extract_text() or ""
+    lines = text.splitlines()
+
+    m = re.search(r"Comune di\s+(.+)", text)
+    if m:
+        out["comune"] = _clean(m.group(1)).title()
+    for ln in lines:
+        if _clean(ln).upper().startswith("ACQUEDOTTO"):
+            out["zona"] = _clean(ln)
+            break
+    m = re.search(r"dal\s+(\d{2}/\d{2}/\d{4})\s+al\s+(\d{2}/\d{2}/\d{4})", text)
+    if m:
+        out["periodo"] = f"dal {m.group(1)} al {m.group(2)}"
+
+    started = False
+    for ln in lines:
+        s = _clean(ln)
+        if not s:
+            continue
+        if s.startswith("Parametri") and "Valori medi" in s:
+            started = True
+            continue
+        if not started:
+            continue
+        if s.startswith("I dati pubblicati") or s.startswith("Periodo di rifer"):
+            break
+        mnum = _NA_NUM.search(s)
+        if not mnum:
+            continue
+        parametro = _clean(s[:mnum.start()])
+        valore = mnum.group(0)
+        rest = _clean(s[mnum.end():])
+        if not parametro:
+            continue
+
+        unita = ""
+        limite = ""
+        limite_num = None
+        if re.search(r"\btra\b", rest, re.IGNORECASE):
+            # Limite a intervallo (pH, oppure "Valore consigliato tra X e Y").
+            mr = re.search(
+                r"(.*?)(?:Valore consigliato\s+)?\btra\s+([\d.,]+)\s+e\s+([\d.,]+)",
+                rest, re.IGNORECASE)
+            if mr:
+                unita = _clean(mr.group(1))
+                limite = f"{mr.group(2)} - {mr.group(3)}"
+            else:
+                limite = rest
+        elif "NL" in rest:
+            # NL = nessun limite normativo (parametro indicatore).
+            unita = _clean(rest.replace("NL", ""))
+        else:
+            toks = rest.split()
+            if toks and _NA_NUM.fullmatch(toks[-1]):
+                limite = toks[-1]
+                limite_num = _parse_number(limite)
+                unita = _clean(" ".join(toks[:-1]))
+            else:
+                unita = rest
+
+        if parametro.lower() == "ph" and not unita:
+            unita = "Unità di pH"
+
+        out["parameters"].append({
+            "parametro": parametro,
+            "unita": unita,
+            "limite": limite,
+            "valore": valore,
+            "valore_num": _parse_number(valore),
+            "limite_num": limite_num,
+        })
+
+    _abruzzo_compliance(out)
+    out["_source"] = "toscana_nuoveacque"
+    return out
+
 
 def _worker(path_str: str) -> tuple[str, dict | str]:
     p = Path(path_str)
@@ -1621,6 +1716,8 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_puglia(p)
         if p.stem.startswith("basilicata_al_"):
             return p.stem, parse_pdf_basilicata(p)
+        if p.stem.startswith("nuoveacque_"):
+            return p.stem, parse_pdf_nuoveacque(p)
         if p.stem.startswith("lazio_idrica_"):
             return p.stem, parse_pdf_lazio_idrica(p)
         if p.stem.startswith("acqualatina_"):

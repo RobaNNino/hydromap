@@ -28,5 +28,13 @@ backend/data/abruzzo_polygons_cache.json
 backend/acquedottolucano_pdf/
 backend/data/basilicata_polygons_cache.json
 
+# Sorgenti originali Nuove Acque (365 schede, AR/SI): i PDF rappresentativi
+# per comune vengono copiati in backend/data/pdfs/ da build_nuoveacque.py.
+backend/nuoveacque_pdf/
+backend/data/nuoveacque_polygons_cache.json
+
+# Sorgenti GAIA (497 PDF ricostruiti, Lucca/MS/Pistoia) — non ancora integrati.
+backend/gaia_pdf/
+
 # build logs
 *.log

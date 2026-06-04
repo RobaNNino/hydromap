@@ -204,6 +204,23 @@ OFFICIAL_SOURCES = [
         "type": "Portale gestore",
         "scraped": True,
     },
+    # ---------- Toscana (Nuove Acque) ----------
+    {
+        "id": "toscana_nuoveacque",
+        "provider": "toscana_nuoveacque",
+        "title": "Nuove Acque — Alto Valdarno (AR/SI)",
+        "description": (
+            "Nuove Acque S.p.A. gestisce il servizio idrico integrato nei "
+            "comuni dell'Alto Valdarno (province di Arezzo e Siena). Pubblica "
+            "le schede «Qualità dell'acqua» con i valori medi rilevati per "
+            "ciascun acquedotto comunale."
+        ),
+        "url": "https://www.nuoveacque.it/qualita-dellacqua",
+        "agency": "Nuove Acque S.p.A.",
+        "ato": "Autorità Idrica Toscana — Conferenza Territoriale n.4 Alto Valdarno",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
     # ---------- Lazio (extra) ----------
     {
         "id": "lazio_idrica_ardea",
