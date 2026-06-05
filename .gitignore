@@ -40,6 +40,15 @@ backend/gaia_pdf/
 # in backend/data/pdfs/ dai builder dedicati.
 backend/publiacqua_pdf/
 backend/acque_pdf/
+backend/asamap_pdf/
+backend/fiora_pdf/
+
+# Cache scaricabili/rigenerabili dai builder ASA/Fiora. Non servono al runtime
+# su Render e tenere il deploy leggero aiuta il free tier.
+backend/data/asamap_wfs_etichette.json
+backend/data/asamap_polygons_cache.json
+backend/data/fiora_poligoni.kml
+backend/data/fiora_polygons_cache.json
 
 # build logs
 *.log

@@ -270,6 +270,37 @@ OFFICIAL_SOURCES = [
         "type": "Portale gestore",
         "scraped": True,
     },
+    # ---------- Toscana (ASA) ----------
+    {
+        "id": "toscana_asamap",
+        "provider": "toscana_asamap",
+        "title": "ASA - Costa Toscana (LI/PI/SI)",
+        "description": (
+            "ASA S.p.A. pubblica le etichette di qualita dell'acqua tramite "
+            "il portale cartografico ASAmap, con geometrie ufficiali degli "
+            "acquedotti e schede PDF per ciascuna zona."
+        ),
+        "url": "https://www.asamap.it/etichette",
+        "agency": "ASA S.p.A.",
+        "ato": "Autorita Idrica Toscana - Conferenza Territoriale n.5 Toscana Costa",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    # ---------- Toscana (Fiora) ----------
+    {
+        "id": "toscana_fiora",
+        "provider": "toscana_fiora",
+        "title": "Acquedotto del Fiora - Toscana Sud",
+        "description": (
+            "Acquedotto del Fiora S.p.A. pubblica schede di qualita acqua "
+            "per zone e sistemi idrici nei comuni della Toscana meridionale."
+        ),
+        "url": "https://www.fiora.it/azienda/acqua-e-territorio/qualita-dellacqua/",
+        "agency": "Acquedotto del Fiora S.p.A.",
+        "ato": "Autorita Idrica Toscana - Conferenza Territoriale n.6 Ombrone",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
     # ---------- Lazio (extra) ----------
     {
         "id": "lazio_idrica_ardea",

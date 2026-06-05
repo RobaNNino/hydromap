@@ -786,15 +786,26 @@ a:hover { text-decoration: underline; }
   padding: 8px 10px !important;
   font-family: inherit !important;
   font-size: 12px !important;
+  max-width: 280px !important;
 }
 .map-tooltip::before { display: none !important; }
 .map-tt .tt-comune { font-weight: 700; font-size: 13px; }
+.map-tt .tt-zone-main {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
 .map-tt .tt-zone { color: var(--muted); font-size: 11px; margin-top: 2px; }
 .map-tt .tt-supply { font-size: 11px; margin-top: 4px; color: var(--text-2); }
 .map-tt .tt-badges { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
-.map-tt .tt-badge, .map-tt .tt-status, .map-tt .tt-fresh, .map-tt .tt-prov {
+.map-tt .tt-badge, .map-tt .tt-status, .map-tt .tt-fresh, .map-tt .tt-prov, .map-tt .tt-code {
   font-size: 9px; padding: 2px 6px; border-radius: 999px;
   background: var(--surface-3); color: var(--text-2);
+}
+.map-tt .tt-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .map-tt .tt-status.ok { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
 .map-tt .tt-status.warn { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }

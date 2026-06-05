@@ -64,7 +64,7 @@ const state = {
   meLayer: null,
 };
 
-const SELECTED_STYLE = { weight: 2.5, color: "#0c4a6e", fillOpacity: 0.7 };
+const SELECTED_STYLE = { weight: 2.8, color: "#0f172a", fillOpacity: 0.66 };
 const SEVERITY_RANK = { alert: 3, warning: 2, info: 1 };
 const $ = (id) => document.getElementById(id);
 const escapeHtml = (s) => String(s ?? "")
@@ -115,6 +115,36 @@ function tooltipHtml(p) {
     ${aq}
     <div class="tt-badges">${badges}${statusBadge}${frBadge}${provBadge}</div>
     <div class="tt-hint">Tocca per i dettagli</div>
+  </div>`;
+}
+
+function zoneTooltipHtml(p) {
+  const title = p.display_name || p.comune || p.name || "-";
+  const area = p.area || "";
+  const zone = p.zone_num ? `Zona ${escapeHtml(p.zone_num)}` : "";
+  const rawZone = p.zona_label || p.nome_kml || "";
+  const zoneMain = rawZone && rawZone !== title
+    ? `<div class="tt-zone-main">${escapeHtml(rawZone)}</div>` : "";
+  const code = p.cod_acq || p.id_layer || p.name || "";
+  const codeLine = code ? `<span class="tt-code">${escapeHtml(code)}</span>` : "";
+  const aq = p.aqueduct
+    ? `<div class="tt-supply">Acquedotto <b>${escapeHtml(p.aqueduct)}</b></div>` : "";
+  const badges = (p.badges || []).slice(0, 2).map(b =>
+    `<span class="tt-badge">${escapeHtml(b)}</span>`).join("");
+  const statusBadge = p.status === "ATTENZIONE"
+    ? `<span class="tt-status warn">Attenzione</span>`
+    : p.status === "OK" ? `<span class="tt-status ok">Conforme</span>` : "";
+  const fr = p.freshness || {};
+  const frBadge = fr.label && fr.label !== "n/d"
+    ? `<span class="tt-fresh fresh-${fr.level}">${escapeHtml(fr.label)}</span>` : "";
+  const provBadge = p.provider_label
+    ? `<span class="tt-prov" title="${escapeHtml(p.provider_ato || "")}">${escapeHtml(p.provider_label)}</span>` : "";
+  return `<div class="map-tt">
+    <div class="tt-comune">${escapeHtml(title)}</div>
+    ${zoneMain}
+    ${area ? `<div class="tt-zone">${escapeHtml(area)}${zone ? ` / ${zone}` : ""}</div>` : (zone ? `<div class="tt-zone">${zone}</div>` : "")}
+    ${aq}
+    <div class="tt-badges">${codeLine}${badges}${statusBadge}${frBadge}${provBadge}</div>
   </div>`;
 }
 
@@ -395,7 +425,7 @@ function statusStyle(feature) {
   const p = feature.properties || {};
   return {
     color: p.stroke || "#0369a1", weight: 0.8,
-    fillColor: p.fill || "#94a3b8", fillOpacity: 0.45,
+    fillColor: p.fill || "#94a3b8", fillOpacity: 0.24,
   };
 }
 const RAMP = ["#e0f2fe","#bae6fd","#7dd3fc","#38bdf8","#0ea5e9","#0284c7","#0369a1","#1e40af","#312e81"];
@@ -410,13 +440,13 @@ function parameterStyle(feature) {
   const pd = state.paramData;
   if (!pd) return statusStyle(feature);
   const item = pd.byName[name];
-  if (!item) return { color: "#94a3b8", weight: 0.6, fillColor: "#e2e8f0", fillOpacity: 0.35 };
+  if (!item) return { color: "#94a3b8", weight: 0.6, fillColor: "#e2e8f0", fillOpacity: 0.16 };
   const exceed = item.limite != null && item.valore > item.limite;
   return {
     color: exceed ? "#7c1d1d" : "#0c4a6e",
     weight: exceed ? 1.4 : 0.8,
     fillColor: rampColor(item.valore, pd.min, pd.max),
-    fillOpacity: 0.7,
+    fillOpacity: 0.54,
   };
 }
 function currentStyle(feature) {
@@ -424,11 +454,16 @@ function currentStyle(feature) {
 }
 function onEach(feature, layer) {
   const p = feature.properties || {};
-  layer.bindTooltip(tooltipHtml(p), {
+  layer.bindTooltip(zoneTooltipHtml(p), {
     sticky: true, direction: "top", offset: [0, -6], className: "map-tooltip",
   });
   layer.on({
-    mouseover: (e) => { if (e.target !== state.selectedLayer) e.target.setStyle({ weight: 1.8, fillOpacity: 0.7 }); },
+    mouseover: (e) => {
+      if (e.target.bringToFront) e.target.bringToFront();
+      if (e.target !== state.selectedLayer) {
+        e.target.setStyle({ weight: 2.4, color: "#0f172a", fillOpacity: state.parameter ? 0.72 : 0.58 });
+      }
+    },
     mouseout:  (e) => { if (e.target !== state.selectedLayer) state.geoLayer.resetStyle(e.target); },
     click: () => selectZone(p.name, layer),
   });

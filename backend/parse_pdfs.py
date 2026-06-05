@@ -31,6 +31,8 @@ GEOJSON_FILES = {
     "toscana_gaia": ROOT / "mappa-qualita-gaia.json",
     "toscana_publiacqua": ROOT / "mappa-qualita-publiacqua.json",
     "toscana_acque": ROOT / "mappa-qualita-acque.json",
+    "toscana_asamap": ROOT / "mappa-qualita-asamap.json",
+    "toscana_fiora": ROOT / "mappa-qualita-fiora.json",
     "lazio_extra": ROOT / "mappa-qualita-lazio-extra.json",
 }
 OUT_FILE = ROOT / "results.json"
@@ -46,6 +48,12 @@ SECTION_KEYS = (
 def _clean(s: str | None) -> str:
     if not s:
         return ""
+    s = str(s)
+    s = (s.replace("ľg/l", "µg/l")
+           .replace("Âµg/l", "µg/l")
+           .replace("痢/l", "µg/l")
+           .replace("Â°", "°")
+           .replace("unitÃ ", "unità"))
     return re.sub(r"\s+", " ", s).strip()
 
 
@@ -1872,6 +1880,141 @@ def parse_pdf_acque(path: Path) -> dict:
     return out
 
 
+def parse_pdf_fiora(path: Path) -> dict:
+    """Acquedotto del Fiora S.p.A. - schede qualita acqua."""
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    with pdfplumber.open(path) as pdf:
+        text = pdf.pages[0].extract_text() or ""
+        tables = pdf.pages[0].extract_tables() or []
+
+    if tables:
+        for row in tables[0]:
+            if not row or len(row) < 2:
+                continue
+            key = _clean(row[0]).lower()
+            val = _clean(row[1])
+            if key == "comune":
+                out["comune"] = val
+            elif key == "zona":
+                out["zona"] = val
+            elif key == "periodo":
+                out["periodo"] = val
+
+    if not out["zona"]:
+        m = re.search(r"Acquedotto del Fiora S\.p\.A\..*?\n(.+)", text)
+        if m:
+            out["zona"] = _clean(m.group(1))
+
+    for tbl in tables:
+        if not tbl:
+            continue
+        header = [_clean(c).lower() for c in (tbl[0] or [])]
+        if len(header) < 4 or header[0] != "parametro":
+            continue
+        for row in tbl[1:]:
+            if not row or len(row) < 3:
+                continue
+            parametro = _clean(row[0])
+            limite_raw = _clean(row[1])
+            valore = _clean(row[2])
+            if not parametro or not valore:
+                continue
+            unita = ""
+            m_unit = re.search(r"\(([^()]+)\)\s*$", valore)
+            if m_unit:
+                unita = _clean(m_unit.group(1))
+                valore = _clean(valore[:m_unit.start()])
+            if not unita:
+                m_unit = re.search(r"/\s*([^()]+)\)", limite_raw)
+                if m_unit:
+                    unita = _clean(m_unit.group(1))
+            out["parameters"].append({
+                "parametro": parametro,
+                "unita": unita,
+                "limite": limite_raw,
+                "valore": valore,
+                "valore_num": _parse_number(valore),
+                "limite_num": _parse_toscana_limit(limite_raw),
+            })
+
+    _abruzzo_compliance(out)
+    out["_source"] = "toscana_fiora"
+    return out
+
+
+def parse_pdf_asamap(path: Path) -> dict:
+    """ASA S.p.A. - etichette qualita acqua."""
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    with pdfplumber.open(path) as pdf:
+        text = pdf.pages[0].extract_text() or ""
+
+    lines = [_clean(line) for line in text.splitlines() if _clean(line)]
+    for i, line in enumerate(lines):
+        low = line.lower()
+        if low.startswith("dati riferiti al periodo:"):
+            out["periodo"] = _clean(line.split(":", 1)[1])
+        elif "acquedotto di" in low:
+            tail = _clean(re.split(r"acquedotto di", line, flags=re.I)[-1])
+            if tail:
+                out["zona"] = f"Acquedotto di {tail}".title()
+            elif i + 1 < len(lines):
+                out["zona"] = f"Acquedotto di {lines[i + 1]}".title()
+
+    if not out["comune"]:
+        parts = path.stem.split("_")
+        if len(parts) >= 3 and parts[0] == "asamap":
+            out["comune"] = " ".join(parts[2:]).title()
+        elif len(parts) >= 2:
+            out["comune"] = parts[1].replace("_", " ").title()
+    if not out["zona"]:
+        out["zona"] = name
+
+    unit_re = r"(unità pH|microS/cm|µg/l|mg/l|°\s*F|°\s*C)"
+    in_params = False
+    for line in lines:
+        if line.startswith("Ammonio "):
+            in_params = True
+        if not in_params:
+            continue
+        if line.startswith("Numero totale") or line.startswith("Tipo di disinfettante"):
+            break
+        m = re.match(rf"(.+?)\s+{unit_re}\s+(.+)$", line, re.I)
+        if not m:
+            continue
+        parametro = _clean(m.group(1))
+        unita = _clean(m.group(2))
+        rest = _clean(m.group(3))
+        parts = rest.split()
+        if not parts:
+            continue
+        if len(parts) >= 2 and parts[0] in {"<", ">"}:
+            valore = f"{parts[0]} {parts[1]}"
+            limite_raw = _clean(" ".join(parts[2:]))
+        elif " senza limite" in rest.lower():
+            m_lim = re.search(r"\bsenza limite\b", rest, re.I)
+            valore = _clean(rest[:m_lim.start()]) if m_lim else rest
+            limite_raw = "senza limite"
+        else:
+            valore = parts[0]
+            limite_raw = _clean(" ".join(parts[1:]))
+        out["parameters"].append({
+            "parametro": parametro,
+            "unita": unita,
+            "limite": limite_raw,
+            "valore": valore,
+            "valore_num": _parse_number(valore),
+            "limite_num": _parse_toscana_limit(limite_raw),
+        })
+
+    _abruzzo_compliance(out)
+    out["_source"] = "toscana_asamap"
+    return out
+
+
 def _worker(path_str: str) -> tuple[str, dict | str]:
     p = Path(path_str)
     try:
@@ -1902,6 +2045,10 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_publiacqua(p)
         if p.stem.startswith("acque_"):
             return p.stem, parse_pdf_acque(p)
+        if p.stem.startswith("fiora_"):
+            return p.stem, parse_pdf_fiora(p)
+        if p.stem.startswith("asamap_"):
+            return p.stem, parse_pdf_asamap(p)
         if p.stem.startswith("lazio_idrica_"):
             return p.stem, parse_pdf_lazio_idrica(p)
         if p.stem.startswith("acqualatina_"):

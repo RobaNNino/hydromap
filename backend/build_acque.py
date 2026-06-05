@@ -343,6 +343,16 @@ def main() -> int:
         "_built_at": datetime.now(timezone.utc).isoformat(),
     }, ensure_ascii=False), encoding="utf-8")
     save_cache(POLY_CACHE_FILE, poly_cache)
+    try:
+        from clip_acque_by_fiora import clip_acque_by_fiora
+        clip_stats = clip_acque_by_fiora(verbose=False)
+        if clip_stats["changed"]:
+            print(
+                "   clip Fiora: "
+                f"{clip_stats['changed']} feature ritagliate"
+            )
+    except Exception as exc:
+        print(f"   clip Fiora saltato: {exc}")
     print(f"   OK {len(out_features)} feature / skippati {len(skipped)}")
     if skipped:
         for code, label in skipped[:80]:
