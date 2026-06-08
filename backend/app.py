@@ -32,6 +32,8 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 ROOT = Path(__file__).parent / "data"
 PDF_DIR = ROOT / "pdfs"
+GEOJSON_CACHE_FILE = ROOT / "geojson-cache.json"
+GEOJSON_CACHE_GZ_FILE = ROOT / "geojson-cache.json.gz"
 # Mappa provider_id -> file GeoJSON locale (popolato da scrape.py / scraper dedicati).
 # I file vengono uniti in un singolo FeatureCollection alla prima richiesta.
 GEOJSON_FILES: dict[str, Path] = {
@@ -78,7 +80,8 @@ def _load_results() -> dict:
     return {}
 
 
-_RESULTS = _load_results()
+_RESULTS_CACHE: dict | None = None
+_RESULTS_LOCK = threading.Lock()
 _GEOJSON_CACHE: dict | None = None
 # Cache della risposta serializzata (e gzippata) per /api/geojson.
 # Rebuild solo quando cambia la data (freshness dipende da date.today()).
@@ -88,6 +91,17 @@ _GEOJSON_RESP_CACHE: dict = {
     "gz_bytes": None,    # bytes gzippati
 }
 _GEOJSON_RESP_LOCK = threading.Lock()
+
+
+def _get_results() -> dict:
+    """Load parsed PDF results only when an endpoint really needs them."""
+    global _RESULTS_CACHE
+    if _RESULTS_CACHE is not None:
+        return _RESULTS_CACHE
+    with _RESULTS_LOCK:
+        if _RESULTS_CACHE is None:
+            _RESULTS_CACHE = _load_results()
+    return _RESULTS_CACHE
 
 
 # ---------- freshness analisi (data analisi → "nuova"/"in scadenza"/"vecchia") ----------
@@ -175,6 +189,7 @@ def _build_enriched_geojson() -> dict:
     # Unisce tutti i GeoJSON disponibili in un singolo FeatureCollection.
     merged_features: list[dict] = []
     name_to_provider: dict[str, str] = {}
+    results = _get_results()
     for prov_id, gf in GEOJSON_FILES.items():
         if not gf.exists():
             continue
@@ -198,7 +213,7 @@ def _build_enriched_geojson() -> dict:
     for feat in raw["features"]:
         p = feat.setdefault("properties", {})
         name = p.get("name")
-        r = _RESULTS.get(name)
+        r = results.get(name)
         prov_id = r.get("provider") if r else None
         prov_id = prov_id or p.get("_source_provider") or "acea_ato2"
         if r:
@@ -286,8 +301,32 @@ def _serialized_geojson() -> tuple[bytes, bytes]:
 
 @app.get("/api/geojson")
 def api_geojson():
-    json_bytes, gz_bytes = _serialized_geojson()
     accept_enc = (request.headers.get("Accept-Encoding") or "").lower()
+    if "gzip" in accept_enc and GEOJSON_CACHE_GZ_FILE.exists():
+        resp = send_file(
+            GEOJSON_CACHE_GZ_FILE,
+            mimetype="application/json",
+            conditional=True,
+            etag=True,
+            max_age=300,
+        )
+        resp.headers["Content-Encoding"] = "gzip"
+        resp.headers["Vary"] = "Accept-Encoding"
+        resp.headers["Cache-Control"] = "public, max-age=300"
+        return resp
+    if GEOJSON_CACHE_FILE.exists():
+        resp = send_file(
+            GEOJSON_CACHE_FILE,
+            mimetype="application/json",
+            conditional=True,
+            etag=True,
+            max_age=300,
+        )
+        resp.headers["Vary"] = "Accept-Encoding"
+        resp.headers["Cache-Control"] = "public, max-age=300"
+        return resp
+
+    json_bytes, gz_bytes = _serialized_geojson()
     if "gzip" in accept_enc:
         resp = Response(gz_bytes, mimetype="application/json")
         resp.headers["Content-Encoding"] = "gzip"
@@ -300,9 +339,14 @@ def api_geojson():
     return resp
 
 
+@app.get("/api/health")
+def api_health():
+    return jsonify({"ok": True})
+
+
 @app.get("/api/zone/<name>")
 def api_zone(name: str):
-    r = _RESULTS.get(name)
+    r = _get_results().get(name)
     if not r:
         abort(404, description=f"zone '{name}' not found")
     from zone_names import enrich_zone
