@@ -438,6 +438,91 @@ OFFICIAL_SOURCES = [
         "type": "Portale gestore",
         "scraped": True,
     },
+    # ---------- Marche ----------
+    {
+        "id": "marche_apmgroup",
+        "provider": "marche_apmgroup",
+        "title": "APM Group — Macerata",
+        "description": (
+            "APM Group pubblica schede di qualità dell'acqua per punti di "
+            "prelievo e zone di distribuzione nei comuni serviti."
+        ),
+        "url": "https://www.apmgroup.it/",
+        "agency": "APM Group",
+        "ato": "ATO 3 Marche Centro - Macerata",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "marche_assemspa",
+        "provider": "marche_assemspa",
+        "title": "A.S.SE.M. S.p.A. — San Severino Marche",
+        "description": (
+            "A.S.SE.M. S.p.A. pubblica rapporti di prova per i punti di "
+            "campionamento della rete nei comuni serviti."
+        ),
+        "url": "https://www.assemspa.it/",
+        "agency": "A.S.SE.M. S.p.A.",
+        "ato": "ATO 3 Marche Centro - Macerata",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "marche_asteaspa",
+        "provider": "marche_asteaspa",
+        "title": "ASTEA S.p.A. — Osimo/Recanati",
+        "description": (
+            "ASTEA S.p.A. pubblica rapporti di analisi per casette dell'acqua "
+            "e punti della rete nei comuni serviti."
+        ),
+        "url": "https://www.asteaspa.it/",
+        "agency": "ASTEA S.p.A.",
+        "ato": "ATO 3 Marche Centro - Macerata",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "marche_atac_civitanova",
+        "provider": "marche_atac_civitanova",
+        "title": "ATAC Civitanova — Civitanova Marche",
+        "description": (
+            "ATAC Civitanova S.p.A. pubblica rapporti di prova dell'acqua "
+            "potabile distribuita tramite acquedotto pubblico comunale."
+        ),
+        "url": "https://www.atac-civitanova.it/",
+        "agency": "ATAC Civitanova S.p.A.",
+        "ato": "ATO 3 Marche Centro - Macerata",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "marche_vivaservizi",
+        "provider": "marche_vivaservizi",
+        "title": "Viva Servizi — Ancona",
+        "description": (
+            "Viva Servizi S.p.A. pubblica riepiloghi analitici per i comuni "
+            "serviti nell'ambito di Ancona."
+        ),
+        "url": "https://www.vivaservizi.it/",
+        "agency": "Viva Servizi S.p.A.",
+        "ato": "ATO 2 Marche Centro - Ancona",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "marche_multiservizi",
+        "provider": "marche_multiservizi",
+        "title": "Marche Multiservizi — Marche Nord",
+        "description": (
+            "Marche Multiservizi S.p.A. pubblica schede di qualità dell'acqua "
+            "per acquedotti e punti di prelievo nei comuni serviti."
+        ),
+        "url": "https://www.gruppomarchemultiservizi.it/",
+        "agency": "Marche Multiservizi S.p.A.",
+        "ato": "ATO 1 Marche Nord - Pesaro e Urbino",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
     # ---------- Fonti istituzionali ----------
     {
         "id": "salute",

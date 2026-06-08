@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+import unicodedata
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
@@ -33,6 +34,8 @@ GEOJSON_FILES = {
     "toscana_acque": ROOT / "mappa-qualita-acque.json",
     "toscana_asamap": ROOT / "mappa-qualita-asamap.json",
     "toscana_fiora": ROOT / "mappa-qualita-fiora.json",
+    "marche_batch": ROOT / "mappa-qualita-marche-batch.json",
+    "marche_multiservizi": ROOT / "mappa-qualita-marche-multiservizi.json",
     "lazio_extra": ROOT / "mappa-qualita-lazio-extra.json",
 }
 OUT_FILE = ROOT / "results.json"
@@ -2015,6 +2018,401 @@ def parse_pdf_asamap(path: Path) -> dict:
     return out
 
 
+_MARCHE_UNITS = (
+    "MPN/100 ml", "ufc/100 ml", "ufc/ml", "unità di pH", "Unità pH",
+    "µS/cm a 20°C", "µS cm¯¹ a 20°C", "µS/cm", "uS/cm a 20°C",
+    "µs/cm", "mg/l NO3", "mg/l NO2", "mg/L", "mg/l", "µg/l", "ug/l",
+    "°F", "NTU",
+)
+
+
+def _pdf_text(path: Path, max_pages: int | None = None) -> str:
+    chunks: list[str] = []
+    with pdfplumber.open(path) as pdf:
+        pages = pdf.pages if max_pages is None else pdf.pages[:max_pages]
+        for page in pages:
+            chunks.append(page.extract_text() or "")
+    text = "\n".join(chunks)
+    if len(text.strip()) < 20:
+        ocr = _optional_ocr_text(path, max_pages=max_pages)
+        if ocr.strip():
+            return ocr
+    return text
+
+
+def _pdf_tables(path: Path) -> list[list[list[str | None]]]:
+    tables = []
+    with pdfplumber.open(path) as pdf:
+        for page in pdf.pages:
+            tables.extend(page.extract_tables() or [])
+    return tables
+
+
+def _optional_ocr_text(path: Path, max_pages: int | None = None) -> str:
+    try:
+        import fitz  # type: ignore
+        import pytesseract  # type: ignore
+        from PIL import Image  # type: ignore
+    except Exception:
+        return ""
+    chunks: list[str] = []
+    doc = fitz.open(path)
+    limit = len(doc) if max_pages is None else min(max_pages, len(doc))
+    for i in range(limit):
+        page = doc.load_page(i)
+        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+        image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        chunks.append(pytesseract.image_to_string(image, lang="ita+eng"))
+    return "\n".join(chunks)
+
+
+def _marche_periodo(text: str, stem: str) -> str | None:
+    patterns = [
+        r"Data prelievo:\s*(\d{1,2}/\d{1,2}/\d{2,4})",
+        r"Valori rilevati il\s*(\d{1,2}/\d{1,2}/\d{2,4})",
+        r"Valori rilevati dal\s*\d{1,2}/\d{1,2}/\d{2,4}\s+al\s*(\d{1,2}/\d{1,2}/\d{2,4})",
+        r"Data campionamento:\s*[¹\s]*(\d{1,2}/\d{1,2}/\d{2,4})",
+        r"Riferimento Rapporto di Prova[^\n]*?\sdel\s*(\d{1,2}/\d{1,2}/\d{2,4})",
+        r"\bANNO\s+(20\d{2})\b",
+    ]
+    for pat in patterns:
+        m = re.search(pat, text, re.I)
+        if m:
+            val = _clean(m.group(1))
+            if re.fullmatch(r"\d{1,2}/\d{1,2}/\d{2}", val):
+                dd, mm, yy = val.split("/")
+                return f"{int(dd):02d}/{int(mm):02d}/20{int(yy):02d}"
+            return val
+    m = re.search(r"(?<!\d)(\d{1,2})[._-](20\d{2})(?!\d)", stem)
+    if m:
+        return f"{int(m.group(1)):02d}/{m.group(2)}"
+    m = re.search(r"\b(20\d{2})\b", stem)
+    return m.group(1) if m else None
+
+
+def _marche_base(path: Path, source: str) -> dict:
+    return {
+        "name": path.stem,
+        "parameters": [],
+        "sections": {},
+        "comune": None,
+        "zona": None,
+        "periodo": None,
+        "_source": source,
+    }
+
+
+def _marche_add_param(out: dict, parametro: str, unita: str, limite: str, valore: str) -> None:
+    parametro = _clean(parametro)
+    unita = _clean(unita).replace("µg/ l", "µg/l").replace("mg/ l", "mg/l").replace("m l", "ml")
+    limite = _clean(limite)
+    valore = _clean(valore)
+    if not parametro or not valore:
+        return
+    low = parametro.lower()
+    if low.startswith(("categoria", "parametro", "parametri", "prova", "metodo", "comune:")):
+        return
+    limite_num = _parse_marche_limit(limite)
+    ref_limit = _marche_reference_limit(parametro)
+    if _marche_no_individual_limit(parametro):
+        limite_num = None
+    elif ref_limit is not None and (
+        limite_num is None
+        or (limite_num > 0 and limite_num < ref_limit * 0.2)
+    ):
+        limite_num = ref_limit
+        limite = f"{ref_limit:g}"
+    out["parameters"].append({
+        "parametro": parametro,
+        "unita": unita,
+        "limite": limite,
+        "valore": valore,
+        "valore_num": _parse_number(valore),
+        "limite_num": limite_num,
+    })
+
+
+def _parse_marche_limit(raw: str) -> float | None:
+    low = (raw or "").lower()
+    if (
+        not raw
+        or raw in {"-", "/", "---"}
+        or any(k in low for k in ("non previsto", "s.v.a", "senza variazioni", "accettabile"))
+        or any(k in raw for k in ("÷", "≥", "≤"))
+    ):
+        return None
+    return _parse_toscana_limit(raw)
+
+
+def _marche_reference_limit(parametro: str) -> float | None:
+    label = unicodedata.normalize("NFKD", parametro.lower())
+    label = "".join(c for c in label if not unicodedata.combining(c))
+    checks = [
+        ("conducibilit", 2500.0), ("conduttivit", 2500.0),
+        ("nitrati", 50.0), ("nitrato", 50.0),
+        ("nitriti", 0.5), ("nitrito", 0.5),
+        ("ammonio", 0.5), ("azoto ammoniacale", 0.5),
+        ("cloruri", 250.0), ("cloruro", 250.0),
+        ("solfati", 250.0), ("solfato", 250.0),
+        ("sodio", 200.0), ("fluoruro", 1.5), ("fluoruri", 1.5),
+        ("ferro", 200.0), ("manganese", 50.0), ("alluminio", 200.0),
+        ("piombo", 10.0), ("nichel", 20.0), ("arsenico", 10.0),
+        ("cadmio", 5.0), ("cromo", 25.0), ("rame", 2.0),
+        ("boro", 1.5), ("antimonio", 10.0), ("mercurio", 1.0),
+        ("selenio", 20.0), ("cianuro", 50.0), ("cianuri", 50.0),
+        ("bromato", 10.0), ("clorato", 0.25), ("clorito", 0.25),
+        ("antiparassitari", 0.5), ("trialometani", 30.0),
+        ("uranio", 30.0),
+    ]
+    for needle, limit in checks:
+        if needle in label:
+            return limit
+    return None
+
+
+def _marche_no_individual_limit(parametro: str) -> bool:
+    label = unicodedata.normalize("NFKD", parametro.lower())
+    label = "".join(c for c in label if not unicodedata.combining(c))
+    return any(k in label for k in (
+        "durezza", "calcio", "magnesio", "potassio", "fosforo",
+        "bicarbonato", "alcalinita", "residuo secco",
+        "bromodiclorometano", "dibromoclorometano", "bromoformio", "cloroformio",
+    ))
+
+
+def _marche_finish(out: dict, note: str | None = None) -> dict:
+    if out["parameters"]:
+        _abruzzo_compliance(out)
+    else:
+        out["summary"] = {
+            "total_parameters": 0,
+            "total_with_limit": 0,
+            "exceedances": [],
+            "status": "INFORMATIVO",
+        }
+    if note:
+        out["summary"]["note"] = note
+    return out
+
+
+def _value_and_limit_from_rest(rest: str) -> tuple[str, str]:
+    rest = _clean(rest)
+    if not rest:
+        return "", ""
+    low = rest.lower()
+    if low.startswith("accettabile"):
+        return "accettabile", "Accettabile per i consumatori e senza variazioni anomale"
+    if low.startswith("non previsto"):
+        return "non previsto", ""
+    if rest.startswith("<"):
+        m = re.match(r"(<\s*(?:LQ|[0-9]+(?:[.,][0-9]+)?))\s*(.*)$", rest, re.I)
+        return (_clean(m.group(1)), _clean(m.group(2))) if m else (rest, "")
+    first = rest.split()[0]
+    tail = _clean(rest[len(first):])
+    if tail.lower().startswith("tra"):
+        m = re.match(r"(tra\s+[0-9.,]+\s+e\s+[0-9.,]+)", tail, re.I)
+        return first, _clean(m.group(1)) if m else tail
+    if tail.lower().startswith("senza variazioni"):
+        return first, "Senza variazioni anomale"
+    if tail.lower().startswith("non previsto"):
+        return first, "non previsto"
+    if tail:
+        m = re.match(r"([<>≤≥=]*\s*[0-9]+(?:[.,][0-9]+)?(?:\([^)]+\))?)", tail)
+        if m:
+            return first, _clean(m.group(1))
+    return first, tail
+
+
+def _parse_marche_text_lines(out: dict, text: str) -> None:
+    unit_re = "|".join(re.escape(u) for u in sorted(_MARCHE_UNITS, key=len, reverse=True))
+    for raw in text.splitlines():
+        line = _clean(raw)
+        if not line or line.lower().startswith(("parametro ", "unità ", "misura ")):
+            continue
+        m_desc = re.match(r"^(Colore|Odore|Sapore)\s+(accettabile|inodore|insapore|incolore)\b", line, re.I)
+        if m_desc:
+            _marche_add_param(
+                out, m_desc.group(1), "", "Accettabile per i consumatori e senza variazioni anomale", m_desc.group(2)
+            )
+            continue
+        m = re.match(rf"(.+?)\s+({unit_re})\s+(.+)$", line, re.I)
+        if not m:
+            continue
+        parametro = m.group(1)
+        unita = m.group(2)
+        valore, limite = _value_and_limit_from_rest(m.group(3))
+        _marche_add_param(out, parametro, unita, limite, valore)
+
+
+def parse_pdf_marche_apmgroup(path: Path) -> dict:
+    out = _marche_base(path, "marche_apmgroup")
+    text = _pdf_text(path, max_pages=1)
+    out["periodo"] = _marche_periodo(text, path.stem)
+    m = re.search(r"COMUNE DI\s+([^\n]+)", text, re.I)
+    out["comune"] = _clean(m.group(1)).title() if m else None
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if len(lines) > 1:
+        out["zona"] = _clean(lines[1])
+
+    for table in _pdf_tables(path):
+        header_idx = None
+        for i, row in enumerate(table):
+            joined = " ".join(_clean(c) for c in row if c)
+            if "Parametri" in joined and "Limiti" in joined:
+                header_idx = i
+                break
+        if header_idx is None:
+            continue
+        for row in table[header_idx + 1:]:
+            if not row or len(row) < 5:
+                continue
+            parametro = _clean(row[0])
+            unita = _clean(row[1])
+            limite = _clean(row[3]) or _clean(row[2])
+            values = [_clean(c) for c in row[4:] if _clean(c)]
+            if not values:
+                continue
+            _marche_add_param(out, parametro, unita, limite, values[-1])
+    return _marche_finish(out)
+
+
+def parse_pdf_marche_multiservizi(path: Path) -> dict:
+    out = _marche_base(path, "marche_multiservizi")
+    text = _pdf_text(path)
+    out["periodo"] = _marche_periodo(text, path.stem)
+    m = re.search(r"Acquedotto\s+(.+?)\s+Data prelievo", text, re.I)
+    out["comune"] = _clean(m.group(1)) if m else None
+    m = re.search(r"Punto di prelievo:\s*([^\n]+)", text, re.I)
+    out["zona"] = _clean(m.group(1)) if m else out["comune"]
+    _parse_marche_text_lines(out, text)
+    return _marche_finish(out)
+
+
+def parse_pdf_marche_vivaservizi(path: Path) -> dict:
+    out = _marche_base(path, "marche_vivaservizi")
+    text = _pdf_text(path)
+    out["periodo"] = _marche_periodo(text, path.stem)
+    m = re.search(r"Comune:\s*([^\n-]+)(?:-\s*Punto di prelievo:\s*([^\n]+))?", text, re.I)
+    if m:
+        out["comune"] = _clean(m.group(1))
+        out["zona"] = _clean(m.group(2)) if m.group(2) else out["comune"]
+    elif path.stem.startswith("marche_vivaservizi_"):
+        out["zona"] = path.stem.replace("marche_vivaservizi_", "").replace("_", " ").title()
+    for table in _pdf_tables(path):
+        for row in table:
+            if not row or len(row) < 5:
+                continue
+            parametro = _clean(row[1] if len(row) > 1 else "")
+            unita = _clean(row[2] if len(row) > 2 else "")
+            limite = _clean(row[3] if len(row) > 3 else "")
+            valore = _clean("".join(_clean(c) for c in row[4:] if _clean(c)))
+            _marche_add_param(out, parametro, unita, limite, valore)
+    return _marche_finish(out)
+
+
+def parse_pdf_marche_atac(path: Path) -> dict:
+    out = _marche_base(path, "marche_atac_civitanova")
+    text = _pdf_text(path)
+    out["periodo"] = _marche_periodo(text, path.stem)
+    m = re.search(r"COMUNE DI\s+([^\n]+)", text, re.I)
+    out["comune"] = _clean(m.group(1)).title() if m else "Civitanova Marche"
+    m = re.search(r"INDIRIZZO DI FORNITURA:\s*[“\"]([^”\"]+)", text, re.I)
+    out["zona"] = _clean(m.group(1)) if m else None
+    for table in _pdf_tables(path):
+        for row in table:
+            if not row or len(row) < 5:
+                continue
+            parametro = _clean(row[0])
+            if not parametro or parametro.lower() == "parametri":
+                continue
+            _marche_add_param(out, parametro, _clean(row[1]), _clean(row[4]), _clean(row[3]))
+    return _marche_finish(out)
+
+
+def _assem_result_line(line: str) -> tuple[str, str, str] | None:
+    line = re.sub(r"[①②③④⑤⑥⑦⑧⑨#]", " ", _clean(line))
+    m = re.match(r"(?P<value><\s*LQ|<\s*[0-9.,]+|[0-9.,]+|NP|inodore|insapore|incolore)\s+(?P<rest>.+)$", line, re.I)
+    if not m:
+        return None
+    value = _clean(m.group("value"))
+    rest = _clean(m.group("rest"))
+    unit_match = None
+    for unit_candidate in sorted(_MARCHE_UNITS, key=len, reverse=True):
+        idx = rest.lower().find(unit_candidate.lower())
+        if idx >= 0:
+            unit_match = (unit_candidate, idx, idx + len(unit_candidate))
+            break
+    if not unit_match:
+        if "S.V.A" in rest.upper():
+            return value, "", "S.V.A."
+        return value, "", rest
+    unit = _clean(unit_match[0])
+    tail = _clean(rest[unit_match[2]:])
+    if "S.V.A" in tail.upper():
+        limit = "S.V.A."
+    else:
+        m_lim = re.search(r"([0-9]+(?:[.,][0-9]+)?)", tail)
+        limit = m_lim.group(1) if m_lim else ""
+    return value, unit, limit
+
+
+def parse_pdf_marche_assemspa(path: Path) -> dict:
+    out = _marche_base(path, "marche_assemspa")
+    text = _pdf_text(path)
+    out["periodo"] = _marche_periodo(text, path.stem)
+    m = re.search(r"Luogo di campionamento:.*?Comune di\s+(.+?)(?:\s+-|\n)", text, re.I | re.S)
+    out["comune"] = _clean(m.group(1)) if m else None
+    m = re.search(r"Descrizione:\s*[¹\s]*(.+)", text, re.I)
+    out["zona"] = _clean(m.group(1)) if m else None
+    lines = [_clean(ln) for ln in text.splitlines() if _clean(ln)]
+    skip = ("UNI ", "APAT ", "Legenda", "Campionamento", "Cliente.", "Il presente", "Analisi Control")
+    start_idx = 0
+    for idx, line in enumerate(lines):
+        if line.startswith("Prova Risultato") or line == "Metodo A B C Rif.":
+            start_idx = idx + 1
+            break
+    for i, line in enumerate(lines[start_idx:], start=start_idx):
+        if line.startswith(skip) or line in {"ANALISI", "Metodo A B C Rif."}:
+            continue
+        if line.startswith("pH ") or line.startswith("pH(") or "concentrazione in ioni idrogeno" in line:
+            if i + 1 < len(lines):
+                m_value = re.search(r"[0-9]+(?:[.,][0-9]+)?", lines[i + 1])
+                if m_value:
+                    _marche_add_param(out, "pH", "unità di pH", ">=6,5 e <=9,5", m_value.group(0))
+            continue
+        if i + 1 >= len(lines):
+            continue
+        parsed = _assem_result_line(lines[i + 1])
+        if parsed:
+            value, unit, limit = parsed
+            _marche_add_param(out, line, unit, limit, value)
+    return _marche_finish(out)
+
+
+def parse_pdf_marche_asteaspa(path: Path) -> dict:
+    out = _marche_base(path, "marche_asteaspa")
+    text = _pdf_text(path)
+    out["periodo"] = _marche_periodo(text, path.stem)
+    m = re.search(r"Comune:\s*([^\n(]+)(?:\(([^)]+)\))?", text, re.I)
+    if m:
+        out["comune"] = _clean(m.group(1))
+        out["zona"] = _clean(m.group(2)) if m.group(2) else out["comune"]
+    for table in _pdf_tables(path):
+        for row in table:
+            if not row or len(row) < 4:
+                continue
+            _marche_add_param(out, _clean(row[0]), _clean(row[1]), _clean(row[2]), _clean(row[3]))
+    if not out["parameters"]:
+        # Se OCR opzionale produce testo tabellare, prova almeno il parser lineare.
+        _parse_marche_text_lines(out, text)
+    if not out["zona"]:
+        out["zona"] = path.stem.replace("marche_asteaspa_", "").replace("_", " ").title()
+    return _marche_finish(
+        out,
+        None if out["parameters"] else "PDF scansionato/non testuale: OCR non disponibile nell'ambiente corrente.",
+    )
+
+
 def _worker(path_str: str) -> tuple[str, dict | str]:
     p = Path(path_str)
     try:
@@ -2049,6 +2447,18 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_fiora(p)
         if p.stem.startswith("asamap_"):
             return p.stem, parse_pdf_asamap(p)
+        if p.stem.startswith("marche_apmgroup_"):
+            return p.stem, parse_pdf_marche_apmgroup(p)
+        if p.stem.startswith("marche_assemspa_"):
+            return p.stem, parse_pdf_marche_assemspa(p)
+        if p.stem.startswith("marche_asteaspa_"):
+            return p.stem, parse_pdf_marche_asteaspa(p)
+        if p.stem.startswith("marche_atac_civitanova_"):
+            return p.stem, parse_pdf_marche_atac(p)
+        if p.stem.startswith("marche_vivaservizi_"):
+            return p.stem, parse_pdf_marche_vivaservizi(p)
+        if p.stem.startswith("marche_multiservizi_"):
+            return p.stem, parse_pdf_marche_multiservizi(p)
         if p.stem.startswith("lazio_idrica_"):
             return p.stem, parse_pdf_lazio_idrica(p)
         if p.stem.startswith("acqualatina_"):
