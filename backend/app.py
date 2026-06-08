@@ -16,6 +16,7 @@ import os
 import sys
 import threading
 import time
+from collections import defaultdict
 from datetime import date
 from pathlib import Path
 
@@ -91,6 +92,10 @@ _GEOJSON_RESP_CACHE: dict = {
     "gz_bytes": None,    # bytes gzippati
 }
 _GEOJSON_RESP_LOCK = threading.Lock()
+
+BASE_FILL_OPACITY = 0.24
+BASE_PARAM_FILL_OPACITY = 0.54
+BASE_EMPTY_PARAM_FILL_OPACITY = 0.16
 
 
 def _get_results() -> dict:
@@ -180,6 +185,34 @@ def _freshness(periodo: str | None) -> dict:
     }
 
 
+def _per_layer_opacity(target_opacity: float, layer_count: int) -> float:
+    if layer_count <= 1:
+        return target_opacity
+    return 1 - ((1 - target_opacity) ** (1 / layer_count))
+
+
+def _apply_visual_opacity(raw: dict) -> None:
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for feat in raw.get("features", []):
+        geom = feat.get("geometry")
+        if not geom:
+            continue
+        key = json.dumps(geom, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        groups[key].append(feat)
+
+    for features in groups.values():
+        layer_count = len(features)
+        fill_opacity = round(_per_layer_opacity(BASE_FILL_OPACITY, layer_count), 5)
+        param_opacity = round(_per_layer_opacity(BASE_PARAM_FILL_OPACITY, layer_count), 5)
+        empty_param_opacity = round(_per_layer_opacity(BASE_EMPTY_PARAM_FILL_OPACITY, layer_count), 5)
+        for feat in features:
+            p = feat.setdefault("properties", {})
+            p["visual_overlap_count"] = layer_count
+            p["fill_opacity"] = fill_opacity
+            p["param_fill_opacity"] = param_opacity
+            p["param_empty_fill_opacity"] = empty_param_opacity
+
+
 def _build_enriched_geojson() -> dict:
     global _GEOJSON_CACHE
     if _GEOJSON_CACHE is not None:
@@ -256,6 +289,7 @@ def _build_enriched_geojson() -> dict:
         }.get(p["status"], "#94a3b8")
         p["fill"] = status_color
         p["stroke"] = status_color
+    _apply_visual_opacity(raw)
     _GEOJSON_CACHE = raw
     return raw
 

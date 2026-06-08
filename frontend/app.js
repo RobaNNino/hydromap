@@ -67,6 +67,10 @@ const state = {
 const SELECTED_STYLE = { weight: 2.8, color: "#0f172a", fillOpacity: 0.66 };
 const SEVERITY_RANK = { alert: 3, warning: 2, info: 1 };
 const $ = (id) => document.getElementById(id);
+const numberOr = (value, fallback) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
 const escapeHtml = (s) => String(s ?? "")
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -425,7 +429,7 @@ function statusStyle(feature) {
   const p = feature.properties || {};
   return {
     color: p.stroke || "#0369a1", weight: 0.8,
-    fillColor: p.fill || "#94a3b8", fillOpacity: 0.24,
+    fillColor: p.fill || "#94a3b8", fillOpacity: numberOr(p.fill_opacity, 0.24),
   };
 }
 const RAMP = ["#e0f2fe","#bae6fd","#7dd3fc","#38bdf8","#0ea5e9","#0284c7","#0369a1","#1e40af","#312e81"];
@@ -436,17 +440,23 @@ function rampColor(v, min, max) {
   return RAMP[idx];
 }
 function parameterStyle(feature) {
-  const name = (feature.properties || {}).name;
+  const p = feature.properties || {};
+  const name = p.name;
   const pd = state.paramData;
   if (!pd) return statusStyle(feature);
   const item = pd.byName[name];
-  if (!item) return { color: "#94a3b8", weight: 0.6, fillColor: "#e2e8f0", fillOpacity: 0.16 };
+  if (!item) {
+    return {
+      color: "#94a3b8", weight: 0.6,
+      fillColor: "#e2e8f0", fillOpacity: numberOr(p.param_empty_fill_opacity, 0.16),
+    };
+  }
   const exceed = item.limite != null && item.valore > item.limite;
   return {
     color: exceed ? "#7c1d1d" : "#0c4a6e",
     weight: exceed ? 1.4 : 0.8,
     fillColor: rampColor(item.valore, pd.min, pd.max),
-    fillOpacity: 0.54,
+    fillOpacity: numberOr(p.param_fill_opacity, 0.54),
   };
 }
 function currentStyle(feature) {
