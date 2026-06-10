@@ -93,6 +93,436 @@ OFFICIAL_SOURCES = [
         "type": "Portale gestore",
         "scraped": True,
     },
+    # ---------- Abruzzo ----------
+    {
+        "id": "abruzzo_cam",
+        "provider": "abruzzo_cam",
+        "title": "CAM S.p.A. — Marsica (AQ)",
+        "description": (
+            "Consorzio Acquedottistico Marsicano. Servizio idrico integrato "
+            "per i 37 comuni della Marsica (provincia dell'Aquila). Valori "
+            "analitici medi annuali con campionamento su rete di distribuzione."
+        ),
+        "url": "https://www.camspa.com/",
+        "agency": "CAM S.p.A. — Consorzio Acquedottistico Marsicano",
+        "ato": "ATO 2 — Marsica (AQ)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "abruzzo_ruzzo",
+        "provider": "abruzzo_ruzzo",
+        "title": "Ruzzo Reti S.p.A. — Teramano (TE)",
+        "description": (
+            "Gestore del Servizio Idrico Integrato per la provincia di Teramo "
+            "(47 comuni). Rapporti di prova del laboratorio Astra Studio Chimico "
+            "Associato di Teramo, accreditato ACCREDIA."
+        ),
+        "url": "https://www.ruzzo.it/",
+        "agency": "Ruzzo Reti S.p.A.",
+        "ato": "ATO 5 — Teramano",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "abruzzo_aca",
+        "provider": "abruzzo_aca",
+        "title": "ACA S.p.A. — Pescarese e Chietino (PE/CH)",
+        "description": (
+            "Azienda Comprensoriale Acquedottistica di Pescara. Gestisce il "
+            "servizio idrico integrato per oltre 80 comuni nelle province di "
+            "Pescara e Chieti, con laboratorio analisi a Chieti."
+        ),
+        "url": "https://www.acaspa.it/",
+        "agency": "ACA S.p.A.",
+        "ato": "ATO 4 — Pescarese",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "abruzzo_sasi",
+        "provider": "abruzzo_sasi",
+        "title": "SASI S.p.A. — Chietino-Vastese (CH)",
+        "description": (
+            "Società Abruzzese per il Servizio Idrico Integrato. Sede a Lanciano, "
+            "gestisce il servizio idrico in 96 comuni del chietino-vastese con "
+            "laboratorio interno di analisi (Ufficio Potabilità)."
+        ),
+        "url": "https://www.sasispa.it/",
+        "agency": "SASI S.p.A.",
+        "ato": "ATO 6 — Chietino",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "abruzzo_gransasso",
+        "provider": "abruzzo_gransasso",
+        "title": "Gran Sasso Acqua S.p.A. — Aquilano (AQ)",
+        "description": (
+            "Gran Sasso Acqua S.p.A. con sede a L'Aquila gestisce il servizio "
+            "idrico integrato per il territorio aquilano (ATO 1), 42 comuni "
+            "serviti dalla Sorgente del Gran Sasso. Pubblica report mensili "
+            "delle analisi della fonte principale."
+        ),
+        "url": "https://www.gransassoacqua.it/analisi-acqua",
+        "agency": "Gran Sasso Acqua S.p.A.",
+        "ato": "ATO 1 — Aquilano",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    # ---------- Molise ----------
+    {
+        "id": "molise_acea",
+        "provider": "molise_acea",
+        "title": "Acea Molise — Campobasso e Isernia",
+        "description": (
+            "Acea Molise (Gruppo Acea) gestisce il servizio idrico integrato "
+            "in numerosi comuni delle province di Campobasso e Isernia. "
+            "Pubblica i rapporti di prova GRIM per ciascun punto di prelievo "
+            "della rete acquedottistica regionale."
+        ),
+        "url": "https://www.aceamolise.a-acqua.it/qualita-acqua",
+        "agency": "Acea Molise S.r.l.",
+        "ato": "ATO Unico Molise",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    # ---------- Basilicata ----------
+    {
+        "id": "basilicata_al",
+        "provider": "basilicata_al",
+        "title": "Acquedotto Lucano — Basilicata",
+        "description": (
+            "Acquedotto Lucano S.p.A. gestisce il servizio idrico integrato "
+            "in tutti i 131 comuni della Basilicata. Pubblica i rapporti di "
+            "prova per i punti di prelievo (serbatoi e abitati) della rete "
+            "acquedottistica regionale."
+        ),
+        "url": "https://www.acquedottolucano.it/qualita-acqua",
+        "agency": "Acquedotto Lucano S.p.A.",
+        "ato": "EGRIB — Ente di Governo per i Rifiuti e le Risorse Idriche della Basilicata",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    # ---------- Toscana (Nuove Acque) ----------
+    {
+        "id": "toscana_nuoveacque",
+        "provider": "toscana_nuoveacque",
+        "title": "Nuove Acque — Alto Valdarno (AR/SI)",
+        "description": (
+            "Nuove Acque S.p.A. gestisce il servizio idrico integrato nei "
+            "comuni dell'Alto Valdarno (province di Arezzo e Siena). Pubblica "
+            "le schede «Qualità dell'acqua» con i valori medi rilevati per "
+            "ciascun acquedotto comunale."
+        ),
+        "url": "https://www.nuoveacque.it/qualita-dellacqua",
+        "agency": "Nuove Acque S.p.A.",
+        "ato": "Autorità Idrica Toscana — Conferenza Territoriale n.4 Alto Valdarno",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    # ---------- Toscana (GAIA) ----------
+    {
+        "id": "toscana_gaia",
+        "provider": "toscana_gaia",
+        "title": "GAIA — Toscana Nord (LU/MS/PT)",
+        "description": (
+            "GAIA S.p.A. gestisce il servizio idrico integrato nei comuni "
+            "dell'Ambito Toscana Nord (Lucca, Massa-Carrara e montagna "
+            "pistoiese). Pubblica i valori medi semestrali per ciascun punto "
+            "di prelievo della rete acquedottistica."
+        ),
+        "url": "https://www.gaia-spa.it/analisiweb_v2/",
+        "agency": "GAIA S.p.A.",
+        "ato": "Autorità Idrica Toscana — Conferenza Territoriale n.1 Toscana Nord",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    # ---------- Toscana (Publiacqua) ----------
+    {
+        "id": "toscana_publiacqua",
+        "provider": "toscana_publiacqua",
+        "title": "Publiacqua - Medio Valdarno (FI/PO/PT/AR)",
+        "description": (
+            "Publiacqua S.p.A. gestisce il servizio idrico integrato in larga "
+            "parte dell'Ambito Medio Valdarno. Pubblica schede semestrali con "
+            "valori medi, limiti di legge e coordinate del punto/zona."
+        ),
+        "url": "https://www.publiacqua.it/qualita-acqua",
+        "agency": "Publiacqua S.p.A.",
+        "ato": "Autorita Idrica Toscana - Conferenza Territoriale n.3 Medio Valdarno",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    # ---------- Toscana (Acque) ----------
+    {
+        "id": "toscana_acque",
+        "provider": "toscana_acque",
+        "title": "Acque - Basso Valdarno",
+        "description": (
+            "Acque S.p.A. gestisce il servizio idrico integrato nell'Ambito "
+            "Basso Valdarno. Pubblica schede RIS con parametri analitici, "
+            "riferimenti normativi e decorrenza dei valori."
+        ),
+        "url": "https://www.acque.net/",
+        "agency": "Acque S.p.A.",
+        "ato": "Autorita Idrica Toscana - Conferenza Territoriale n.2 Basso Valdarno",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    # ---------- Toscana (ASA) ----------
+    {
+        "id": "toscana_asamap",
+        "provider": "toscana_asamap",
+        "title": "ASA - Costa Toscana (LI/PI/SI)",
+        "description": (
+            "ASA S.p.A. pubblica le etichette di qualita dell'acqua tramite "
+            "il portale cartografico ASAmap, con geometrie ufficiali degli "
+            "acquedotti e schede PDF per ciascuna zona."
+        ),
+        "url": "https://www.asamap.it/etichette",
+        "agency": "ASA S.p.A.",
+        "ato": "Autorita Idrica Toscana - Conferenza Territoriale n.5 Toscana Costa",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    # ---------- Toscana (Fiora) ----------
+    {
+        "id": "toscana_fiora",
+        "provider": "toscana_fiora",
+        "title": "Acquedotto del Fiora - Toscana Sud",
+        "description": (
+            "Acquedotto del Fiora S.p.A. pubblica schede di qualita acqua "
+            "per zone e sistemi idrici nei comuni della Toscana meridionale."
+        ),
+        "url": "https://www.fiora.it/azienda/acqua-e-territorio/qualita-dellacqua/",
+        "agency": "Acquedotto del Fiora S.p.A.",
+        "ato": "Autorita Idrica Toscana - Conferenza Territoriale n.6 Ombrone",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    # ---------- Lazio (extra) ----------
+    {
+        "id": "lazio_idrica_ardea",
+        "provider": "lazio_idrica_ardea",
+        "title": "Idrica — Ardea (RM)",
+        "description": (
+            "Idrica S.p.A. gestisce il servizio idrico del comune di Ardea "
+            "(Roma). Pubblica i rapporti di prova per i punti di prelievo "
+            "della rete cittadina (fontanelle e serbatoi)."
+        ),
+        "url": "https://www.idricaspa.it/",
+        "agency": "Idrica S.p.A.",
+        "ato": "ATO 2 — Lazio Centrale (Roma)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    # ---------- Campania ----------
+    {
+        "id": "campania_abc_napoli",
+        "provider": "campania_abc_napoli",
+        "title": "ABC Napoli — Acqua Bene Comune",
+        "description": (
+            "ABC Napoli S.p.A. (Acqua Bene Comune) gestisce il servizio idrico "
+            "della città di Napoli. Pubblica i report semestrali dei punti di "
+            "campionamento (fontanelle e prese pubbliche)."
+        ),
+        "url": "https://www.abc.napoli.it/qualita-dellacqua",
+        "agency": "ABC Napoli S.p.A.",
+        "ato": "ATO 2 — Napoli Volturno",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "campania_alto_calore",
+        "provider": "campania_alto_calore",
+        "title": "Alto Calore Servizi — Avellino / Benevento",
+        "description": (
+            "Alto Calore Servizi S.p.A. gestisce il servizio idrico integrato "
+            "per oltre 120 comuni delle province di Avellino e Benevento. "
+            "Pubblica un report semestrale per ciascun comune."
+        ),
+        "url": "https://www.altocalore.it/qualita-acqua/",
+        "agency": "Alto Calore Servizi S.p.A.",
+        "ato": "ATO 1 — Calore Irpino",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "campania_gesesa",
+        "provider": "campania_gesesa",
+        "title": "GESESA — Benevento e Sannio",
+        "description": (
+            "GESESA S.p.A. gestisce il servizio idrico della città di "
+            "Benevento e di una ventina di comuni del Sannio. Pubblica un "
+            "monitoraggio annuale con riferimento al D.Lgs. 18/2023."
+        ),
+        "url": "https://www.gesesa.it/qualita-dellacqua/",
+        "agency": "GESESA S.p.A.",
+        "ato": "ATO 1 — Calore Irpino",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "campania_gori",
+        "provider": "campania_gori",
+        "title": "GORI — Vesuviano e Penisola Sorrentina",
+        "description": (
+            "GORI S.p.A. gestisce il servizio idrico integrato di 75 comuni "
+            "tra Napoli e Salerno (area vesuviana, agro sarnese-nocerino, "
+            "penisola sorrentina). Pubblica certificati di garanzia semestrali."
+        ),
+        "url": "https://www.goriacqua.com/qualita-dellacqua/",
+        "agency": "GORI S.p.A.",
+        "ato": "ATO 3 — Sarnese Vesuviano",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "campania_itl_spa",
+        "provider": "campania_itl_spa",
+        "title": "I.T.L. S.p.A. — Casertano",
+        "description": (
+            "I.T.L. S.p.A. (Caserta) gestisce il servizio idrico per numerosi "
+            "comuni della provincia di Caserta. Pubblica rapporti di prova "
+            "puntuali per ciascun sito di campionamento, eseguiti dal "
+            "laboratorio Natura S.r.l."
+        ),
+        "url": "https://www.itlspa.it/",
+        "agency": "I.T.L. S.p.A.",
+        "ato": "ATO 2 — Napoli Volturno (CE)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "campania_nepta_acqua",
+        "provider": "campania_nepta_acqua",
+        "title": "Nepta Acqua — Caserta",
+        "description": (
+            "Nepta Acqua gestisce il servizio idrico del comune di Caserta, "
+            "pubblicando i risultati dei controlli per ciascun punto di "
+            "prelievo della rete cittadina."
+        ),
+        "url": "",
+        "agency": "Nepta Acqua S.r.l.",
+        "ato": "Caserta (gestione locale)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "campania_salerno_sistemi",
+        "provider": "campania_salerno_sistemi",
+        "title": "Salerno Sistemi — Salerno",
+        "description": (
+            "Salerno Sistemi S.p.A. gestisce il servizio idrico della città di "
+            "Salerno, pubblicando dati per ciascun quartiere/zona della rete."
+        ),
+        "url": "https://serviziidrici.grupposistemisalerno.it/qualita-dellacqua/",
+        "agency": "Salerno Sistemi S.p.A.",
+        "ato": "ATO 4 — Sele",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "campania_ausino",
+        "provider": "campania_ausino",
+        "title": "Ausino — Costiera Amalfitana e Picentini (SA)",
+        "description": (
+            "Ausino S.p.A. Servizi Idrici Integrati gestisce il servizio idrico "
+            "per i comuni della Costiera Amalfitana e dei Monti Picentini in "
+            "provincia di Salerno. Pubblica un report per ciascun comune servito."
+        ),
+        "url": "https://www.ausino.it/",
+        "agency": "Ausino S.p.A.",
+        "ato": "ATO 4 — Sele (SA)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    # ---------- Marche ----------
+    {
+        "id": "marche_apmgroup",
+        "provider": "marche_apmgroup",
+        "title": "APM Group — Macerata",
+        "description": (
+            "APM Group pubblica schede di qualità dell'acqua per punti di "
+            "prelievo e zone di distribuzione nei comuni serviti."
+        ),
+        "url": "https://www.apmgroup.it/",
+        "agency": "APM Group",
+        "ato": "ATO 3 Marche Centro - Macerata",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "marche_assemspa",
+        "provider": "marche_assemspa",
+        "title": "A.S.SE.M. S.p.A. — San Severino Marche",
+        "description": (
+            "A.S.SE.M. S.p.A. pubblica rapporti di prova per i punti di "
+            "campionamento della rete nei comuni serviti."
+        ),
+        "url": "https://www.assemspa.it/",
+        "agency": "A.S.SE.M. S.p.A.",
+        "ato": "ATO 3 Marche Centro - Macerata",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "marche_asteaspa",
+        "provider": "marche_asteaspa",
+        "title": "ASTEA S.p.A. — Osimo/Recanati",
+        "description": (
+            "ASTEA S.p.A. pubblica rapporti di analisi per casette dell'acqua "
+            "e punti della rete nei comuni serviti."
+        ),
+        "url": "https://www.asteaspa.it/",
+        "agency": "ASTEA S.p.A.",
+        "ato": "ATO 3 Marche Centro - Macerata",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "marche_atac_civitanova",
+        "provider": "marche_atac_civitanova",
+        "title": "ATAC Civitanova — Civitanova Marche",
+        "description": (
+            "ATAC Civitanova S.p.A. pubblica rapporti di prova dell'acqua "
+            "potabile distribuita tramite acquedotto pubblico comunale."
+        ),
+        "url": "https://www.atac-civitanova.it/",
+        "agency": "ATAC Civitanova S.p.A.",
+        "ato": "ATO 3 Marche Centro - Macerata",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "marche_vivaservizi",
+        "provider": "marche_vivaservizi",
+        "title": "Viva Servizi — Ancona",
+        "description": (
+            "Viva Servizi S.p.A. pubblica riepiloghi analitici per i comuni "
+            "serviti nell'ambito di Ancona."
+        ),
+        "url": "https://www.vivaservizi.it/",
+        "agency": "Viva Servizi S.p.A.",
+        "ato": "ATO 2 Marche Centro - Ancona",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "marche_multiservizi",
+        "provider": "marche_multiservizi",
+        "title": "Marche Multiservizi — Marche Nord",
+        "description": (
+            "Marche Multiservizi S.p.A. pubblica schede di qualità dell'acqua "
+            "per acquedotti e punti di prelievo nei comuni serviti."
+        ),
+        "url": "https://www.gruppomarchemultiservizi.it/",
+        "agency": "Marche Multiservizi S.p.A.",
+        "ato": "ATO 1 Marche Nord - Pesaro e Urbino",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
     # ---------- Fonti istituzionali ----------
     {
         "id": "salute",

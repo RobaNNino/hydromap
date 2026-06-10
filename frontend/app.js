@@ -38,6 +38,7 @@ const BASEMAPS = {
 };
 
 const map = L.map("map", { preferCanvas: true, zoomControl: false }).setView([41.85, 12.66], 9);
+map.attributionControl?.setPrefix(false);
 let baseLayer = null;
 function setBasemap(key) {
   if (baseLayer) map.removeLayer(baseLayer);
@@ -64,9 +65,13 @@ const state = {
   meLayer: null,
 };
 
-const SELECTED_STYLE = { weight: 2.5, color: "#0c4a6e", fillOpacity: 0.7 };
+const SELECTED_STYLE = { weight: 2.8, color: "#0f172a", fillOpacity: 0.66 };
 const SEVERITY_RANK = { alert: 3, warning: 2, info: 1 };
 const $ = (id) => document.getElementById(id);
+const numberOr = (value, fallback) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
 const escapeHtml = (s) => String(s ?? "")
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -118,6 +123,36 @@ function tooltipHtml(p) {
   </div>`;
 }
 
+function zoneTooltipHtml(p) {
+  const title = p.display_name || p.comune || p.name || "-";
+  const area = p.area || "";
+  const zone = p.zone_num ? `Zona ${escapeHtml(p.zone_num)}` : "";
+  const rawZone = p.zona_label || p.nome_kml || "";
+  const zoneMain = rawZone && rawZone !== title
+    ? `<div class="tt-zone-main">${escapeHtml(rawZone)}</div>` : "";
+  const code = p.cod_acq || p.id_layer || p.name || "";
+  const codeLine = code ? `<span class="tt-code">${escapeHtml(code)}</span>` : "";
+  const aq = p.aqueduct
+    ? `<div class="tt-supply">Acquedotto <b>${escapeHtml(p.aqueduct)}</b></div>` : "";
+  const badges = (p.badges || []).slice(0, 2).map(b =>
+    `<span class="tt-badge">${escapeHtml(b)}</span>`).join("");
+  const statusBadge = p.status === "ATTENZIONE"
+    ? `<span class="tt-status warn">Attenzione</span>`
+    : p.status === "OK" ? `<span class="tt-status ok">Conforme</span>` : "";
+  const fr = p.freshness || {};
+  const frBadge = fr.label && fr.label !== "n/d"
+    ? `<span class="tt-fresh fresh-${fr.level}">${escapeHtml(fr.label)}</span>` : "";
+  const provBadge = p.provider_label
+    ? `<span class="tt-prov" title="${escapeHtml(p.provider_ato || "")}">${escapeHtml(p.provider_label)}</span>` : "";
+  return `<div class="map-tt">
+    <div class="tt-comune">${escapeHtml(title)}</div>
+    ${zoneMain}
+    ${area ? `<div class="tt-zone">${escapeHtml(area)}${zone ? ` / ${zone}` : ""}</div>` : (zone ? `<div class="tt-zone">${zone}</div>` : "")}
+    ${aq}
+    <div class="tt-badges">${codeLine}${badges}${statusBadge}${frBadge}${provBadge}</div>
+  </div>`;
+}
+
 // ---------- TOAST ----------
 let _toastTm = null;
 function showToast(msg, ms = 2400) {
@@ -148,12 +183,12 @@ function setupSheetDrag() {
 
   const stateY = () => {
     const s = sh.dataset.state;
-    if (s === "peek") return vh - 112;
+    if (s === "peek") return vh - 104;
     if (s === "half") return vh * 0.5;
-    return Math.max(0, 56 + 8); // full
+    return Math.max(0, 68 + 8); // full
   };
   const snap = (y) => {
-    const peekY = vh - 112, halfY = vh * 0.5, fullY = 64;
+    const peekY = vh - 104, halfY = vh * 0.5, fullY = 76;
     const d = [
       ["peek", Math.abs(y - peekY)],
       ["half", Math.abs(y - halfY)],
@@ -229,7 +264,7 @@ function switchTo(tabId) {
     compare: "Confronta zone",
     chat: "Assistente AI",
     meteo: "Meteo & Siccità",
-    info: "L'acqua del Lazio",
+    info: "Informazioni su AcquaMap",
   };
   const t = $("sheet-title"); if (t) t.textContent = titles[tabId] || "AcquaMap";
 
@@ -278,10 +313,12 @@ function setupMenuSheet() {
 // ---------- SEARCH SHEET ----------
 function setupSearchSheet() {
   setupModalSheet("search-sheet");
-  $("search-btn")?.addEventListener("click", () => {
+  const openSearch = () => {
     openModalSheet("search-sheet");
     setTimeout(() => $("search-input")?.focus(), 220);
-  });
+  };
+  $("search-btn")?.addEventListener("click", openSearch);
+  $("search-icon-btn")?.addEventListener("click", openSearch);
   const inp = $("search-input"), clr = $("search-clear");
   inp?.addEventListener("input", () => {
     if (inp.value) clr.classList.remove("hidden"); else clr.classList.add("hidden");
@@ -395,7 +432,7 @@ function statusStyle(feature) {
   const p = feature.properties || {};
   return {
     color: p.stroke || "#0369a1", weight: 0.8,
-    fillColor: p.fill || "#94a3b8", fillOpacity: 0.45,
+    fillColor: p.fill || "#94a3b8", fillOpacity: numberOr(p.fill_opacity, 0.24),
   };
 }
 const RAMP = ["#e0f2fe","#bae6fd","#7dd3fc","#38bdf8","#0ea5e9","#0284c7","#0369a1","#1e40af","#312e81"];
@@ -406,17 +443,23 @@ function rampColor(v, min, max) {
   return RAMP[idx];
 }
 function parameterStyle(feature) {
-  const name = (feature.properties || {}).name;
+  const p = feature.properties || {};
+  const name = p.name;
   const pd = state.paramData;
   if (!pd) return statusStyle(feature);
   const item = pd.byName[name];
-  if (!item) return { color: "#94a3b8", weight: 0.6, fillColor: "#e2e8f0", fillOpacity: 0.35 };
+  if (!item) {
+    return {
+      color: "#94a3b8", weight: 0.6,
+      fillColor: "#e2e8f0", fillOpacity: numberOr(p.param_empty_fill_opacity, 0.16),
+    };
+  }
   const exceed = item.limite != null && item.valore > item.limite;
   return {
     color: exceed ? "#7c1d1d" : "#0c4a6e",
     weight: exceed ? 1.4 : 0.8,
     fillColor: rampColor(item.valore, pd.min, pd.max),
-    fillOpacity: 0.7,
+    fillOpacity: numberOr(p.param_fill_opacity, 0.54),
   };
 }
 function currentStyle(feature) {
@@ -424,11 +467,16 @@ function currentStyle(feature) {
 }
 function onEach(feature, layer) {
   const p = feature.properties || {};
-  layer.bindTooltip(tooltipHtml(p), {
+  layer.bindTooltip(zoneTooltipHtml(p), {
     sticky: true, direction: "top", offset: [0, -6], className: "map-tooltip",
   });
   layer.on({
-    mouseover: (e) => { if (e.target !== state.selectedLayer) e.target.setStyle({ weight: 1.8, fillOpacity: 0.7 }); },
+    mouseover: (e) => {
+      if (e.target.bringToFront) e.target.bringToFront();
+      if (e.target !== state.selectedLayer) {
+        e.target.setStyle({ weight: 2.4, color: "#0f172a", fillOpacity: state.parameter ? 0.72 : 0.58 });
+      }
+    },
     mouseout:  (e) => { if (e.target !== state.selectedLayer) state.geoLayer.resetStyle(e.target); },
     click: () => selectZone(p.name, layer),
   });
@@ -437,7 +485,27 @@ function onEach(feature, layer) {
 async function loadGeoJSON() {
   const r = await fetch(API("/api/geojson"));
   state.geoData = await r.json();
-  state.geoLayer = L.geoJSON(state.geoData, { style: currentStyle, onEachFeature: onEach }).addTo(map);
+  state.geoLayer = L.geoJSON(state.geoData, {
+    style: currentStyle,
+    onEachFeature: onEach,
+    pointToLayer: (feature, latlng) => {
+      const st = currentStyle(feature);
+      return L.circleMarker(latlng, {
+        radius: 7,
+        color: st.color,
+        weight: st.weight,
+        fillColor: st.fillColor,
+        fillOpacity: 0.85,
+      });
+    },
+  }).addTo(map);
+  // Porta in cima i marker puntuali e le linee così sono sempre cliccabili
+  // anche quando sovrappongono poligoni di zone più grandi.
+  state.geoLayer.eachLayer((l) => {
+    if (l instanceof L.CircleMarker || l instanceof L.Polyline && !(l instanceof L.Polygon)) {
+      try { l.bringToFront(); } catch (_) {}
+    }
+  });
   map.fitBounds(state.geoLayer.getBounds(), { padding: [10, 10] });
   let ok = 0, warn = 0, unk = 0;
   for (const f of state.geoData.features) {
@@ -477,7 +545,10 @@ async function selectZone(name, layer) {
 
 function renderZone(d, name) {
   const s = d.summary || {};
-  const badgeClass = s.status === "OK" ? "ok" : s.status === "ATTENZIONE" ? "warn" : "unk";
+  const badgeClass = s.status === "OK" ? "ok" : s.status === "ATTENZIONE" ? "warn" : s.status === "INFORMATIVO" ? "info" : "unk";
+  const noteBlock = s.note
+    ? `<div class="zone-note">ℹ️ ${escapeHtml(s.note)}</div>`
+    : "";
   const exceedSet = new Set((s.exceedances || []).map(x => x.parametro));
   const paramsRows = (d.parameters || []).map(p => {
     const cls = exceedSet.has(p.parametro) ? "exceed" : "";
@@ -543,6 +614,7 @@ function renderZone(d, name) {
       <a class="btn ghost" href="${API(escapeHtml(d.pdf_url || ''))}" target="_blank" rel="noopener">📄 PDF</a>
       <button class="btn ghost" id="zone-share" data-name="${escapeHtml(name)}">📤 Condividi</button>
     </div>
+    ${noteBlock}
     <table class="params">
       <thead><tr><th>Parametro</th><th>U.M.</th><th>Limite</th><th>Valore</th></tr></thead>
       <tbody>${paramsRows}</tbody>
@@ -1150,9 +1222,11 @@ async function loadMeteo() {
 function renderMeteo(m) {
   const d = m.drought || {};
   const banner = $("drought-banner");
-  banner.style.background = (d.color || "#94a3b8") + "22";
-  banner.style.borderLeft = `4px solid ${d.color || "#94a3b8"}`;
-  banner.style.color = d.color || "#94a3b8";
+  const droughtColor = d.color || "#94a3b8";
+  banner.style.background = `linear-gradient(135deg, ${droughtColor}20, rgba(27,178,189,.12), rgba(4,146,207,.14))`;
+  banner.style.border = `1px solid ${droughtColor}30`;
+  banner.style.borderLeft = `4px solid ${droughtColor}`;
+  banner.style.color = droughtColor;
   banner.innerHTML = `<div class="drought-text"><strong>${(d.label || "n/d").toUpperCase()}</strong> ·
     indice 90gg vs media = ${d.ratio_90d_vs_normal ?? "n/d"} ·
     ${m.rain_mm.last_90d} mm vs ${m.rain_mm.expected_90d_from_365d_mean} attesi</div>

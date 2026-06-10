@@ -9,11 +9,15 @@ Endpoints:
 """
 from __future__ import annotations
 
+import gc
+import gzip
 import json
 import os
 import sys
 import threading
 import time
+from collections import defaultdict
+from datetime import date
 from pathlib import Path
 
 # Permette gli import "flat" (from news_engine import ...) sia quando lanciamo
@@ -22,13 +26,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from dotenv import load_dotenv
-from flask import Flask, abort, jsonify, request, send_file, send_from_directory
+from flask import Flask, Response, abort, jsonify, request, send_file, send_from_directory
 from flask_cors import CORS
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 ROOT = Path(__file__).parent / "data"
 PDF_DIR = ROOT / "pdfs"
+GEOJSON_CACHE_FILE = ROOT / "geojson-cache.json"
+GEOJSON_CACHE_GZ_FILE = ROOT / "geojson-cache.json.gz"
 # Mappa provider_id -> file GeoJSON locale (popolato da scrape.py / scraper dedicati).
 # I file vengono uniti in un singolo FeatureCollection alla prima richiesta.
 GEOJSON_FILES: dict[str, Path] = {
@@ -36,6 +42,20 @@ GEOJSON_FILES: dict[str, Path] = {
     "acea_ato5": ROOT / "mappa-qualita-ato-5.json",
     "acqualatina": ROOT / "mappa-qualita-acqualatina.json",
     "acqua_pubblica_sabina": ROOT / "mappa-qualita-aps.json",
+    "abruzzo": ROOT / "mappa-qualita-abruzzo.json",
+    "campania": ROOT / "mappa-qualita-campania.json",
+    "molise": ROOT / "mappa-qualita-molise.json",
+    "puglia": ROOT / "mappa-qualita-puglia.json",
+    "basilicata": ROOT / "mappa-qualita-basilicata.json",
+    "toscana_nuoveacque": ROOT / "mappa-qualita-nuoveacque.json",
+    "toscana_gaia": ROOT / "mappa-qualita-gaia.json",
+    "toscana_publiacqua": ROOT / "mappa-qualita-publiacqua.json",
+    "toscana_acque": ROOT / "mappa-qualita-acque.json",
+    "toscana_asamap": ROOT / "mappa-qualita-asamap.json",
+    "toscana_fiora": ROOT / "mappa-qualita-fiora.json",
+    "marche_batch": ROOT / "mappa-qualita-marche-batch.json",
+    "marche_multiservizi": ROOT / "mappa-qualita-marche-multiservizi.json",
+    "lazio_extra": ROOT / "mappa-qualita-lazio-extra.json",
 }
 RESULTS_FILE = ROOT / "results.json"
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
@@ -63,8 +83,32 @@ def _load_results() -> dict:
     return {}
 
 
-_RESULTS = _load_results()
+_RESULTS_CACHE: dict | None = None
+_RESULTS_LOCK = threading.Lock()
 _GEOJSON_CACHE: dict | None = None
+# Cache della risposta serializzata (e gzippata) per /api/geojson.
+# Rebuild solo quando cambia la data (freshness dipende da date.today()).
+_GEOJSON_RESP_CACHE: dict = {
+    "date": None,        # date.today() del build
+    "json_bytes": None,  # bytes UTF-8 JSON
+    "gz_bytes": None,    # bytes gzippati
+}
+_GEOJSON_RESP_LOCK = threading.Lock()
+
+BASE_FILL_OPACITY = 0.24
+BASE_PARAM_FILL_OPACITY = 0.54
+BASE_EMPTY_PARAM_FILL_OPACITY = 0.16
+
+
+def _get_results() -> dict:
+    """Load parsed PDF results only when an endpoint really needs them."""
+    global _RESULTS_CACHE
+    if _RESULTS_CACHE is not None:
+        return _RESULTS_CACHE
+    with _RESULTS_LOCK:
+        if _RESULTS_CACHE is None:
+            _RESULTS_CACHE = _load_results()
+    return _RESULTS_CACHE
 
 
 # ---------- freshness analisi (data analisi → "nuova"/"in scadenza"/"vecchia") ----------
@@ -143,6 +187,34 @@ def _freshness(periodo: str | None) -> dict:
     }
 
 
+def _per_layer_opacity(target_opacity: float, layer_count: int) -> float:
+    if layer_count <= 1:
+        return target_opacity
+    return 1 - ((1 - target_opacity) ** (1 / layer_count))
+
+
+def _apply_visual_opacity(raw: dict) -> None:
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for feat in raw.get("features", []):
+        geom = feat.get("geometry")
+        if not geom:
+            continue
+        key = json.dumps(geom, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        groups[key].append(feat)
+
+    for features in groups.values():
+        layer_count = len(features)
+        fill_opacity = round(_per_layer_opacity(BASE_FILL_OPACITY, layer_count), 5)
+        param_opacity = round(_per_layer_opacity(BASE_PARAM_FILL_OPACITY, layer_count), 5)
+        empty_param_opacity = round(_per_layer_opacity(BASE_EMPTY_PARAM_FILL_OPACITY, layer_count), 5)
+        for feat in features:
+            p = feat.setdefault("properties", {})
+            p["visual_overlap_count"] = layer_count
+            p["fill_opacity"] = fill_opacity
+            p["param_fill_opacity"] = param_opacity
+            p["param_empty_fill_opacity"] = empty_param_opacity
+
+
 def _build_enriched_geojson() -> dict:
     global _GEOJSON_CACHE
     if _GEOJSON_CACHE is not None:
@@ -152,6 +224,7 @@ def _build_enriched_geojson() -> dict:
     # Unisce tutti i GeoJSON disponibili in un singolo FeatureCollection.
     merged_features: list[dict] = []
     name_to_provider: dict[str, str] = {}
+    results = _get_results()
     for prov_id, gf in GEOJSON_FILES.items():
         if not gf.exists():
             continue
@@ -166,14 +239,16 @@ def _build_enriched_geojson() -> dict:
                 continue
             name_to_provider.setdefault(n, prov_id)
             # Marca subito il provider sulla feature (sovrascrive eventuali default).
-            p["_source_provider"] = prov_id
+            # Se la feature porta già `provider` (es. abruzzo_cam vs abruzzo_ruzzo),
+            # rispettalo: rappresenta il sub-gestore reale.
+            p["_source_provider"] = p.get("provider") or prov_id
             merged_features.append(feat)
 
     raw = {"type": "FeatureCollection", "features": merged_features}
     for feat in raw["features"]:
         p = feat.setdefault("properties", {})
         name = p.get("name")
-        r = _RESULTS.get(name)
+        r = results.get(name)
         prov_id = r.get("provider") if r else None
         prov_id = prov_id or p.get("_source_provider") or "acea_ato2"
         if r:
@@ -211,28 +286,103 @@ def _build_enriched_geojson() -> dict:
         status_color = {
             "OK": "#16a34a",
             "ATTENZIONE": "#dc2626",
+            "INFORMATIVO": "#0284c7",
             "UNKNOWN": "#94a3b8",
-        }[p["status"]]
+        }.get(p["status"], "#94a3b8")
         p["fill"] = status_color
         p["stroke"] = status_color
+    _apply_visual_opacity(raw)
     _GEOJSON_CACHE = raw
     return raw
 
 
 # ---------- routes ----------
+def _serialized_geojson() -> tuple[bytes, bytes]:
+    """Ritorna (json_bytes, gz_bytes) della FeatureCollection arricchita.
+    Ribuild solo quando cambia il giorno (freshness dipende dalla data).
+    Thread-safe; protetto da lock per evitare doppio build sotto carico."""
+    today = date.today()
+    cached_date = _GEOJSON_RESP_CACHE.get("date")
+    if (cached_date == today and _GEOJSON_RESP_CACHE.get("json_bytes")
+            and _GEOJSON_RESP_CACHE.get("gz_bytes")):
+        return _GEOJSON_RESP_CACHE["json_bytes"], _GEOJSON_RESP_CACHE["gz_bytes"]
+    with _GEOJSON_RESP_LOCK:
+        # Double-check after acquiring lock
+        if (_GEOJSON_RESP_CACHE.get("date") == today
+                and _GEOJSON_RESP_CACHE.get("json_bytes")
+                and _GEOJSON_RESP_CACHE.get("gz_bytes")):
+            return (_GEOJSON_RESP_CACHE["json_bytes"],
+                    _GEOJSON_RESP_CACHE["gz_bytes"])
+        data = _build_enriched_geojson()
+        # Ricalcola freshness una sola volta per giorno.
+        for feat in data.get("features", []):
+            p = feat.get("properties") or {}
+            p["freshness"] = _freshness(p.get("periodo"))
+        json_bytes = json.dumps(
+            data, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
+        gz_bytes = gzip.compress(json_bytes, compresslevel=6)
+        _GEOJSON_RESP_CACHE["date"] = today
+        _GEOJSON_RESP_CACHE["json_bytes"] = json_bytes
+        _GEOJSON_RESP_CACHE["gz_bytes"] = gz_bytes
+        # Le richieste vengono servite dai byte cache-ati: il dict parsato delle
+        # geometrie (decine di MB) non serve più finché non si ricostruisce il
+        # giorno dopo. Liberarlo tiene la memoria sotto il limite di Render (512MB).
+        global _GEOJSON_CACHE
+        _GEOJSON_CACHE = None
+        data = None
+        gc.collect()
+        return json_bytes, gz_bytes
+
+
 @app.get("/api/geojson")
 def api_geojson():
-    data = _build_enriched_geojson()
-    # Ricalcola la freshness ad ogni richiesta (dipende dalla data corrente).
-    for feat in data.get("features", []):
-        p = feat.get("properties") or {}
-        p["freshness"] = _freshness(p.get("periodo"))
-    return jsonify(data)
+    accept_enc = (request.headers.get("Accept-Encoding") or "").lower()
+    if "gzip" in accept_enc and GEOJSON_CACHE_GZ_FILE.exists():
+        resp = send_file(
+            GEOJSON_CACHE_GZ_FILE,
+            mimetype="application/json",
+            conditional=True,
+            etag=True,
+            max_age=300,
+        )
+        resp.headers["Content-Encoding"] = "gzip"
+        resp.headers["Vary"] = "Accept-Encoding"
+        resp.headers["Cache-Control"] = "public, max-age=300"
+        return resp
+    if GEOJSON_CACHE_FILE.exists():
+        resp = send_file(
+            GEOJSON_CACHE_FILE,
+            mimetype="application/json",
+            conditional=True,
+            etag=True,
+            max_age=300,
+        )
+        resp.headers["Vary"] = "Accept-Encoding"
+        resp.headers["Cache-Control"] = "public, max-age=300"
+        return resp
+
+    json_bytes, gz_bytes = _serialized_geojson()
+    if "gzip" in accept_enc:
+        resp = Response(gz_bytes, mimetype="application/json")
+        resp.headers["Content-Encoding"] = "gzip"
+        resp.headers["Content-Length"] = str(len(gz_bytes))
+    else:
+        resp = Response(json_bytes, mimetype="application/json")
+        resp.headers["Content-Length"] = str(len(json_bytes))
+    resp.headers["Cache-Control"] = "public, max-age=300"
+    resp.headers["Vary"] = "Accept-Encoding"
+    return resp
+
+
+@app.get("/api/health")
+def api_health():
+    return jsonify({"ok": True})
 
 
 @app.get("/api/zone/<name>")
 def api_zone(name: str):
-    r = _RESULTS.get(name)
+    r = _get_results().get(name)
     if not r:
         abort(404, description=f"zone '{name}' not found")
     from zone_names import enrich_zone

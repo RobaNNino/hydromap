@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Livello_1" data-name="Livello 1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 22 22">
+  <defs>
+    <style>
+      .cls-1 {
+        stroke: url(#Sfumatura_senza_nome_20);
+      }
+
+      .cls-1, .cls-2, .cls-3 {
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 2.02px;
+      }
+
+      .cls-2 {
+        stroke: url(#Sfumatura_senza_nome_11);
+      }
+
+      .cls-3 {
+        stroke: url(#Sfumatura_senza_nome_9);
+      }
+    </style>
+    <linearGradient id="Sfumatura_senza_nome_11" data-name="Sfumatura senza nome 11" x1="-.09" y1="11.46" x2="22.09" y2="11.46" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4bb9b4"/>
+      <stop offset=".28" stop-color="#1bb2bd"/>
+      <stop offset=".59" stop-color="#0492cf"/>
+      <stop offset="1" stop-color="#096085"/>
+    </linearGradient>
+    <linearGradient id="Sfumatura_senza_nome_9" data-name="Sfumatura senza nome 9" x1="5.51" y1="10.18" x2="7.52" y2="10.18" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4bb9b4"/>
+      <stop offset=".78" stop-color="#1bb2bd"/>
+    </linearGradient>
+    <linearGradient id="Sfumatura_senza_nome_20" data-name="Sfumatura senza nome 20" x1="12.76" y1="12.76" x2="14.77" y2="12.76" gradientUnits="userSpaceOnUse">
+      <stop offset=".43" stop-color="#0492cf"/>
+      <stop offset=".95" stop-color="#0588c0"/>
+    </linearGradient>
+  </defs>
+  <polygon class="cls-2" points=".92 5.5 6.42 3.67 13.75 6.42 21.08 3.67 21.08 16.5 13.75 19.25 6.42 16.5 .92 18.33 .92 5.5"/>
+  <line class="cls-3" x1="6.51" y1="6.24" x2="6.51" y2="14.12"/>
+  <line class="cls-1" x1="13.76" y1="8.83" x2="13.76" y2="16.7"/>
+</svg>

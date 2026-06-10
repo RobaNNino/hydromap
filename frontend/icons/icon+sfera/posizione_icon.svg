@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 48 48">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: #fff;
+      }
+
+      .cls-2, .cls-3 {
+        fill: none;
+      }
+
+      .cls-4 {
+        fill: url(#Nuovo_campione_sfumatura_1-2);
+      }
+
+      .cls-3 {
+        stroke: #fff;
+        stroke-miterlimit: 10;
+        stroke-width: 2px;
+      }
+
+      .cls-5 {
+        fill: url(#Nuovo_campione_sfumatura_1);
+      }
+
+      .cls-6 {
+        fill: url(#Nuovo_campione_sfumatura_1-3);
+      }
+
+      .cls-7 {
+        clip-path: url(#clippath);
+      }
+    </style>
+    <clipPath id="clippath">
+      <circle class="cls-2" cx="24" cy="24" r="23.04"/>
+    </clipPath>
+    <linearGradient id="Nuovo_campione_sfumatura_1" data-name="Nuovo campione sfumatura 1" x1=".96" y1="24" x2="47.04" y2="24" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4bbab5"/>
+      <stop offset=".28" stop-color="#1bb3bd"/>
+      <stop offset=".59" stop-color="#0793d0"/>
+      <stop offset="1" stop-color="#0d5f86"/>
+    </linearGradient>
+    <linearGradient id="Nuovo_campione_sfumatura_1-2" data-name="Nuovo campione sfumatura 1" x1="7.65" y1="13.68" x2="47.77" y2="36.36" xlink:href="#Nuovo_campione_sfumatura_1"/>
+    <linearGradient id="Nuovo_campione_sfumatura_1-3" data-name="Nuovo campione sfumatura 1" x1="15.75" y1="8.5" x2="44.45" y2="44.56" xlink:href="#Nuovo_campione_sfumatura_1"/>
+  </defs>
+  <g id="Livello_2" data-name="Livello 2">
+    <g class="cls-7">
+      <circle class="cls-5" cx="24" cy="24" r="23.04"/>
+      <circle class="cls-4" cx="25.11" cy="23.56" r="23.04"/>
+      <circle class="cls-6" cx="27.33" cy="23.06" r="23.04"/>
+    </g>
+  </g>
+  <g id="Livello_5" data-name="Livello 5">
+    <circle class="cls-3" cx="24" cy="24" r="10.29"/>
+    <g>
+      <path class="cls-1" d="M38.41,23.11h-4.14l.06,1.78h4.08c.23,0,.41-.18.41-.41v-.95c0-.23-.18-.41-.41-.41Z"/>
+      <path class="cls-1" d="M9.33,23.52v.95c0,.23.18.41.41.41h4.08l.06-1.78h-4.14c-.23,0-.41.18-.41.41Z"/>
+    </g>
+    <g>
+      <path class="cls-1" d="M23.19,9.67v4.14s1.78-.06,1.78-.06v-4.08c0-.23-.18-.41-.41-.41h-.95c-.23,0-.41.18-.41.41Z"/>
+      <path class="cls-1" d="M23.6,38.75h.95c.23,0,.41-.18.41-.41v-4.08s-1.78-.06-1.78-.06v4.14c0,.23.18.41.41.41Z"/>
+    </g>
+    <circle class="cls-1" cx="24" cy="24" r="4.28"/>
+  </g>
+</svg>

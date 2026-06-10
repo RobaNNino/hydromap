@@ -1,7 +1,7 @@
 {
   "name": "hydromap",
   "version": "1.0.0",
-  "description": "Webapp che **scarica i 275 PDF di qualità dell'acqua** pubblicati da Acea Ato 2\r ([qualita-acqua](https://www.aceaato2.a-acqua.it/qualita-acqua)), li **parsifica**\r estraendo tutti i parametri di potabilità, e li **rimappa** su un'interattiva\r mappa Leaflet del Lazio con polygon colorati per stato di conformità.",
+  "description": "Webapp che raccoglie dati ufficiali sulla qualità dell'acqua, parsifica PDF e portali dei gestori integrati, e li rimappa su una mappa Leaflet interattiva con zone colorate per stato di conformità.",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"

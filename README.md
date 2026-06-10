@@ -1,9 +1,9 @@
-# AcquaMap — Qualità dell'acqua Roma & Lazio
+# AcquaMap — Qualità dell'acqua
 
-Webapp che **scarica i PDF di qualità dell'acqua** dei principali gestori del
-Lazio, li **parsifica** estraendo tutti i parametri di potabilità, e li
+Webapp che **scarica i PDF di qualità dell'acqua** dai gestori integrati,
+li **parsifica** estraendo tutti i parametri di potabilità, e li
 **rimappa** su un'interattiva mappa Leaflet con polygon colorati per stato di
-conformità. Attualmente: **499 zone** servite (Acea ATO 2 + ATO 5 + Acqualatina).
+conformità.
 
 In più: pannello **news in tempo reale** alimentato da **Gemini** con grounding
 Google Search per le ultime notizie italiane sull'acqua.
@@ -27,9 +27,10 @@ python backend/app.py
 # apri http://127.0.0.1:5000
 ```
 
-## Gestori idrici del Lazio
+## Gestori idrici integrati
 
-AcquaMap integra dati dai principali gestori del Lazio. Lo stato attuale:
+AcquaMap integra progressivamente dati dai gestori e dagli enti che pubblicano
+analisi consultabili. Lo stato attuale:
 
 | Gestore | Territorio | ATO | Stato |
 |---|---|---|---|

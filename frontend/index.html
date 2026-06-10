@@ -9,15 +9,17 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="AcquaMap" />
 <meta name="mobile-web-app-capable" content="yes" />
-<meta name="description" content="AcquaMap — qualità dell'acqua a Roma e nel Lazio. 540+ zone, dati in tempo reale, news, meteo." />
+<meta name="description" content="AcquaMap — mappa interattiva della qualità dell'acqua: analisi ufficiali, parametri, fonti, news e meteo." />
 <!-- Backend API base. Lasciato vuoto in dev (localhost): si veda app.js. -->
 <meta name="api-base" content="https://hydromap-api.onrender.com" />
 
-<title>AcquaMap — l'acqua di Roma e del Lazio</title>
+<title>AcquaMap — qualità dell'acqua</title>
 
 <link rel="manifest" href="manifest.webmanifest" />
-<link rel="apple-touch-icon" href="acquamap_LOGO.png" />
-<link rel="icon" href="acquamap_LOGO.png" type="image/png" />
+<link rel="apple-touch-icon" href="LOGO.svg" />
+<link rel="icon" href="LOGO.svg" type="image/svg+xml" />
+<link rel="shortcut icon" href="LOGO.svg" type="image/svg+xml" />
+<link rel="mask-icon" href="LOGO.svg" color="#0492cf" />
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
@@ -29,22 +31,23 @@
 <div id="app">
 
   <!-- ============================================================
-       APP BAR (frosted glass, sticky top)
+       GOOGLE MAPS STYLE SEARCH BAR
        ============================================================ -->
   <header class="appbar">
-    <button id="menu-btn" class="ab-icon" aria-label="Menù principale" title="Menù">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
-    </button>
-    <div class="ab-brand">
-      <img class="ab-logo" src="acquamap_LOGO.png" alt="AcquaMap" />
-      <div class="ab-titles">
-        <strong>AcquaMap</strong>
-        <span id="ab-subtitle">l'acqua del Lazio</span>
-      </div>
+    <div class="map-search-shell" role="search">
+      <button id="menu-btn" class="map-icon-btn map-menu-btn" aria-label="Menu principale" title="Menu">
+        <img src="icons/icon-0.svg" alt="" aria-hidden="true" />
+      </button>
+      <button id="search-btn" class="map-search-query" aria-label="Cerca" title="Cerca">
+        <span class="map-brand-mark">
+          <img class="map-brand-logo" src="LOGO.svg" alt="" aria-hidden="true" />
+        </span>
+        <span class="map-search-text">Cerca qui...</span>
+      </button>
+      <button id="search-icon-btn" class="map-icon-btn map-search-action" aria-label="Cerca" title="Cerca">
+        <img src="icons/icon-1.svg" alt="" aria-hidden="true" />
+      </button>
     </div>
-    <button id="search-btn" class="ab-icon" aria-label="Cerca" title="Cerca">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
-    </button>
   </header>
 
   <!-- ============================================================
@@ -61,14 +64,14 @@
 
     <!-- FAB stack: locate me / livelli / basemap -->
     <div class="fab-stack">
-      <button class="fab" id="fab-locate" aria-label="Vai alla mia posizione" title="La mia posizione">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
+      <button class="fab fab-asset" id="fab-locate" aria-label="Vai alla mia posizione" title="La mia posizione">
+        <img src="icons/icon+sfera/posizione_icon.svg" alt="" aria-hidden="true" />
       </button>
-      <button class="fab" id="fab-layers" aria-label="Livelli" title="Livelli">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 22 8.5 12 15 2 8.5 12 2"/><polyline points="2 15.5 12 22 22 15.5"/></svg>
+      <button class="fab fab-asset" id="fab-layers" aria-label="Livelli" title="Livelli">
+        <img src="icons/icon+sfera/layers_icon.svg" alt="" aria-hidden="true" />
       </button>
       <button class="fab" id="fab-basemap" aria-label="Mappa di base" title="Mappa di base">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 7 4 15 7 23 4 23 18 15 21 7 18 1 20 1 6"/><line x1="7" y1="4" x2="7" y2="18"/><line x1="15" y1="7" x2="15" y2="21"/></svg>
+        <img src="icons/icon-5.svg" alt="" aria-hidden="true" />
       </button>
     </div>
   </main>
@@ -84,7 +87,7 @@
     <div class="sheet-toolbar">
       <h2 id="sheet-title" class="sheet-title">Esplora la mappa</h2>
       <button id="sheet-close" class="sheet-close" aria-label="Chiudi pannello">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+        <img src="icons/icon-6.svg" alt="" aria-hidden="true" />
       </button>
     </div>
 
@@ -104,12 +107,14 @@
       <section id="tab-zone" class="tab-content active">
         <div id="zone-panel" class="panel">
           <div class="empty-state">
-            <div class="empty-illo">💧</div>
+            <div class="empty-illo">
+              <img src="LOGO.svg" alt="" aria-hidden="true" />
+            </div>
             <h3>Tocca un'area sulla mappa</h3>
             <p>Vedrai i parametri di potabilità estratti dai PDF ufficiali del gestore idrico.</p>
             <div class="intro-tip">
               <b>💡 Buono a sapersi:</b> nomi come <i>"Acqua Marcia"</i> o <i>"Peschiera-Capore"</i>
-              indicano l'<b>acquedotto fornitore</b>, non la qualità. L'Acqua Marcia è un acquedotto romano del 144 a.C. — il nome viene dal pretore Quinto Marcio Re. Tutta l'acqua di Roma e del Lazio è regolarmente analizzata e potabile.
+              indicano l'<b>acquedotto fornitore</b>, non la qualità. L'Acqua Marcia è un acquedotto romano del 144 a.C. — il nome viene dal pretore Quinto Marcio Re. Le zone mappate sono associate ad analisi ufficiali e limiti di legge quando disponibili.
             </div>
           </div>
         </div>
@@ -192,9 +197,10 @@
       <!-- TAB: INFO -->
       <section id="tab-info" class="tab-content">
         <div class="panel">
-          <h2>ℹ️ L'acqua del Lazio</h2>
-          <p>L'acqua potabile di Roma proviene per il <strong>~70%</strong> dall'acquedotto <strong>Peschiera-Capore</strong> (sorgenti a Cittaducale, Rieti, ~130&nbsp;km).</p>
-          <h3>Acquedotti storici e moderni</h3>
+          <h2>ℹ️ Informazioni su AcquaMap</h2>
+          <p>AcquaMap raccoglie e rende consultabili dati ufficiali sulla qualità dell'acqua: parametri analitici, limiti di legge, documenti originali, fonti istituzionali e aggiornamenti rilevanti.</p>
+          <p class="hint">La copertura cresce in base alla disponibilità dei dati pubblicati dai gestori e dagli enti competenti.</p>
+          <h3>Acquedotti e infrastrutture</h3>
           <ul class="aq-list" id="aq-list"></ul>
           <h3>Numeri chiave</h3>
           <div id="info-numbers" class="info-numbers"></div>
@@ -205,7 +211,7 @@
           </div>
           <h3>Fonti dati su AcquaMap</h3>
           <ul class="src-list">
-            <li>PDF di analisi <a href="https://www.aceaato2.a-acqua.it/qualita-acqua" target="_blank" rel="noopener">Acea Ato 2</a> · <a href="https://www.aceaato5.a-acqua.it" target="_blank" rel="noopener">Ato 5</a> · <a href="https://www.acqualatina.it" target="_blank" rel="noopener">Acqualatina</a> · <a href="https://www.acquapubblicasabina.it" target="_blank" rel="noopener">APS</a></li>
+            <li>PDF e portali ufficiali di analisi pubblicati dai gestori idrici integrati nella mappa.</li>
             <li>Fontanelle: <a href="https://www.openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> (Overpass)</li>
             <li>News: Gemini 2.5 Flash con Google Search grounding</li>
           </ul>
@@ -219,23 +225,23 @@
        ============================================================ -->
   <nav class="bottom-nav" id="bottom-nav" role="tablist">
     <button class="bn-item active" data-tab="zone" role="tab" aria-label="Zona">
-      <svg class="bn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s-7-6.5-7-12a7 7 0 0 1 14 0c0 5.5-7 12-7 12z"/><circle cx="12" cy="10" r="2.5"/></svg>
+      <img class="bn-ico" src="icons/icon-7.svg" alt="" aria-hidden="true" />
       <span class="bn-lbl">Zona</span>
     </button>
     <button class="bn-item" data-tab="dashboard" role="tab" aria-label="Dati">
-      <svg class="bn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="20" x2="6" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="18" y1="20" x2="18" y2="14"/></svg>
+      <img class="bn-ico" src="icons/icon-8.svg" alt="" aria-hidden="true" />
       <span class="bn-lbl">Dati</span>
     </button>
     <button class="bn-item" data-tab="news" role="tab" aria-label="News">
-      <svg class="bn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="7" y1="9" x2="17" y2="9"/><line x1="7" y1="13" x2="13" y2="13"/><line x1="7" y1="17" x2="11" y2="17"/></svg>
+      <img class="bn-ico" src="icons/icon-9.svg" alt="" aria-hidden="true" />
       <span class="bn-lbl">News</span>
     </button>
     <button class="bn-item" data-tab="meteo" role="tab" aria-label="Meteo">
-      <svg class="bn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 14a4 4 0 0 0-3.7-4A6 6 0 1 0 6 17h10a3 3 0 0 0 0-6h0"/><line x1="8" y1="19" x2="8" y2="22"/><line x1="12" y1="20" x2="12" y2="23"/><line x1="16" y1="19" x2="16" y2="22"/></svg>
+      <img class="bn-ico" src="icons/icon-10.svg" alt="" aria-hidden="true" />
       <span class="bn-lbl">Meteo</span>
     </button>
     <button class="bn-item" data-tab="info" role="tab" aria-label="Info">
-      <svg class="bn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="17"/><circle cx="12" cy="7.5" r="1.1" fill="currentColor"/></svg>
+      <img class="bn-ico" src="icons/icon-11.svg" alt="" aria-hidden="true" />
       <span class="bn-lbl">Info</span>
     </button>
   </nav>
@@ -261,11 +267,16 @@
       <button class="ms-item" data-tab="meteo">🌧️ <span>Meteo &amp; Siccità</span></button>
       <button class="ms-item" data-tab="compare">⚖️ <span>Confronta zone</span></button>
       <button class="ms-item" data-tab="chat">🤖 <span>Assistente AI</span></button>
-      <button class="ms-item" data-tab="info">ℹ️ <span>L'acqua del Lazio</span></button>
+      <button class="ms-item" data-tab="info">ℹ️ <span>Informazioni su AcquaMap</span></button>
       <hr/>
       <button class="ms-item" data-action="reload">🔄 <span>Aggiorna dati</span></button>
       <div class="ms-foot">
-        <span>v2.0 — Mobile</span>
+        <span class="powered-by">
+          <span class="powered-by-label">Powered by</span>
+          <img class="powered-by-logo" src="poweredby_ROMA_DIGITALE.svg" alt="R" />
+          <span class="powered-by-name">OMA DIGITALE</span>
+        </span>
+        <a class="leaflet-credit" href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>
         <span id="ms-zone-count">— zone</span>
       </div>
     </div>

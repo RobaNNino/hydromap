@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Livello_2" data-name="Livello 2" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24">
+  <defs>
+    <style>
+      .cls-1 {
+        stroke: url(#Sfumatura_senza_nome_11);
+      }
+
+      .cls-1, .cls-2, .cls-3, .cls-4 {
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 2.02px;
+      }
+
+      .cls-2 {
+        stroke: url(#Sfumatura_senza_nome_11-2);
+      }
+
+      .cls-3 {
+        stroke: url(#Sfumatura_senza_nome_11-3);
+      }
+
+      .cls-4 {
+        stroke: url(#Sfumatura_senza_nome_11-4);
+      }
+    </style>
+    <linearGradient id="Sfumatura_senza_nome_11" data-name="Sfumatura senza nome 11" x1="4.91" y1="19.63" x2="8.56" y2="19.63" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4bb9b4"/>
+      <stop offset=".28" stop-color="#1bb2bd"/>
+      <stop offset=".59" stop-color="#0492cf"/>
+      <stop offset="1" stop-color="#096085"/>
+    </linearGradient>
+    <linearGradient id="Sfumatura_senza_nome_11-2" data-name="Sfumatura senza nome 11" x1="11.02" x2="14.68" xlink:href="#Sfumatura_senza_nome_11"/>
+    <linearGradient id="Sfumatura_senza_nome_11-3" data-name="Sfumatura senza nome 11" x1="16.99" x2="20.65" xlink:href="#Sfumatura_senza_nome_11"/>
+    <linearGradient id="Sfumatura_senza_nome_11-4" data-name="Sfumatura senza nome 11" x1="1.93" y1="8.92" x2="21.98" y2="8.92" xlink:href="#Sfumatura_senza_nome_11"/>
+  </defs>
+  <line class="cls-1" x1="5.92" y1="17.97" x2="7.56" y2="21.28"/>
+  <line class="cls-2" x1="12.03" y1="17.97" x2="13.67" y2="21.28"/>
+  <line class="cls-3" x1="18" y1="17.97" x2="19.64" y2="21.28"/>
+  <path class="cls-4" d="M6.28,14.94c3.96-.02,7.93-.04,11.89-.06,1.63-.44,2.76-1.81,2.81-3.25.06-1.86-1.7-3.68-4-3.61.03-2.57-1.84-4.74-4.25-5.08-2.19-.31-4.38.95-5.28,3.08-2.17.07-3.99,1.58-4.42,3.58-.48,2.24.91,4.61,3.25,5.33Z"/>
+</svg>

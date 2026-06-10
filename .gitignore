@@ -15,3 +15,42 @@ ai.txt
 ai2.txt
 # NOTA: backend/data/pdfs/ e backend/data/results.json DEVONO essere committati
 # per il deploy backend (Render legge questi file da disco).
+
+# Sorgenti originali Abruzzo (~2000 PDF di rapporti di prova grezzi):
+# i PDF rappresentativi per comune vengono copiati in backend/data/pdfs/
+# da build_abruzzo.py, quindi questa cartella non serve a runtime.
+backend/data/source_pdfs_abruzzo/
+backend/data/abruzzo_polygons_cache.json
+
+# Sorgenti originali Basilicata (~258 PDF Acquedotto Lucano, ~170 MB):
+# i PDF rappresentativi per comune vengono copiati in backend/data/pdfs/
+# da build_basilicata.py, quindi questa cartella non serve a runtime.
+backend/acquedottolucano_pdf/
+backend/data/basilicata_polygons_cache.json
+
+# Sorgenti originali Nuove Acque (365 schede, AR/SI): i PDF rappresentativi
+# per comune vengono copiati in backend/data/pdfs/ da build_nuoveacque.py.
+backend/nuoveacque_pdf/
+backend/data/nuoveacque_polygons_cache.json
+
+# Sorgenti GAIA (497 PDF ricostruiti, Lucca/MS/Pistoia) — non ancora integrati.
+backend/gaia_pdf/
+
+# Sorgenti Toscana Publiacqua/Acque: i PDF runtime vengono copiati
+# in backend/data/pdfs/ dai builder dedicati.
+backend/publiacqua_pdf/
+backend/acque_pdf/
+backend/asamap_pdf/
+backend/fiora_pdf/
+backend/marche_batch_pdf/
+backend/marche_multiservizi_pdf/
+
+# Cache scaricabili/rigenerabili dai builder ASA/Fiora. Non servono al runtime
+# su Render e tenere il deploy leggero aiuta il free tier.
+backend/data/asamap_wfs_etichette.json
+backend/data/asamap_polygons_cache.json
+backend/data/fiora_poligoni.kml
+backend/data/fiora_polygons_cache.json
+
+# build logs
+*.log
