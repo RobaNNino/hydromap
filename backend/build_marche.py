@@ -17,6 +17,7 @@ newer report exists for that same zone.
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import shutil
 import sys
@@ -39,6 +40,7 @@ OUT_BATCH = DATA_DIR / "mappa-qualita-marche-batch.json"
 OUT_MULTISERVIZI = DATA_DIR / "mappa-qualita-marche-multiservizi.json"
 
 MIN_YEAR = 2023
+MAX_FEATURE_NAME_LEN = 80
 
 PROVIDERS = {
     "marche_apmgroup": {
@@ -123,6 +125,14 @@ def slugify(s: str) -> str:
     s = s.lower()
     s = re.sub(r"[^a-z0-9]+", "_", s).strip("_")
     return s[:150].strip("_")
+
+
+def short_feature_name(prefix: str, label: str, seed: str) -> str:
+    slug = slugify(label)
+    digest = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:8]
+    room = MAX_FEATURE_NAME_LEN - len(prefix) - len(digest) - 2
+    head = slug[:max(12, room)].strip("_")
+    return f"{prefix}_{head}_{digest}"
 
 
 def _clean(s: str | None) -> str:
@@ -426,7 +436,6 @@ def _center(geom: dict) -> tuple[float, float]:
 
 
 def write_geojson(entries: list[dict], polygons: dict[str, dict], out_file: Path) -> tuple[int, list[tuple[str, str]]]:
-    used_names: dict[str, int] = defaultdict(int)
     features = []
     skipped = []
     for e in entries:
@@ -436,9 +445,11 @@ def write_geojson(entries: list[dict], polygons: dict[str, dict], out_file: Path
         if not poly:
             skipped.append((e["path"].name, f"polygon:{e['comune']}"))
             continue
-        base = f"{e['provider']}_{slugify(e['comune'] + '_' + e['zona'])}"
-        used_names[base] += 1
-        name = base if used_names[base] == 1 else f"{base}_{used_names[base]}"
+        name = short_feature_name(
+            e["provider"],
+            f"{e['comune']}_{e['zona']}",
+            f"{e['provider']}|{e['path'].as_posix()}|{e['date'].isoformat()}",
+        )
         dest = PDF_OUT_DIR / f"{name}.pdf"
         shutil.copy2(e["path"], dest)
         lat, lon = _center(poly["geometry"])
