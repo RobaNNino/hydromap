@@ -9,19 +9,11 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="AcquaMap" />
 <meta name="mobile-web-app-capable" content="yes" />
-<<<<<<< HEAD
 <meta name="description" content="AcquaMap — mappa interattiva della qualità dell'acqua: analisi ufficiali, parametri, fonti, news e meteo." />
 <!-- Backend API base. Lasciato vuoto in dev (localhost): si veda app.js. -->
 <meta name="api-base" content="https://hydromap-api.onrender.com" />
 
 <title>AcquaMap — qualità dell'acqua</title>
-=======
-<meta name="description" content="AcquaMap — qualità dell'acqua in Lazio e Abruzzo. 720+ zone, 8 gestori ufficiali, dati in tempo reale, news, meteo." />
-<!-- Backend API base. Lasciato vuoto in dev (localhost): si veda app.js. -->
-<meta name="api-base" content="https://hydromap-api.onrender.com" />
-
-<title>AcquaMap — l'acqua di Lazio e Abruzzo</title>
->>>>>>> 40fce402398ea1ee2ff29548b35923f4e186bf9a
 
 <link rel="manifest" href="manifest.webmanifest" />
 <link rel="apple-touch-icon" href="LOGO.svg" />
@@ -42,7 +34,6 @@
        GOOGLE MAPS STYLE SEARCH BAR
        ============================================================ -->
   <header class="appbar">
-<<<<<<< HEAD
     <div class="map-search-shell" role="search">
       <button id="menu-btn" class="map-icon-btn map-menu-btn" aria-label="Menu principale" title="Menu">
         <img src="icons/icon-0.svg" alt="" aria-hidden="true" />
@@ -56,17 +47,6 @@
       <button id="search-icon-btn" class="map-icon-btn map-search-action" aria-label="Cerca" title="Cerca">
         <img src="icons/icon-1.svg" alt="" aria-hidden="true" />
       </button>
-=======
-    <button id="menu-btn" class="ab-icon" aria-label="Menù principale" title="Menù">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
-    </button>
-    <div class="ab-brand">
-      <img class="ab-logo" src="acquamap_LOGO.png" alt="AcquaMap" />
-      <div class="ab-titles">
-        <strong>AcquaMap</strong>
-        <span id="ab-subtitle">l'acqua di Lazio e Abruzzo</span>
-      </div>
->>>>>>> 40fce402398ea1ee2ff29548b35923f4e186bf9a
     </div>
   </header>
 
@@ -217,16 +197,10 @@
       <!-- TAB: INFO -->
       <section id="tab-info" class="tab-content">
         <div class="panel">
-<<<<<<< HEAD
           <h2>ℹ️ Informazioni su AcquaMap</h2>
           <p>AcquaMap raccoglie e rende consultabili dati ufficiali sulla qualità dell'acqua: parametri analitici, limiti di legge, documenti originali, fonti istituzionali e aggiornamenti rilevanti.</p>
           <p class="hint">La copertura cresce in base alla disponibilità dei dati pubblicati dai gestori e dagli enti competenti.</p>
           <h3>Acquedotti e infrastrutture</h3>
-=======
-          <h2>ℹ️ L'acqua di Lazio e Abruzzo</h2>
-          <p>L'acqua potabile di Roma proviene per il <strong>~70%</strong> dall'acquedotto <strong>Peschiera-Capore</strong> (sorgenti a Cittaducale, Rieti, ~130&nbsp;km).</p>
-          <h3>Acquedotti storici e moderni</h3>
->>>>>>> 40fce402398ea1ee2ff29548b35923f4e186bf9a
           <ul class="aq-list" id="aq-list"></ul>
           <h3>Numeri chiave</h3>
           <div id="info-numbers" class="info-numbers"></div>
@@ -293,11 +267,7 @@
       <button class="ms-item" data-tab="meteo">🌧️ <span>Meteo &amp; Siccità</span></button>
       <button class="ms-item" data-tab="compare">⚖️ <span>Confronta zone</span></button>
       <button class="ms-item" data-tab="chat">🤖 <span>Assistente AI</span></button>
-<<<<<<< HEAD
       <button class="ms-item" data-tab="info">ℹ️ <span>Informazioni su AcquaMap</span></button>
-=======
-      <button class="ms-item" data-tab="info">ℹ️ <span>L'acqua di Lazio e Abruzzo</span></button>
->>>>>>> 40fce402398ea1ee2ff29548b35923f4e186bf9a
       <hr/>
       <button class="ms-item" data-action="reload">🔄 <span>Aggiorna dati</span></button>
       <div class="ms-foot">

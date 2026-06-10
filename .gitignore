@@ -22,13 +22,10 @@ ai2.txt
 backend/data/source_pdfs_abruzzo/
 backend/data/abruzzo_polygons_cache.json
 
-<<<<<<< HEAD
-=======
 # Sorgenti originali Campania (migliaia di PDF grezzi con path molto lunghi).
 # I PDF runtime sono quelli copiati in backend/data/pdfs/.
 backend/data/source_pdfs_campania/
 
->>>>>>> 40fce402398ea1ee2ff29548b35923f4e186bf9a
 # Sorgenti originali Basilicata (~258 PDF Acquedotto Lucano, ~170 MB):
 # i PDF rappresentativi per comune vengono copiati in backend/data/pdfs/
 # da build_basilicata.py, quindi questa cartella non serve a runtime.

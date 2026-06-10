@@ -21,10 +21,7 @@ Provider supportati (cartella sorgente: backend/data/source_pdfs_campania/):
 from __future__ import annotations
 
 import csv
-<<<<<<< HEAD
-=======
 import hashlib
->>>>>>> 40fce402398ea1ee2ff29548b35923f4e186bf9a
 import json
 import re
 import shutil
@@ -45,10 +42,7 @@ OUT_GEOJSON = DATA_DIR / "mappa-qualita-campania.json"
 # Poligoni reali dei distretti ABC Napoli estratti dalla mappa ufficiale
 # (backend/extract_abc_districts.py): { "D01": {"name","pdf","ring"}, ... }
 ABC_DISTRICTS_FILE = DATA_DIR / "abc_napoli_districts.json"
-<<<<<<< HEAD
-=======
 MAX_FEATURE_NAME_LEN = 80
->>>>>>> 40fce402398ea1ee2ff29548b35923f4e186bf9a
 
 
 def load_abc_districts() -> dict[str, dict]:
@@ -179,8 +173,6 @@ def slugify(s: str) -> str:
     return s
 
 
-<<<<<<< HEAD
-=======
 def short_feature_name(prefix: str, label: str, seed: str) -> str:
     slug = slugify(label)
     digest = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:8]
@@ -189,7 +181,6 @@ def short_feature_name(prefix: str, label: str, seed: str) -> str:
     return f"{prefix}_{head}_{digest}"
 
 
->>>>>>> 40fce402398ea1ee2ff29548b35923f4e186bf9a
 def load_cache() -> dict:
     if POLY_CACHE_FILE.exists():
         try:
@@ -1041,16 +1032,12 @@ def main() -> int:
             print(f"   ! [{i:4d}] {prov:18s} {comune:30s}  GEOCODE FAIL")
             continue
         slug = e["slug"]
-<<<<<<< HEAD
-        feat_name = f"campania_{prov}_{slug}"
-=======
         name_prefix = f"campania_{prov}"
         feat_name = short_feature_name(
             name_prefix,
             slug,
             f"{prov}|{slug}|{comune}|{zona_label}|{e.get('pdf')}",
         )
->>>>>>> 40fce402398ea1ee2ff29548b35923f4e186bf9a
         feat = {
             "type": "Feature",
             "geometry": info["geometry"],
@@ -1154,11 +1141,8 @@ def main() -> int:
         print(f"   forzati a poligono: {n_forced} feature non-area")
 
     print("[3/4] copia PDF in data/pdfs/ …")
-<<<<<<< HEAD
-=======
     for old in PDF_OUT_DIR.glob("campania_*.pdf"):
         old.unlink()
->>>>>>> 40fce402398ea1ee2ff29548b35923f4e186bf9a
     for feat, entry in features:
         dest = PDF_OUT_DIR / (feat["properties"]["name"] + ".pdf")
         if dest.exists():

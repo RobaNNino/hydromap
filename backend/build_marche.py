@@ -17,10 +17,7 @@ newer report exists for that same zone.
 from __future__ import annotations
 
 import json
-<<<<<<< HEAD
-=======
 import hashlib
->>>>>>> 40fce402398ea1ee2ff29548b35923f4e186bf9a
 import re
 import shutil
 import sys
@@ -43,10 +40,7 @@ OUT_BATCH = DATA_DIR / "mappa-qualita-marche-batch.json"
 OUT_MULTISERVIZI = DATA_DIR / "mappa-qualita-marche-multiservizi.json"
 
 MIN_YEAR = 2023
-<<<<<<< HEAD
-=======
 MAX_FEATURE_NAME_LEN = 80
->>>>>>> 40fce402398ea1ee2ff29548b35923f4e186bf9a
 
 PROVIDERS = {
     "marche_apmgroup": {
@@ -133,8 +127,6 @@ def slugify(s: str) -> str:
     return s[:150].strip("_")
 
 
-<<<<<<< HEAD
-=======
 def short_feature_name(prefix: str, label: str, seed: str) -> str:
     slug = slugify(label)
     digest = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:8]
@@ -143,7 +135,6 @@ def short_feature_name(prefix: str, label: str, seed: str) -> str:
     return f"{prefix}_{head}_{digest}"
 
 
->>>>>>> 40fce402398ea1ee2ff29548b35923f4e186bf9a
 def _clean(s: str | None) -> str:
     return re.sub(r"\s+", " ", str(s or "")).strip()
 
@@ -445,10 +436,6 @@ def _center(geom: dict) -> tuple[float, float]:
 
 
 def write_geojson(entries: list[dict], polygons: dict[str, dict], out_file: Path) -> tuple[int, list[tuple[str, str]]]:
-<<<<<<< HEAD
-    used_names: dict[str, int] = defaultdict(int)
-=======
->>>>>>> 40fce402398ea1ee2ff29548b35923f4e186bf9a
     features = []
     skipped = []
     for e in entries:
@@ -458,17 +445,11 @@ def write_geojson(entries: list[dict], polygons: dict[str, dict], out_file: Path
         if not poly:
             skipped.append((e["path"].name, f"polygon:{e['comune']}"))
             continue
-<<<<<<< HEAD
-        base = f"{e['provider']}_{slugify(e['comune'] + '_' + e['zona'])}"
-        used_names[base] += 1
-        name = base if used_names[base] == 1 else f"{base}_{used_names[base]}"
-=======
         name = short_feature_name(
             e["provider"],
             f"{e['comune']}_{e['zona']}",
             f"{e['provider']}|{e['path'].as_posix()}|{e['date'].isoformat()}",
         )
->>>>>>> 40fce402398ea1ee2ff29548b35923f4e186bf9a
         dest = PDF_OUT_DIR / f"{name}.pdf"
         shutil.copy2(e["path"], dest)
         lat, lon = _center(poly["geometry"])

@@ -264,11 +264,7 @@ function switchTo(tabId) {
     compare: "Confronta zone",
     chat: "Assistente AI",
     meteo: "Meteo & Siccità",
-<<<<<<< HEAD
     info: "Informazioni su AcquaMap",
-=======
-    info: "L'acqua di Lazio, Abruzzo, Campania, Molise, Puglia, Basilicata e Toscana",
->>>>>>> 40fce402398ea1ee2ff29548b35923f4e186bf9a
   };
   const t = $("sheet-title"); if (t) t.textContent = titles[tabId] || "AcquaMap";
 

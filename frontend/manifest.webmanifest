@@ -1,13 +1,7 @@
 {
-<<<<<<< HEAD
   "name": "AcquaMap — qualità dell'acqua",
   "short_name": "AcquaMap",
   "description": "Mappa interattiva della qualità dell'acqua: analisi ufficiali, parametri, fonti, news live e meteo.",
-=======
-  "name": "AcquaMap — l'acqua di Lazio e Abruzzo",
-  "short_name": "AcquaMap",
-  "description": "Qualità dell'acqua in Lazio e Abruzzo: 720+ zone, 8 gestori ufficiali, news live, meteo.",
->>>>>>> 40fce402398ea1ee2ff29548b35923f4e186bf9a
   "lang": "it",
   "dir": "ltr",
   "start_url": "./",
