@@ -38,6 +38,9 @@ GEOJSON_FILES = {
     "marche_multiservizi": ROOT / "mappa-qualita-marche-multiservizi.json",
     "marche_ciip": ROOT / "mappa-qualita-ciip.json",
     "sanmarino_aass": ROOT / "mappa-qualita-aass.json",
+    "iren_acqua": ROOT / "mappa-qualita-iren.json",
+    "emiliambiente": ROOT / "mappa-qualita-emiliambiente.json",
+    "montagna2000": ROOT / "mappa-qualita-montagna2000.json",
     "lazio_extra": ROOT / "mappa-qualita-lazio-extra.json",
 }
 OUT_FILE = ROOT / "results.json"
@@ -2178,7 +2181,7 @@ def _marche_no_individual_limit(parametro: str) -> bool:
     label = "".join(c for c in label if not unicodedata.combining(c))
     return any(k in label for k in (
         "durezza", "calcio", "magnesio", "potassio", "fosforo",
-        "bicarbonato", "alcalinita", "residuo secco",
+        "bicarbonat", "alcalinita", "residuo secco",
         "bromodiclorometano", "dibromoclorometano", "bromoformio", "cloroformio",
     ))
 
@@ -2492,6 +2495,99 @@ def parse_pdf_aass(path: Path) -> dict:
     return _marche_finish(out, note)
 
 
+def parse_pdf_iren(path: Path) -> dict:
+    """Gruppo IREN — schede per comune/zona dal portale qualità dell'acqua.
+    Tabella: Parametro / Unità / Media / Valore di parametro / Descrizione."""
+    out = _marche_base(path, "iren_acqua")
+    text = _pdf_text(path, max_pages=1)
+    m = re.search(r"^(.+?)\s+-\s+(.+)$\n^.+?/\s*Provincia di", text, re.M)
+    if m:
+        out["comune"] = _clean(m.group(1)).title()
+        out["zona"] = _clean(m.group(2))
+    m = re.search(r"Periodo dal\s+\d{4}-\d{2}-\d{2}\s+al\s+(\d{4})-(\d{2})-\d{2}", text)
+    if m:
+        out["periodo"] = f"{m.group(2)}/{m.group(1)}"
+    for table in _pdf_tables(path):
+        for row in table:
+            if not row or len(row) < 4:
+                continue
+            parametro = _clean(row[0])
+            if not parametro or parametro.lower() == "parametro":
+                continue
+            unita = _clean(row[1])
+            valore = _clean(row[2])
+            limite = _clean(row[3])
+            if limite in {"-", "--"}:
+                limite = ""
+            _marche_add_param(out, parametro, unita, limite, valore)
+    return _marche_finish(out)
+
+
+def parse_pdf_emiliambiente(path: Path) -> dict:
+    """EmiliAmbiente S.p.A. — scheda per comune (punto di consegna).
+    Tabella: Descrizione / U.d.M. / Risultato / Limiti. La colonna dei limiti
+    del portale è in parte inaffidabile: i limiti palesemente errati vengono
+    già corretti/azzerati da _marche_add_param (limiti di riferimento)."""
+    out = _marche_base(path, "emiliambiente")
+    text = _pdf_text(path, max_pages=1)
+    m = re.search(r"Comune:\s*([^\n]+)", text)
+    out["comune"] = _clean(m.group(1)) if m else None
+    out["zona"] = "Punto di consegna"
+    out["periodo"] = _marche_periodo(text, path.stem)
+    if not out["periodo"]:
+        m = re.search(r"Data analisi:\s*(\d{1,2}/\d{1,2}/\d{4})", text)
+        out["periodo"] = _clean(m.group(1)) if m else None
+    for table in _pdf_tables(path):
+        for row in table:
+            if not row or len(row) < 3:
+                continue
+            desc = _clean(row[0])
+            if not desc or desc.lower().startswith(("descrizione", "nessun dato")):
+                continue
+            unita = _clean(row[1])
+            valore = _clean(row[2])
+            limite = _clean(row[3]) if len(row) > 3 else ""
+            if limite in {"-", "--"} or limite.startswith(">"):
+                limite = ""
+            _marche_add_param(out, desc, unita, limite, valore)
+    return _marche_finish(out)
+
+
+def parse_pdf_montagna2000(path: Path) -> dict:
+    """Montagna 2000 S.p.A. — referto per acquedotto (codice NG2*).
+    Tabella: Parametro (con unità tra parentesi) / Valore / Limite / Anno."""
+    out = _marche_base(path, "montagna2000")
+    text = _pdf_text(path, max_pages=1)
+    m = re.search(r"Comune/area:[^\S\n]*(\S[^\n]*)", text)
+    if m:
+        comune = _clean(m.group(1).split(";")[0])
+        out["comune"] = comune.title() if comune.isupper() else comune
+    title = _clean(text.splitlines()[0]) if text else ""
+    m = re.match(r"^(.*?)\s+campione del\s+(\d{1,2}/\d{1,2}/\d{4})", title, re.I)
+    if m:
+        out["zona"] = _clean(m.group(1)).strip(". ")
+        out["periodo"] = m.group(2)
+    m = re.search(r"Codice acquedotto:\s*(\S+)", text)
+    if m:
+        out["sections"]["Codice acquedotto"] = _clean(m.group(1))
+    for table in _pdf_tables(path):
+        for row in table:
+            if not row or len(row) < 3:
+                continue
+            par_raw = _clean(row[0])
+            if not par_raw or par_raw.lower() == "parametro":
+                continue
+            m_u = re.match(r"^(.*?)\s*\(([^)]+)\)\s*$", par_raw)
+            parametro = m_u.group(1) if m_u else par_raw
+            unita = m_u.group(2) if m_u else ""
+            valore = _clean(row[1])
+            limite = _clean(row[2])
+            if limite in {"/", "-", "--"}:
+                limite = ""
+            _marche_add_param(out, parametro, unita, limite, valore)
+    return _marche_finish(out)
+
+
 def _worker(path_str: str) -> tuple[str, dict | str]:
     p = Path(path_str)
     try:
@@ -2542,6 +2638,12 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_ciip(p)
         if p.stem.startswith("sanmarino_aass_"):
             return p.stem, parse_pdf_aass(p)
+        if p.stem.startswith("iren_acqua_"):
+            return p.stem, parse_pdf_iren(p)
+        if p.stem.startswith("emiliambiente_"):
+            return p.stem, parse_pdf_emiliambiente(p)
+        if p.stem.startswith("montagna2000_"):
+            return p.stem, parse_pdf_montagna2000(p)
         if p.stem.startswith("lazio_idrica_"):
             return p.stem, parse_pdf_lazio_idrica(p)
         if p.stem.startswith("acqualatina_"):

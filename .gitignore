@@ -51,6 +51,9 @@ backend/marche_batch_pdf/
 backend/marche_multiservizi_pdf/
 backend/ciip_pdf/
 backend/aass_sm_pdf/
+backend/iren_acqua_pdf/
+backend/emiliambiente_pdf/
+backend/montagna2000_pdf/
 
 # Cache scaricabili/rigenerabili dai builder ASA/Fiora. Non servono al runtime
 # su Render e tenere il deploy leggero aiuta il free tier.

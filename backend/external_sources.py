@@ -538,6 +538,49 @@ OFFICIAL_SOURCES = [
         "scraped": True,
     },
     {
+        "id": "iren_acqua",
+        "provider": "iren_acqua",
+        "title": "IREN Acqua — Emilia, Liguria, Piemonte",
+        "description": (
+            "Il Gruppo IREN pubblica i valori medi semestrali per comune e "
+            "zona di distribuzione nei territori serviti (Piacenza, Parma, "
+            "Reggio Emilia, Genova, Vercelli)."
+        ),
+        "url": "https://www.gruppoiren.it/it/i-nostri-servizi/servizio-idrico-integrato/qualita-dell-acqua.html",
+        "agency": "Gruppo IREN",
+        "ato": "Gruppo IREN - Emilia-Romagna, Liguria, Piemonte",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "emiliambiente",
+        "provider": "emiliambiente",
+        "title": "EmiliAmbiente — Bassa parmense",
+        "description": (
+            "EmiliAmbiente S.p.A. pubblica le analisi dell'acqua al punto di "
+            "consegna per gli 11 comuni della bassa parmense serviti."
+        ),
+        "url": "https://www.emiliambiente.it/",
+        "agency": "EmiliAmbiente S.p.A.",
+        "ato": "ATERSIR - Emilia-Romagna (bassa parmense)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "montagna2000",
+        "provider": "montagna2000",
+        "title": "Montagna 2000 — Appennino parmense",
+        "description": (
+            "Montagna 2000 S.p.A. pubblica i referti per ciascun acquedotto "
+            "delle valli di Taro e Ceno (Appennino parmense)."
+        ),
+        "url": "https://www.montagna2000.com/",
+        "agency": "Montagna 2000 S.p.A.",
+        "ato": "ATERSIR - Emilia-Romagna (Appennino parmense)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
         "id": "sanmarino_aass",
         "provider": "sanmarino_aass",
         "title": "AASS — Repubblica di San Marino",
