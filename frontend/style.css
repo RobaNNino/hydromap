@@ -270,17 +270,20 @@ button { font-family: inherit; }
 .status-pills::-webkit-scrollbar { display: none; }
 .status-pills > span {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   background: var(--frost-strong);
   backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-  padding: 6px 10px;
+  padding: 6px 11px 6px 8px;
   border-radius: var(--radius-pill);
-  font-size: 11px; font-weight: 700;
+  font-size: 12px; font-weight: 750;
+  font-variant-numeric: tabular-nums;
   box-shadow: 0 1px 4px rgba(9,96,133,.14);
   border: 1px solid var(--border);
   pointer-events: auto; color: var(--text);
   line-height: 1;
   position: relative;
-  overflow: hidden;
   animation: pill-in .4s var(--ease) backwards;
   transition: transform .15s, box-shadow .15s;
 }
@@ -292,14 +295,25 @@ button { font-family: inherit; }
   from { opacity: 0; transform: translateY(-8px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.status-pills > span::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  height: 2px;
+.status-pills .sp img {
+  width: 15px;
+  height: 15px;
+  object-fit: contain;
+  flex: 0 0 15px;
+}
+.sp-total {
   background: var(--brand-gradient);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(4,146,207,.30);
+}
+.sp-ok { color: var(--good); }
+.sp-warn { color: var(--bad); }
+.sp-unk { color: var(--muted); }
+/* L'icona "?" è grigio chiaro (#e3e3e3): sul frost chiaro va scurita */
+.sp-unk img { filter: brightness(.62); }
+@media (prefers-color-scheme: dark) {
+  .sp-unk img { filter: none; }
 }
 
 .param-legend {
@@ -650,10 +664,10 @@ a:hover { text-decoration: underline; }
 .ms-item[data-tab="dashboard"] { --ms-icon: url("icons/icon-8.svg"); }
 .ms-item[data-tab="news"] { --ms-icon: url("icons/icon-9.svg"); }
 .ms-item[data-tab="meteo"] { --ms-icon: url("icons/icon-10.svg"); }
-.ms-item[data-tab="compare"] { --ms-icon: url("icons/icon-4.svg"); }
-.ms-item[data-tab="chat"] { --ms-icon: url("icons/icon-1.svg"); }
+.ms-item[data-tab="compare"] { --ms-icon: url("icons/icon_confronta.svg"); }
+.ms-item[data-tab="chat"] { --ms-icon: url("icons/icon_AIsearch.svg"); }
 .ms-item[data-tab="info"] { --ms-icon: url("icons/icon-11.svg"); }
-.ms-item[data-action="reload"] { --ms-icon: url("icons/icon-3.svg"); }
+.ms-item[data-action="reload"] { --ms-icon: url("icons/icon_refresh.svg"); }
 .ms-item > span {
   flex: 1;
   font-size: 15px;
@@ -1615,8 +1629,8 @@ a:hover { text-decoration: underline; }
   .dt-tab[data-tab="dashboard"] { --dt-icon: url("icons/icon-8.svg"); --dt-label: "Dati"; }
   .dt-tab[data-tab="news"] { --dt-icon: url("icons/icon-9.svg"); --dt-label: "News"; }
   .dt-tab[data-tab="meteo"] { --dt-icon: url("icons/icon-10.svg"); --dt-label: "Meteo"; }
-  .dt-tab[data-tab="compare"] { --dt-icon: url("icons/icon-4.svg"); --dt-label: "Confronta"; }
-  .dt-tab[data-tab="chat"] { --dt-icon: url("icons/icon-1.svg"); --dt-label: "AI"; }
+  .dt-tab[data-tab="compare"] { --dt-icon: url("icons/icon_confronta.svg"); --dt-label: "Confronta"; }
+  .dt-tab[data-tab="chat"] { --dt-icon: url("icons/icon_AIsearch.svg"); --dt-label: "AI"; }
   .dt-tab[data-tab="info"] { --dt-icon: url("icons/icon-11.svg"); --dt-label: "Info"; }
   .dt-tab:hover { background: var(--surface-3); color: var(--text); transform: translateY(-1px); }
   .dt-tab.active {

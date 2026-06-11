@@ -722,10 +722,11 @@ async function loadGeoJSON() {
     if (s === "OK") ok++; else if (s === "ATTENZIONE") warn++; else unk++;
   }
   const total = state.geoData.features.length;
-  $("stats").innerHTML = `<span>📍 ${total}</span>
-    <span style="color:#16a34a">✓ ${ok}</span>
-    <span style="color:#dc2626">⚠ ${warn}</span>
-    <span style="color:#64748b">? ${unk}</span>`;
+  $("stats").innerHTML = `
+    <span class="sp sp-total" title="Zone mappate"><img src="icons/icon_pinBianco.svg" alt=""/>${total}</span>
+    <span class="sp sp-ok" title="Zone conformi"><img src="icons/icon_verifiedVerde.svg" alt=""/>${ok}</span>
+    <span class="sp sp-warn" title="Zone con anomalie"><img src="icons/icon_warningRosso.svg" alt=""/>${warn}</span>
+    <span class="sp sp-unk" title="Zone senza analisi recenti"><img src="icons/icon_questionmarkGrigio.svg" alt=""/>${unk}</span>`;
   const zc = $("ms-zone-count"); if (zc) zc.textContent = `${total} zone`;
 }
 
