@@ -67,6 +67,7 @@ GEOJSON_FILES: dict[str, Path] = {
     "cadf": ROOT / "mappa-qualita-cadf.json",
     "romagnacque": ROOT / "mappa-qualita-romagnacque.json",
     "comuniriuniti": ROOT / "mappa-qualita-comuniriuniti.json",
+    "gruppohera": ROOT / "mappa-qualita-gruppohera.json",
     "lazio_extra": ROOT / "mappa-qualita-lazio-extra.json",
 }
 RESULTS_FILE = ROOT / "results.json"

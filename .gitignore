@@ -61,6 +61,10 @@ backend/acquatoano_pdf/
 backend/cadf_pdf/
 backend/romagnacque_pdf/
 backend/as_comuniriuniti_pdf/
+backend/gruppohera_pdf/
+backend/gruppohera_zdf_pdf/
+backend/gruppohera_zdf_best_pdf/
+backend/gruppohera_zdf_deep_pdf/
 
 # Cache scaricabili/rigenerabili dai builder ASA/Fiora. Non servono al runtime
 # su Render e tenere il deploy leggero aiuta il free tier.

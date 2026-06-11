@@ -48,6 +48,7 @@ GEOJSON_FILES = {
     "cadf": ROOT / "mappa-qualita-cadf.json",
     "romagnacque": ROOT / "mappa-qualita-romagnacque.json",
     "comuniriuniti": ROOT / "mappa-qualita-comuniriuniti.json",
+    "gruppohera": ROOT / "mappa-qualita-gruppohera.json",
     "lazio_extra": ROOT / "mappa-qualita-lazio-extra.json",
 }
 OUT_FILE = ROOT / "results.json"
@@ -2872,6 +2873,44 @@ def parse_pdf_comuniriuniti(path: Path) -> dict:
     return _marche_finish(out)
 
 
+def parse_pdf_gruppohera(path: Path) -> dict:
+    """Gruppo Hera — scheda "che acqua bevi" per zona di fornitura.
+    Tabella: Parametro / Unità / Valore / "Valore di parametro / descrizione"
+    (il limite è il prefisso della descrizione, prima del primo punto)."""
+    out = _marche_base(path, "gruppohera")
+    text = _pdf_text(path, max_pages=1)
+    m = re.search(r"Indirizzo campione:</b>\s*([^\n<]+)", text)
+    if m:
+        out["comune"] = _clean(m.group(1)).split(",")[0].title()
+        out["sections"]["Indirizzo campione"] = _clean(m.group(1)).title()
+    m = re.search(r"fornitura idropotabile:</b>\s*([^\n<]+)", text)
+    if m:
+        out["zona"] = _clean(m.group(1).replace("_", " ")).title()
+    m = re.search(r"Gestore:</b>\s*([^\n<]+)", text)
+    if m:
+        out["sections"]["Gestore"] = _clean(m.group(1))
+    m = re.search(r"Numeri utenti:</b>\s*([^\n<]+)", text)
+    if m:
+        out["sections"]["Utenze servite"] = _clean(m.group(1))
+    for table in _pdf_tables(path):
+        for row in table:
+            if not row or len(row) < 4:
+                continue
+            parametro = _clean(row[0])
+            if not parametro or parametro.lower() == "parametro":
+                continue
+            unita = _clean(row[1])
+            valore = _clean(row[2])
+            desc = _clean(row[3])
+            # "0,50 mg/l. Valore di parametro: ..." -> limite "0,50 mg/l";
+            # "nessun limite. ..." / descrizioni libere -> nessun limite.
+            limite = desc.split(". ")[0] if desc else ""
+            if not re.match(r"^[<>]?\s*\d", limite):
+                limite = ""
+            _marche_add_param(out, parametro, unita, limite, valore)
+    return _marche_finish(out)
+
+
 def _worker(path_str: str) -> tuple[str, dict | str]:
     p = Path(path_str)
     try:
@@ -2942,6 +2981,8 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_romagnacque(p)
         if p.stem.startswith("comuniriuniti_"):
             return p.stem, parse_pdf_comuniriuniti(p)
+        if p.stem.startswith("gruppohera_"):
+            return p.stem, parse_pdf_gruppohera(p)
         if p.stem.startswith("lazio_idrica_"):
             return p.stem, parse_pdf_lazio_idrica(p)
         if p.stem.startswith("acqualatina_"):

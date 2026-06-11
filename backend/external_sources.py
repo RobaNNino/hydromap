@@ -682,6 +682,21 @@ OFFICIAL_SOURCES = [
         "scraped": True,
     },
     {
+        "id": "gruppohera",
+        "provider": "gruppohera",
+        "title": "Gruppo Hera — Che acqua bevi",
+        "description": (
+            "Il Gruppo Hera pubblica i valori medi per zona di fornitura "
+            "idropotabile nei territori serviti (Emilia-Romagna e oltre): "
+            "ogni zona riporta i parametri dell'acqua distribuita."
+        ),
+        "url": "https://www.gruppohera.it/offerte-e-servizi/casa/acqua/che-acqua-bevi",
+        "agency": "Gruppo Hera",
+        "ato": "ATERSIR Emilia-Romagna e territori Gruppo Hera",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
         "id": "sanmarino_aass",
         "provider": "sanmarino_aass",
         "title": "AASS — Repubblica di San Marino",
