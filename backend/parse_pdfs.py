@@ -36,6 +36,8 @@ GEOJSON_FILES = {
     "toscana_fiora": ROOT / "mappa-qualita-fiora.json",
     "marche_batch": ROOT / "mappa-qualita-marche-batch.json",
     "marche_multiservizi": ROOT / "mappa-qualita-marche-multiservizi.json",
+    "marche_ciip": ROOT / "mappa-qualita-ciip.json",
+    "sanmarino_aass": ROOT / "mappa-qualita-aass.json",
     "lazio_extra": ROOT / "mappa-qualita-lazio-extra.json",
 }
 OUT_FILE = ROOT / "results.json"
@@ -2040,10 +2042,11 @@ def _pdf_text(path: Path, max_pages: int | None = None) -> str:
     return text
 
 
-def _pdf_tables(path: Path) -> list[list[list[str | None]]]:
+def _pdf_tables(path: Path, max_pages: int | None = None) -> list[list[list[str | None]]]:
     tables = []
     with pdfplumber.open(path) as pdf:
-        for page in pdf.pages:
+        pages = pdf.pages if max_pages is None else pdf.pages[:max_pages]
+        for page in pages:
             tables.extend(page.extract_tables() or [])
     return tables
 
@@ -2413,6 +2416,82 @@ def parse_pdf_marche_asteaspa(path: Path) -> dict:
     )
 
 
+def parse_pdf_ciip(path: Path) -> dict:
+    """CIIP S.p.A. (ATO 5 Marche Sud) — referti per utenza generati da
+    servizi.ciip.it. Tabella: Descrizione / Valore / Unità / Limiti."""
+    out = _marche_base(path, "marche_ciip")
+    text = _pdf_text(path, max_pages=1)
+    out["periodo"] = _marche_periodo(text, path.stem)
+    m = re.search(r"comune:\s*([^/\n]+)", text, re.I)
+    out["comune"] = _clean(m.group(1)).title() if m else None
+    m_via = re.search(r"via:\s*([^/\n]+)", text, re.I)
+    m_civ = re.search(r"civico:\s*([^/\n]+)", text, re.I)
+    if m_via:
+        zona = _clean(m_via.group(1)).title()
+        civ = _clean(m_civ.group(1)) if m_civ else ""
+        if civ and civ.upper() not in {"", "0", "0000", "SNC"}:
+            zona = f"{zona}, {civ}"
+        out["zona"] = zona
+    for table in _pdf_tables(path):
+        for row in table:
+            if not row or len(row) < 3:
+                continue
+            desc = _clean(row[0])
+            if not desc or desc.lower().startswith("descrizione"):
+                continue
+            valore = _clean(row[1])
+            unita = _clean(row[2]) if len(row) > 2 else ""
+            limite = _clean(row[3]) if len(row) > 3 else ""
+            _marche_add_param(out, desc, unita, limite, valore)
+    return _marche_finish(out)
+
+
+_AASS_VALUE_RE = re.compile(r"^([<>]?\s*\d+(?:[.,]\d+)?)")
+
+
+def _aass_clean_value(cell: str) -> str:
+    """Rimuove i marcatori di nota a piè pagina ('< 1 3' → '< 1')."""
+    m = _AASS_VALUE_RE.match(_clean(cell))
+    return _clean(m.group(1)) if m else _clean(cell)
+
+
+def parse_pdf_aass(path: Path) -> dict:
+    """AASS San Marino — valori medi semestrali per castello. La prima pagina
+    è l'anno più recente; colonne: Parametro / U.d.M. / sem.1 / sem.2 / limite."""
+    out = _marche_base(path, "sanmarino_aass")
+    text = _pdf_text(path, max_pages=1)
+    m = re.search(r"CASTELLO DI\s+([^\n]+)", text, re.I)
+    castello = _clean(m.group(1)).title() if m else path.stem.replace("_", " ")
+    out["comune"] = castello
+    out["zona"] = f"Castello di {castello}"
+    dates = re.findall(r"al\s+(\d{1,2})/(\d{1,2})/(20\d{2})", text)
+    if dates:
+        _, mm, yy = dates[-1]
+        out["periodo"] = f"{int(mm):02d}/{yy}"
+    m = re.search(r"Serbatoi di influenza:\s*([^\n]+)", text, re.I)
+    if m:
+        out["sections"]["Serbatoi di influenza"] = _clean(m.group(1))
+    tables = _pdf_tables(path, max_pages=1)
+    for table in tables:
+        header_seen = False
+        for row in table:
+            if not row or len(row) < 5:
+                continue
+            if _clean(row[0]).lower() == "parametro":
+                header_seen = True
+                continue
+            if not header_seen:
+                continue
+            parametro = _clean(row[0])
+            unita = _clean(row[1])
+            # Valore più recente: secondo semestre; fallback sul primo.
+            valore = _aass_clean_value(row[3] or "") or _aass_clean_value(row[2] or "")
+            limite = re.sub(r"\s+\d$", "", _clean(row[4]))  # toglie nota a piè pagina
+            _marche_add_param(out, parametro, unita, limite, valore)
+    note = "Valori medi semestrali pubblicati da AASS (Repubblica di San Marino)."
+    return _marche_finish(out, note)
+
+
 def _worker(path_str: str) -> tuple[str, dict | str]:
     p = Path(path_str)
     try:
@@ -2459,6 +2538,10 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_marche_vivaservizi(p)
         if p.stem.startswith("marche_multiservizi_"):
             return p.stem, parse_pdf_marche_multiservizi(p)
+        if p.stem.startswith("marche_ciip_"):
+            return p.stem, parse_pdf_ciip(p)
+        if p.stem.startswith("sanmarino_aass_"):
+            return p.stem, parse_pdf_aass(p)
         if p.stem.startswith("lazio_idrica_"):
             return p.stem, parse_pdf_lazio_idrica(p)
         if p.stem.startswith("acqualatina_"):

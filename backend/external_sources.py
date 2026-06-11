@@ -523,6 +523,35 @@ OFFICIAL_SOURCES = [
         "type": "Portale gestore",
         "scraped": True,
     },
+    {
+        "id": "marche_ciip",
+        "provider": "marche_ciip",
+        "title": "CIIP — Ascoli Piceno e Fermo",
+        "description": (
+            "CIIP S.p.A. (Cicli Integrati Impianti Primari) pubblica i referti "
+            "delle analisi per utenza, sorgenti e pozzi del Piceno."
+        ),
+        "url": "https://www.ciip.it/",
+        "agency": "CIIP S.p.A.",
+        "ato": "ATO 5 Marche Sud - Ascoli Piceno e Fermo",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "sanmarino_aass",
+        "provider": "sanmarino_aass",
+        "title": "AASS — Repubblica di San Marino",
+        "description": (
+            "L'Azienda Autonoma di Stato per i Servizi Pubblici pubblica i "
+            "valori medi semestrali dell'acqua potabile per ciascuno dei "
+            "9 castelli sammarinesi."
+        ),
+        "url": "https://www.aass.sm/site/home/reti/acqua/qualita-dellacqua.html",
+        "agency": "AASS",
+        "ato": "Repubblica di San Marino",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
     # ---------- Fonti istituzionali ----------
     {
         "id": "salute",
