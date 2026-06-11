@@ -63,6 +63,7 @@ const state = {
   paramData: null,
   compareList: [],
   meLayer: null,
+  chooserMarker: null,
 };
 
 // ---------- FEATURE FLAGS ----------
@@ -517,7 +518,13 @@ function _boundsArea(layer) {
 function _chooserStatusClass(status) {
   return status === "OK" ? "ok" : status === "ATTENZIONE" ? "warn" : status === "INFORMATIVO" ? "info" : "unk";
 }
+// Oltre questa soglia il popup diventa inutilizzabile (es. Pistoia: 51 zone
+// sovrapposte, una per punto di campionamento Publiacqua): la scelta si sposta
+// nel pannello, raggruppata per gestore e filtrabile.
+const CHOOSER_POPUP_MAX = 6;
+
 function showZoneChooser(latlng, hits) {
+  if (hits.length > CHOOSER_POPUP_MAX) { showZoneListPanel(latlng, hits); return; }
   const div = document.createElement("div");
   div.className = "zone-chooser";
   const title = document.createElement("div");
@@ -553,6 +560,104 @@ function showZoneChooser(latlng, hits) {
   });
   L.popup({ className: "zone-chooser-popup", maxWidth: 300, autoPan: true, closeButton: true })
     .setLatLng(latlng).setContent(div).openOn(map);
+}
+
+// Lista nel pannello per i punti con molte zone sovrapposte: raggruppa per
+// gestore, ordina per etichetta e offre un filtro testuale.
+function _clearChooserMarker() {
+  if (state.chooserMarker) {
+    try { map.removeLayer(state.chooserMarker); } catch {}
+    state.chooserMarker = null;
+  }
+}
+function showZoneListPanel(latlng, hits) {
+  map.closePopup();
+  switchTo("zone");
+  setSheetState("half");
+
+  // Segna sulla mappa il punto a cui si riferisce la lista
+  _clearChooserMarker();
+  state.chooserMarker = L.circleMarker(latlng, {
+    radius: 7, color: "#0492cf", weight: 3, fillColor: "#fff", fillOpacity: 1,
+  }).addTo(map);
+
+  // Raggruppa per gestore (gruppi più numerosi prima)
+  const groups = new Map();
+  hits.forEach(h => {
+    const key = (h.feature.properties || {}).provider_label || "Altro gestore";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(h);
+  });
+  const sortedGroups = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+  const comune = (hits[0].feature.properties || {}).display_name
+    || (hits[0].feature.properties || {}).comune || "";
+
+  const panel = $("zone-panel");
+  panel.innerHTML = "";
+  const wrap = document.createElement("div");
+  wrap.className = "zone-list";
+  wrap.innerHTML = `
+    <div class="zl-head">
+      <div class="zone-title">📍 ${hits.length} zone in questo punto</div>
+      ${comune ? `<div class="zone-sub">${escapeHtml(comune)} — ogni zona è un punto di campionamento: scegli quella che ti interessa.</div>` : ""}
+    </div>
+    <input type="text" class="zl-filter" placeholder="🔎 Filtra per via o zona…" autocomplete="off" />
+    <div class="zl-groups"></div>
+    <p class="zl-empty hint" hidden>Nessuna zona corrisponde al filtro.</p>`;
+  panel.appendChild(wrap);
+
+  const groupsBox = wrap.querySelector(".zl-groups");
+  const labelOf = (p) => p.zona_label || p.nome_kml || p.display_name || p.name || "—";
+
+  sortedGroups.forEach(([provider, items]) => {
+    items.sort((a, b) => labelOf(a.feature.properties || {})
+      .localeCompare(labelOf(b.feature.properties || {}), "it", { numeric: true, sensitivity: "base" }));
+    const g = document.createElement("div");
+    g.className = "zl-group";
+    g.innerHTML = `<div class="zl-group-head">${escapeHtml(provider)} <em>${items.length}</em></div>`;
+    items.forEach(({ feature, layer }) => {
+      const p = feature.properties || {};
+      const label = labelOf(p);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "zc-item";
+      btn.dataset.search = `${label} ${p.display_name || ""} ${p.comune || ""}`.toLowerCase();
+      btn.innerHTML = `<span class="zc-dot ${_chooserStatusClass(p.status)}"></span>
+        <span class="zc-text"><b>${escapeHtml(label)}</b></span>
+        <span class="zc-go">›</span>`;
+      btn.addEventListener("mouseenter", () => {
+        if (layer !== state.selectedLayer) {
+          layer.setStyle({ weight: 3, color: "#0f172a", fillOpacity: 0.62 });
+          if (layer.bringToFront) layer.bringToFront();
+        }
+      });
+      btn.addEventListener("mouseleave", () => {
+        if (layer !== state.selectedLayer) state.geoLayer.resetStyle(layer);
+      });
+      btn.addEventListener("click", () => selectZone(p.name, layer));
+      g.appendChild(btn);
+    });
+    groupsBox.appendChild(g);
+  });
+
+  // Filtro live: nasconde le voci non corrispondenti e i gruppi svuotati
+  const filterInput = wrap.querySelector(".zl-filter");
+  const emptyMsg = wrap.querySelector(".zl-empty");
+  filterInput.addEventListener("input", () => {
+    const q = filterInput.value.trim().toLowerCase();
+    let visible = 0;
+    groupsBox.querySelectorAll(".zl-group").forEach(g => {
+      let groupVisible = 0;
+      g.querySelectorAll(".zc-item").forEach(item => {
+        const show = !q || item.dataset.search.includes(q);
+        item.hidden = !show;
+        if (show) groupVisible++;
+      });
+      g.hidden = groupVisible === 0;
+      visible += groupVisible;
+    });
+    emptyMsg.hidden = visible > 0;
+  });
 }
 
 function onEach(feature, layer) {
@@ -631,6 +736,7 @@ function refreshZoneStyle() {
 
 // ---------- ZONE DETAIL ----------
 async function selectZone(name, layer) {
+  _clearChooserMarker();
   switchTo("zone");
   setSheetState("half");
   if (state.selectedLayer) state.geoLayer.resetStyle(state.selectedLayer);
@@ -1420,6 +1526,7 @@ function renderMeteo(m) {
     loadNews().catch(e => console.error(e));
     setInterval(() => loadNews(false), 15 * 60 * 1000);
   }
+
 })();
 
 // ---------- DESKTOP TABS (≥1024px) ----------
