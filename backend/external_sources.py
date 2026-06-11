@@ -639,6 +639,49 @@ OFFICIAL_SOURCES = [
         "scraped": True,
     },
     {
+        "id": "cadf",
+        "provider": "cadf",
+        "title": "CADF — Basso ferrarese",
+        "description": (
+            "CADF S.p.A. pubblica schede trimestrali sulla qualità dell'acqua "
+            "per gli 11 comuni del Delta del Po ferrarese."
+        ),
+        "url": "https://www.cadf.it/",
+        "agency": "CADF S.p.A.",
+        "ato": "ATERSIR - Emilia-Romagna (basso ferrarese)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "romagnacque",
+        "provider": "romagnacque",
+        "title": "Romagna Acque — Società delle Fonti",
+        "description": (
+            "Romagna Acque gestisce le fonti e la rete all'ingrosso della "
+            "Romagna (diga di Ridracoli e impianti): analisi dei punti di "
+            "consegna e dei serbatoi nelle province di FC, RN e RA."
+        ),
+        "url": "https://www.romagnacque.it/",
+        "agency": "Romagna Acque - Società delle Fonti S.p.A.",
+        "ato": "Romagna (FC/RN/RA) - Società delle Fonti",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "comuniriuniti",
+        "provider": "comuniriuniti",
+        "title": "AS Comuni Riuniti — Montecopiolo",
+        "description": (
+            "L'Azienda Speciale Comuni Riuniti pubblica i rapporti di prova "
+            "dei punti di campionamento di Montecopiolo (RN)."
+        ),
+        "url": "https://www.comunemontecopiolo.it/",
+        "agency": "AS Comuni Riuniti",
+        "ato": "Comune di Montecopiolo (RN)",
+        "type": "Rapporti di laboratorio",
+        "scraped": True,
+    },
+    {
         "id": "sanmarino_aass",
         "provider": "sanmarino_aass",
         "title": "AASS — Repubblica di San Marino",

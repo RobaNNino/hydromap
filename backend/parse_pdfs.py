@@ -45,6 +45,9 @@ GEOJSON_FILES = {
     "aimag": ROOT / "mappa-qualita-aimag.json",
     "sorgeaqua": ROOT / "mappa-qualita-sorgeaqua.json",
     "toano": ROOT / "mappa-qualita-toano.json",
+    "cadf": ROOT / "mappa-qualita-cadf.json",
+    "romagnacque": ROOT / "mappa-qualita-romagnacque.json",
+    "comuniriuniti": ROOT / "mappa-qualita-comuniriuniti.json",
     "lazio_extra": ROOT / "mappa-qualita-lazio-extra.json",
 }
 OUT_FILE = ROOT / "results.json"
@@ -2185,7 +2188,7 @@ def _marche_no_individual_limit(parametro: str) -> bool:
     label = "".join(c for c in label if not unicodedata.combining(c))
     return any(k in label for k in (
         "durezza", "calcio", "magnesio", "potassio", "fosforo",
-        "bicarbonat", "alcalinita", "residuo secco",
+        "bicarbonat", "alcalinita", "residuo secco", "carbonio organico",
         "bromodiclorometano", "dibromoclorometano", "bromoformio", "cloroformio",
     ))
 
@@ -2745,6 +2748,130 @@ def parse_pdf_montagna2000(path: Path) -> dict:
     return _marche_finish(out)
 
 
+def parse_pdf_cadf(path: Path) -> dict:
+    """CADF S.p.A. — scheda trimestrale per comune (basso ferrarese).
+    Tabella: Parametro / Unità misura / Valore medio / Limite."""
+    out = _marche_base(path, "cadf")
+    text = _pdf_text(path, max_pages=1)
+    m = re.search(r"CADF - Qualita acqua - ([a-z-]+)", text)
+    if m:
+        out["comune"] = re.sub(r"-\d+$", "", m.group(1)).replace("-", " ").title()
+    out["zona"] = "Rete di distribuzione"
+    m = re.search(r"Periodo:\s*([^\n]+?)\s+(20\d{2})", text, re.I)
+    if m:
+        months = re.findall(r"|".join(_MONTHS_IT_PARSE), m.group(1).lower())
+        out["periodo"] = f"{_MONTHS_IT_PARSE[months[-1]]:02d}/{m.group(2)}" if months else m.group(2)
+    for table in _pdf_tables(path):
+        for row in table:
+            if not row or len(row) < 4:
+                continue
+            parametro = _clean(row[0])
+            if not parametro or parametro.lower() == "parametro":
+                continue
+            limite = _clean(row[3])
+            if limite.lower() in {"non previsto", "-", "--"}:
+                limite = ""
+            _marche_add_param(out, parametro, _clean(row[1]), limite, _clean(row[2]))
+    return _marche_finish(out)
+
+
+_MONTHS_IT_PARSE = {
+    "gennaio": 1, "febbraio": 2, "marzo": 3, "aprile": 4, "maggio": 5,
+    "giugno": 6, "luglio": 7, "agosto": 8, "settembre": 9, "ottobre": 10,
+    "novembre": 11, "dicembre": 12,
+}
+
+
+def parse_pdf_romagnacque(path: Path) -> dict:
+    """Romagna Acque — due formati: weblab (tabella Parametro / Risultato /
+    UM / Limite inf. / Limite sup. / ...) e nativo (righe testuali
+    '<Parametro> <media> <limite|n.a.> <um>', media ultimo semestre)."""
+    out = _marche_base(path, "romagnacque")
+    text = _pdf_text(path)
+    m = re.search(r"Punto (?:di )?prelievo:\s*([^\n|]+)", text)
+    if m:
+        point = _clean(m.group(1))
+        out["zona"] = re.sub(r"^(?:CRM[_\s]*)?[0-9]+[0-9a-zA-Z./]*\s*[-_]\s*", "", point) or point
+    m = re.search(r"Data creazione:\s*(\d{4})-(\d{2})-(\d{2})", text)
+    if m:
+        out["periodo"] = f"{m.group(3)}/{m.group(2)}/{m.group(1)}"
+    else:
+        m = re.search(r"(2\d)LA\d+", path.stem) or re.search(r"(2\d)LA\d+", text)
+        if m:
+            out["periodo"] = f"20{m.group(1)}"
+            out["sections"]["Nota"] = "Valori medi dell'ultimo semestre pubblicati da Romagna Acque."
+    tables = _pdf_tables(path)
+    parsed_table = False
+    for table in tables:
+        for row in table:
+            if not row or len(row) < 5:
+                continue
+            parametro = _clean(row[0])
+            if not parametro or parametro.lower() == "parametro":
+                continue
+            valore = _clean(row[1])
+            unita = _clean(row[2])
+            limite = _clean(row[4])  # Limite sup.
+            if not valore:
+                continue
+            parsed_table = True
+            _marche_add_param(out, parametro, unita, limite, valore)
+    if not parsed_table:
+        # Formato nativo: "<Parametro> <media> <limite|n.a.> <um>"
+        for raw in text.splitlines():
+            line = _clean(raw)
+            m = re.match(
+                r"^(.+?)\s+(<\s*\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)\s+"
+                r"(n\.a\.|<?\s*\d+(?:[.,]\d+)?|\S*pH\S*)\s+(\S+)$",
+                line)
+            if not m:
+                continue
+            parametro = m.group(1)
+            if parametro.lower().startswith(("controllo", "punto")):
+                continue
+            limite = m.group(3)
+            if limite == "n.a." or "ph" in limite.lower():
+                limite = ""
+            _marche_add_param(out, parametro, m.group(4), limite, m.group(2))
+    return _marche_finish(out)
+
+
+_CSA_UNITS = (
+    "UFC/100 mL", "UFC/100 ml", "UFC/mL", "MPN/100 mL", "unità pH",
+    "µS/cm a 20°C", "µS/cm", "µg/L", "mg/L", "NTU", "°C", "°F", "Bq/L", "TU",
+)
+
+
+def parse_pdf_comuniriuniti(path: Path) -> dict:
+    """AS Comuni Riuniti (Montecopiolo) — rapporto di prova CSA: righe
+    '[¹] <Parametro> <U.M.> <risultato> [<LoQ>] [<limite>] <metodo…>'."""
+    out = _marche_base(path, "comuniriuniti")
+    text = _pdf_text(path)
+    out["comune"] = "Montecopiolo"
+    m = re.search(r"Descrizione campione:\s*([^\n]+)", text)
+    if m:
+        out["zona"] = _clean(re.sub(r"^Acqua\s+", "", m.group(1)))
+    m = re.search(r"Data di campionamento:\s*(\d{1,2}/\d{1,2}/\d{4})", text)
+    out["periodo"] = _clean(m.group(1)) if m else None
+    unit_re = "|".join(re.escape(u) for u in sorted(_CSA_UNITS, key=len, reverse=True))
+    num = r"<?\s*\d+(?:[.,]\d+)?"
+    for raw in text.splitlines():
+        line = _clean(raw)
+        m = re.match(rf"^\[\S+\]\s+(.+?)\s+({unit_re})\s+({num})"
+                     rf"(?:\s+({num}|\d+,\d+\s*-\s*\d+,\d+))?"
+                     rf"(?:\s+({num}|\d+,\d+\s*-\s*\d+,\d+))?\s*(.*)$", line)
+        if not m:
+            continue
+        parametro, unita, valore, g4, g5 = m.group(1), m.group(2), m.group(3), m.group(4), m.group(5)
+        # Con tre gruppi numerici: risultato / LoQ / limite; con due: il
+        # secondo è il limite solo se il metodo inizia subito dopo.
+        limite = g5 if g5 else (g4 or "")
+        if g5:
+            pass  # g4 è il L.o.Q.
+        _marche_add_param(out, parametro, unita, limite, valore)
+    return _marche_finish(out)
+
+
 def _worker(path_str: str) -> tuple[str, dict | str]:
     p = Path(path_str)
     try:
@@ -2809,6 +2936,12 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_sorgeaqua(p)
         if p.stem.startswith("toano_"):
             return p.stem, parse_pdf_toano(p)
+        if p.stem.startswith("cadf_"):
+            return p.stem, parse_pdf_cadf(p)
+        if p.stem.startswith("romagnacque_"):
+            return p.stem, parse_pdf_romagnacque(p)
+        if p.stem.startswith("comuniriuniti_"):
+            return p.stem, parse_pdf_comuniriuniti(p)
         if p.stem.startswith("lazio_idrica_"):
             return p.stem, parse_pdf_lazio_idrica(p)
         if p.stem.startswith("acqualatina_"):
