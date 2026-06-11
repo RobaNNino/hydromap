@@ -119,6 +119,11 @@ def discover() -> tuple[list[dict], list[tuple[str, str]]]:
         if not m_reg:
             skipped.append((path.name, "riga regione/provincia non trovata"))
             continue
+        if m_reg.group(3).upper() == "RE":
+            # La provincia di Reggio Emilia è gestita da ARCA Reggio
+            # (build_arcareggio.py): le stesse zone sul portale Iren sono
+            # un retaggio e integrarle duplicherebbe ogni comune.
+            continue
         regione = _clean(m_reg.group(1))
         # La riga del titolo "<COMUNE> - <zona>" precede quella della regione;
         # per le etichette zona molto lunghe il titolo va a capo su due righe.

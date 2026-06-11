@@ -581,6 +581,64 @@ OFFICIAL_SOURCES = [
         "scraped": True,
     },
     {
+        "id": "arcareggio",
+        "provider": "arcareggio",
+        "title": "ARCA Reggio — Provincia di Reggio Emilia",
+        "description": (
+            "ARCA Reggio, subentrata a IRETI nella gestione idrica reggiana, "
+            "pubblica i valori medi semestrali per ogni zona di distribuzione."
+        ),
+        "url": "https://www.arcareggio.it/i-nostri-servizi/qualita-dell-acqua.html",
+        "agency": "ARCA Reggio",
+        "ato": "ATERSIR - Emilia-Romagna (provincia di Reggio Emilia)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "aimag",
+        "provider": "aimag",
+        "title": "AIMAG — Modena e Mantova",
+        "description": (
+            "AIMAG S.p.A. pubblica schede semestrali sulla qualità dell'acqua "
+            "distribuita (Carpi, Campogalliano, Cognento, Revere)."
+        ),
+        "url": "https://www.aimag.it/",
+        "agency": "AIMAG S.p.A.",
+        "ato": "ATERSIR Emilia-Romagna / ATO Mantova",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "sorgeaqua",
+        "provider": "sorgeaqua",
+        "title": "SorgeAqua — Modena/Bologna",
+        "description": (
+            "SorgeAqua S.r.l. pubblica referti periodici per i comuni di "
+            "Crevalcore, Finale Emilia, Nonantola, Ravarino e Sant'Agata "
+            "Bolognese."
+        ),
+        "url": "https://www.sorgeaqua.it/",
+        "agency": "SorgeAqua S.r.l.",
+        "ato": "ATERSIR - Emilia-Romagna (Modena/Bologna)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "toano",
+        "provider": "toano",
+        "title": "AST — Azienda Speciale Toano",
+        "description": (
+            "L'Azienda Speciale del Comune di Toano (RE) pubblica i rapporti "
+            "di prova dei punti di campionamento delle frazioni (serbatoi e "
+            "pozzetti)."
+        ),
+        "url": "https://www.comune.toano.re.it/",
+        "agency": "AST - Azienda Speciale Toano",
+        "ato": "Comune di Toano (RE)",
+        "type": "Rapporti di laboratorio",
+        "scraped": True,
+    },
+    {
         "id": "sanmarino_aass",
         "provider": "sanmarino_aass",
         "title": "AASS — Repubblica di San Marino",

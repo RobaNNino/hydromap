@@ -41,6 +41,10 @@ GEOJSON_FILES = {
     "iren_acqua": ROOT / "mappa-qualita-iren.json",
     "emiliambiente": ROOT / "mappa-qualita-emiliambiente.json",
     "montagna2000": ROOT / "mappa-qualita-montagna2000.json",
+    "arcareggio": ROOT / "mappa-qualita-arcareggio.json",
+    "aimag": ROOT / "mappa-qualita-aimag.json",
+    "sorgeaqua": ROOT / "mappa-qualita-sorgeaqua.json",
+    "toano": ROOT / "mappa-qualita-toano.json",
     "lazio_extra": ROOT / "mappa-qualita-lazio-extra.json",
 }
 OUT_FILE = ROOT / "results.json"
@@ -2495,6 +2499,12 @@ def parse_pdf_aass(path: Path) -> dict:
     return _marche_finish(out, note)
 
 
+def _fix_thousands(v: str) -> str:
+    """Normalizza i separatori delle migliaia del portale Iren/ARCA:
+    '1.094' (µS/cm) è milleNOVANTAquattro, non 1,094."""
+    return re.sub(r"^([<>]?\s*\d{1,3})\.(\d{3})(?!\d)$", r"\1\2", v.strip())
+
+
 def parse_pdf_iren(path: Path) -> dict:
     """Gruppo IREN — schede per comune/zona dal portale qualità dell'acqua.
     Tabella: Parametro / Unità / Media / Valore di parametro / Descrizione."""
@@ -2515,12 +2525,159 @@ def parse_pdf_iren(path: Path) -> dict:
             if not parametro or parametro.lower() == "parametro":
                 continue
             unita = _clean(row[1])
-            valore = _clean(row[2])
+            valore = _fix_thousands(_clean(row[2]))
             limite = _clean(row[3])
             if limite in {"-", "--"}:
                 limite = ""
             _marche_add_param(out, parametro, unita, limite, valore)
     return _marche_finish(out)
+
+
+def parse_pdf_arcareggio(path: Path) -> dict:
+    """ARCA Reggio — schede per zona (stesso formato del portale Iren).
+    Tabella: Parametro / Unita / Media / Valore parametro / Descrizione."""
+    out = _marche_base(path, "arcareggio")
+    text = _pdf_text(path, max_pages=1)
+    m = re.search(r"Comune:\s*([^|\n]+)\|\s*Zona:\s*([^|\n]+)", text)
+    if m:
+        out["comune"] = _clean(m.group(1)).title()
+        out["zona"] = _clean(m.group(2))
+    m = re.search(r"Periodo:\s*dal\s+\d{1,2}/\d{1,2}/\d{4}\s+al\s+(\d{1,2})/(\d{1,2})/(\d{4})", text)
+    if m:
+        out["periodo"] = f"{int(m.group(2)):02d}/{m.group(3)}"
+    for table in _pdf_tables(path):
+        for row in table:
+            if not row or len(row) < 4:
+                continue
+            parametro = _clean(row[0])
+            if not parametro or parametro.lower() == "parametro":
+                continue
+            unita = _clean(row[1])
+            valore = _fix_thousands(_clean(row[2]))
+            limite = _clean(row[3])
+            if limite in {"-", "--"}:
+                limite = ""
+            _marche_add_param(out, parametro, unita, limite, valore)
+    return _marche_finish(out)
+
+
+def parse_pdf_aimag(path: Path) -> dict:
+    """AIMAG S.p.A. — scheda semestrale per zona di distribuzione.
+    Tabella: Parametro / Unità / N Campioni / Medio / Massimo / Minimo /
+    limite; come valore si usa il Valore Medio."""
+    out = _marche_base(path, "aimag")
+    text = _pdf_text(path, max_pages=1)
+    # Il comune è nello stem del PDF runtime (aimag_<comune>_<hash>): la stessa
+    # scheda può coprire più comuni (es. acquedotto di Cognento, 10 comuni).
+    m = re.match(r"aimag_(.+)_[0-9a-f]{8}$", path.stem)
+    out["comune"] = m.group(1).replace("_", " ").title() if m else None
+    if re.search(r"NEI COMUNI DI CAMPOGALLIANO", text, re.I):
+        out["zona"] = "Rete Campogalliano-Soliera-Novi"
+    elif re.search(r"NEI COMUNI DI", text, re.I):
+        out["zona"] = "Acquedotto di Cognento"
+    elif re.search(r"BORGO MANTOVANO", text, re.I):
+        out["zona"] = "Acquedotto di Revere"
+    else:
+        out["zona"] = "Rete di distribuzione"
+    m = re.search(r"Periodo:\s*\d{1,2}/\d{1,2}/\d{4}\s*-\s*(\d{1,2})/(\d{1,2})/(\d{4})", text)
+    if m:
+        out["periodo"] = f"{int(m.group(2)):02d}/{m.group(3)}"
+    for table in _pdf_tables(path):
+        for row in table:
+            if not row or len(row) < 7:
+                continue
+            parametro = _clean(row[0])
+            if not parametro or parametro.lower().startswith("parametro"):
+                continue
+            unita = _clean(row[1])
+            valore = _clean(row[3])  # Valore Medio
+            limite = _clean(row[6])
+            _marche_add_param(out, parametro, unita, limite, valore)
+    return _marche_finish(out)
+
+
+def parse_pdf_sorgeaqua(path: Path) -> dict:
+    """SorgeAqua S.r.l. — referto semestrale/annuale per comune.
+    Tabella: Parametro / Unità / N Campioni / Medio / Massimo / Minimo /
+    limite; come valore si usa il Valore Medio."""
+    out = _marche_base(path, "sorgeaqua")
+    text = _pdf_text(path, max_pages=1)
+    m = re.search(r"DISTRIBUITA NEL COMUNE DI\s+([^\n]+)", text, re.I)
+    out["comune"] = _clean(m.group(1)).title() if m else None
+    out["zona"] = "Rete di distribuzione"
+    m = re.search(r"Periodo:\s*dal\s+\d{1,2}/\d{1,2}/\d{4}\s+al\s+(\d{1,2})/(\d{1,2})/(\d{4})", text)
+    if m:
+        out["periodo"] = f"{int(m.group(2)):02d}/{m.group(3)}"
+    for table in _pdf_tables(path):
+        for row in table:
+            if not row or len(row) < 7:
+                continue
+            parametro = _clean(row[0])
+            if not parametro or parametro.lower().startswith("parametro"):
+                continue
+            unita = _clean(row[1])
+            valore = _clean(row[3])  # Valore Medio
+            limite = re.sub(r"\s*\*+\s*$", "", _clean(row[6]))  # toglie ** finali
+            _marche_add_param(out, parametro, unita, limite, valore)
+    return _marche_finish(out)
+
+
+_TOANO_UNITS = (
+    "µS/cm a 20°C", "Unità pH", "unità pH", "mg/l Cl2", "MPN/100 ml",
+    "UFC/100 ml", "UFC/ml", "ufc / 100 ml", "ufc / ml", "NTU", "µg/l", "mg/l", "°C",
+)
+
+
+def _toano_parse_text_lines(out: dict, text: str) -> None:
+    """Rapporti Iren Laboratori: nessuna tabella estraibile; il parametro è su
+    una riga e '<unità> <valore> [<limite>]' su quella successiva (i marcatori
+    CL/B1/REC vengono ignorati)."""
+    unit_re = "|".join(re.escape(u) for u in sorted(_TOANO_UNITS, key=len, reverse=True))
+    prev = ""
+    for raw in text.splitlines():
+        line = _clean(raw)
+        m = re.match(rf"^({unit_re})\s+(<?\s*[0-9]+(?:[.,][0-9]+)?)\s*(.*)$", line, re.I)
+        if m and prev and not re.match(r"^(APAT|UNI |EN |ISO|Met|Pag|-|\d|Informazioni|Descrizione)", prev):
+            parametro = prev.lstrip("*").strip()
+            rest = _clean(m.group(3))
+            m_lim = re.match(r"^([0-9]+(?:[.,][0-9]+)?(?:\s*-\s*[0-9]+(?:[.,][0-9]+)?)?)\b", rest)
+            limite = m_lim.group(1) if m_lim else ""
+            _marche_add_param(out, parametro, m.group(1), limite, m.group(2))
+        prev = line
+
+
+def parse_pdf_toano(path: Path) -> dict:
+    """AST Toano — rapporti di prova per punto di campionamento, in due
+    formati: eMMe.2 (tabella [.., RIF., PARAMETRO, METODO, RISULTATO, U.d.m.,
+    incert., VALORE LIMITE GUIDA, ...]) e Iren Laboratori (solo testo)."""
+    out = _marche_base(path, "toano")
+    text = _pdf_text(path, max_pages=1)
+    out["comune"] = "Toano"
+    m = re.search(r"AST_TOANO_[A-Z0-9_]+?\s*-\s*([^)\n]+)", text)
+    out["zona"] = _clean(m.group(1)).title() if m else None
+    m = re.search(r"DATA:\s*(\d{1,2}/\d{1,2}/\d{4})", text) \
+        or re.search(r"Campionato il:\s*(\d{1,2}/\d{1,2}/\d{4})", text)
+    out["periodo"] = _clean(m.group(1)) if m else None
+    for table in _pdf_tables(path):
+        for row in table:
+            if not row or len(row) < 8:
+                continue
+            cells = [_clean(c) for c in row]
+            parametro = cells[2]
+            if not parametro or parametro.upper() in {"PARAMETRO", ""}:
+                continue
+            valore = cells[4]
+            unita = cells[5]
+            limite = cells[7]
+            if limite in {"-", "--", "/"}:
+                limite = ""
+            _marche_add_param(out, parametro, unita, limite, valore)
+    if not out["parameters"]:
+        _toano_parse_text_lines(out, text)
+    return _marche_finish(
+        out,
+        None if out["parameters"] else "PDF scansionato/non testuale: OCR non disponibile nell'ambiente corrente.",
+    )
 
 
 def parse_pdf_emiliambiente(path: Path) -> dict:
@@ -2644,6 +2801,14 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_emiliambiente(p)
         if p.stem.startswith("montagna2000_"):
             return p.stem, parse_pdf_montagna2000(p)
+        if p.stem.startswith("arcareggio_"):
+            return p.stem, parse_pdf_arcareggio(p)
+        if p.stem.startswith("aimag_"):
+            return p.stem, parse_pdf_aimag(p)
+        if p.stem.startswith("sorgeaqua_"):
+            return p.stem, parse_pdf_sorgeaqua(p)
+        if p.stem.startswith("toano_"):
+            return p.stem, parse_pdf_toano(p)
         if p.stem.startswith("lazio_idrica_"):
             return p.stem, parse_pdf_lazio_idrica(p)
         if p.stem.startswith("acqualatina_"):
