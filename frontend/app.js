@@ -65,6 +65,11 @@ const state = {
   meLayer: null,
 };
 
+// ---------- FEATURE FLAGS ----------
+// News temporaneamente disattivate (verranno rilavorate).
+// Per riattivarle: NEWS_ENABLED = true — la UI (tab, toggle, pin) riappare da sola.
+const NEWS_ENABLED = false;
+
 const SELECTED_STYLE = { weight: 2.8, color: "#0f172a", fillOpacity: 0.66 };
 const SEVERITY_RANK = { alert: 3, warning: 2, info: 1 };
 const $ = (id) => document.getElementById(id);
@@ -252,6 +257,7 @@ function setupBottomNav() {
 }
 
 function switchTo(tabId) {
+  if (tabId === "news" && !NEWS_ENABLED) tabId = "zone";
   document.querySelectorAll(".tab-content").forEach(x => x.classList.remove("active"));
   $(`tab-${tabId}`)?.classList.add("active");
   document.querySelectorAll(".bn-item").forEach(x => x.classList.toggle("active", x.dataset.tab === tabId));
@@ -465,6 +471,90 @@ function parameterStyle(feature) {
 function currentStyle(feature) {
   return state.parameter ? parameterStyle(feature) : statusStyle(feature);
 }
+// ---------- ZONE SOVRAPPOSTE (disambiguazione) ----------
+// Alcune zone hanno poligoni sovrapposti (es. due gestori/referti sulla stessa
+// area): Leaflet consegna il click solo al poligono in cima. Qui troviamo TUTTE
+// le zone sotto il punto cliccato e, se sono più di una, mostriamo un selettore.
+function _pointInRing(ring, x, y) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+function _polyContains(poly, x, y) {
+  if (!poly.length || !_pointInRing(poly[0], x, y)) return false;
+  for (let k = 1; k < poly.length; k++) if (_pointInRing(poly[k], x, y)) return false; // buchi
+  return true;
+}
+function _geomContains(geom, x, y) {
+  if (geom.type === "Polygon") return _polyContains(geom.coordinates, x, y);
+  if (geom.type === "MultiPolygon") return geom.coordinates.some(p => _polyContains(p, x, y));
+  return false;
+}
+function zonesAtPoint(latlng) {
+  const hits = [];
+  if (!state.geoLayer) return hits;
+  state.geoLayer.eachLayer((l) => {
+    const f = l.feature;
+    const g = f && f.geometry;
+    if (!g || (g.type !== "Polygon" && g.type !== "MultiPolygon")) return;
+    if (l.getBounds && !l.getBounds().contains(latlng)) return; // fast reject
+    if (_geomContains(g, latlng.lng, latlng.lat)) hits.push({ feature: f, layer: l });
+  });
+  // I poligoni più piccoli (più specifici) prima, così la zona "di dettaglio"
+  // è in cima e quella di copertura comunale in fondo.
+  hits.sort((a, b) => _boundsArea(a.layer) - _boundsArea(b.layer));
+  return hits;
+}
+function _boundsArea(layer) {
+  try {
+    const b = layer.getBounds();
+    return (b.getEast() - b.getWest()) * (b.getNorth() - b.getSouth());
+  } catch { return Infinity; }
+}
+function _chooserStatusClass(status) {
+  return status === "OK" ? "ok" : status === "ATTENZIONE" ? "warn" : status === "INFORMATIVO" ? "info" : "unk";
+}
+function showZoneChooser(latlng, hits) {
+  const div = document.createElement("div");
+  div.className = "zone-chooser";
+  const title = document.createElement("div");
+  title.className = "zc-title";
+  title.textContent = `${hits.length} zone in questo punto`;
+  div.appendChild(title);
+  hits.forEach(({ feature, layer }) => {
+    const p = feature.properties || {};
+    const name = p.display_name || p.comune || p.name || "—";
+    const sub = [p.zona_label || p.nome_kml || p.area || "", p.provider_label || ""]
+      .filter(s => s && s !== name).join(" · ");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "zc-item";
+    btn.innerHTML = `<span class="zc-dot ${_chooserStatusClass(p.status)}"></span>
+      <span class="zc-text"><b>${escapeHtml(name)}</b>${sub ? `<small>${escapeHtml(sub)}</small>` : ""}</span>
+      <span class="zc-go">›</span>`;
+    // Hover: evidenzia il poligono corrispondente sulla mappa
+    btn.addEventListener("mouseenter", () => {
+      if (layer !== state.selectedLayer) {
+        layer.setStyle({ weight: 3, color: "#0f172a", fillOpacity: 0.62 });
+        if (layer.bringToFront) layer.bringToFront();
+      }
+    });
+    btn.addEventListener("mouseleave", () => {
+      if (layer !== state.selectedLayer) state.geoLayer.resetStyle(layer);
+    });
+    btn.addEventListener("click", () => {
+      map.closePopup();
+      selectZone(p.name, layer);
+    });
+    div.appendChild(btn);
+  });
+  L.popup({ className: "zone-chooser-popup", maxWidth: 300, autoPan: true, closeButton: true })
+    .setLatLng(latlng).setContent(div).openOn(map);
+}
+
 function onEach(feature, layer) {
   const p = feature.properties || {};
   layer.bindTooltip(zoneTooltipHtml(p), {
@@ -476,9 +566,23 @@ function onEach(feature, layer) {
       if (e.target !== state.selectedLayer) {
         e.target.setStyle({ weight: 2.4, color: "#0f172a", fillOpacity: state.parameter ? 0.72 : 0.58 });
       }
+      // Se sotto il cursore ci sono più zone, avvisa nel tooltip
+      if (e.latlng) {
+        const n = zonesAtPoint(e.latlng).length;
+        const extra = n > 1
+          ? `<div class="tt-hint">⊕ ${n} zone sovrapposte qui — clicca per scegliere</div>`
+          : "";
+        e.target.setTooltipContent(zoneTooltipHtml(p) + extra);
+      }
     },
     mouseout:  (e) => { if (e.target !== state.selectedLayer) state.geoLayer.resetStyle(e.target); },
-    click: () => selectZone(p.name, layer),
+    click: (e) => {
+      const hits = e.latlng ? zonesAtPoint(e.latlng) : [];
+      // Includi la feature cliccata anche se puntuale/lineare (non coperta da zonesAtPoint)
+      if (!hits.some(h => h.layer === layer)) hits.unshift({ feature, layer });
+      if (hits.length > 1) showZoneChooser(e.latlng, hits);
+      else selectZone(p.name, layer);
+    },
   });
 }
 
@@ -683,6 +787,7 @@ function newsPopupHtml(it) {
 }
 
 function refreshNewsMarkers() {
+  if (!NEWS_ENABLED) return;
   if (state.newsCluster) {
     state.newsCluster.clearLayers();
   } else {
@@ -779,6 +884,7 @@ function renderNewsSidebar() {
 }
 
 async function loadNews(fresh = false) {
+  if (!NEWS_ENABLED) return;
   $("news-list").innerHTML = `<p class="loading">Caricamento news multi-tematica…</p>`;
   $("news-meta").textContent = "";
   try {
@@ -1304,11 +1410,16 @@ function renderMeteo(m) {
   setupDesktopTabs();
   setupNativeIntegrations();
 
+  // feature flags
+  if (!NEWS_ENABLED) document.body.classList.add("news-off");
+
   // dati
   try { await loadGeoJSON(); } catch (e) { console.error(e); showToast("Errore caricamento zone"); }
   try { await loadParameterList(); } catch (e) { console.error(e); }
-  loadNews().catch(e => console.error(e));
-  setInterval(() => loadNews(false), 15 * 60 * 1000);
+  if (NEWS_ENABLED) {
+    loadNews().catch(e => console.error(e));
+    setInterval(() => loadNews(false), 15 * 60 * 1000);
+  }
 })();
 
 // ---------- DESKTOP TABS (≥1024px) ----------
