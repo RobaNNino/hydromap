@@ -43,7 +43,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pdfplumber
-from shapely.geometry import shape, mapping
+from shapely.geometry import shape, mapping, Point
 
 HERE = Path(__file__).resolve().parent
 DATA_DIR = HERE / "data"
@@ -113,6 +113,7 @@ class ComuneIndex:
     def __init__(self) -> None:
         self.by_norm: dict[str, dict] = {}
         self.keys: list[str] = []
+        self._shapes: list[tuple] | None = None  # (key, bbox, geom)
 
     def add(self, props: dict, geom: dict, primary: bool) -> None:
         name = props.get("name") or ""
@@ -163,6 +164,22 @@ class ComuneIndex:
             hit = self._match_one(cand)
             if hit:
                 return hit
+        return None
+
+    def match_point(self, lat: float, lon: float) -> dict | None:
+        """Comune contenente il punto (lat, lon) — point-in-polygon."""
+        if self._shapes is None:
+            self._shapes = []
+            for key, v in self.by_norm.items():
+                try:
+                    g = shape(v["geometry"])
+                    self._shapes.append((key, g.bounds, g))
+                except Exception:
+                    continue
+        pt = Point(lon, lat)
+        for key, (minx, miny, maxx, maxy), g in self._shapes:
+            if minx <= lon <= maxx and miny <= lat <= maxy and g.contains(pt):
+                return self.by_norm[key]
         return None
 
     def _match_one(self, q: str) -> dict | None:
@@ -397,6 +414,37 @@ def discover_etra(idx: ComuneIndex) -> list[dict]:
     return out
 
 
+def discover_ats(idx: ComuneIndex) -> list[dict]:
+    """Alto Trevigiano Servizi: i dati sono stati ricostruiti via API per
+    coordinate (lat/lon), senza comune/via. Il comune si ricava per
+    point-in-polygon dalle coordinate rappresentative in datasets.csv."""
+    src = HERE / "ats_qualita_acqua"
+    ds = src / "datasets.csv"
+    if not ds.exists():
+        return []
+    out: list[dict] = []
+    with io.open(ds, encoding="utf-8-sig") as f:
+        for r in csv.DictReader(f):
+            if (r.get("status") or "").lower() != "ok":
+                continue
+            pf = (r.get("pdf_file") or "").replace("\\", "/")
+            p = HERE / pf
+            if not p.exists():
+                continue
+            try:
+                lat = float(r["representative_latitudine"])
+                lon = float(r["representative_longitudine"])
+            except (TypeError, ValueError):
+                continue
+            hit = idx.match_point(lat, lon)
+            if not hit:
+                print(f"[ats] fuori-poligono: {r.get('representative_label')!r} ({lat},{lon})")
+                continue
+            out.append({"comune_key": _norm(hit["name"]), "comune": hit,
+                        "zona": hit["name"], "periodo": None, "src": p})
+    return out
+
+
 def _multi_match(idx: ComuneIndex, raw: str) -> list[dict]:
     """Prova match singolo; se fallisce, splitta sui separatori e infine fa una
     scansione a finestre di parole (per liste tipo 'Godega S.Urbano Orsago
@@ -536,6 +584,7 @@ PROVIDERS = {
     "acquedelchiampo": ("Acque del Chiampo", "AATO Valle del Chiampo (VI)"),
     "acegasapsamga": ("AcegasApsAmga", "ATO Bacchiglione / Trieste (gruppo Hera)"),
     "etra": ("Gruppo ETRA", "ATO Brenta — Alta Padovana e Bassano (PD/VI)"),
+    "ats": ("Alto Trevigiano Servizi", "ATO Veneto Orientale — Trevigiano (TV/BL)"),
 }
 
 
@@ -603,6 +652,7 @@ def main() -> int:
         "gruppoveritas": discover_gruppoveritas(idx),
         "acegasapsamga": discover_acegas(idx),
         "etra": discover_etra(idx),
+        "ats": discover_ats(idx),
     }
     records.update(discover_inpage(idx))
 

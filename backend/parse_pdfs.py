@@ -63,6 +63,7 @@ GEOJSON_FILES = {
     "acquedelchiampo": ROOT / "mappa-qualita-acquedelchiampo.json",
     "acegasapsamga": ROOT / "mappa-qualita-acegasapsamga.json",
     "etra": ROOT / "mappa-qualita-etra.json",
+    "ats": ROOT / "mappa-qualita-ats.json",
 }
 OUT_FILE = ROOT / "results.json"
 
@@ -3256,6 +3257,71 @@ def parse_pdf_etra(path: Path) -> dict:
     return out
 
 
+# ---------------------------------------------------------------------------
+# ATS (Alto Trevigiano Servizi): schede ricostruite via API per coordinate.
+# Tabella `Ordine Parametro Valore Limite_normativo Esito Frequenza` con
+# colonna Esito (Conforme/Non conforme) autorevole: niente euristica di
+# compliance, si usa l'esito ufficiale.
+# ---------------------------------------------------------------------------
+_ATS_ROW_RX = re.compile(
+    r"^(\d{3})\s+(.+?)\s+(Conforme|Non conforme|Non valutabile)\s+(\d+)\s*$", re.I)
+
+
+def parse_pdf_ats(path: Path) -> dict:
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    with pdfplumber.open(path) as pdf:
+        text = "\n".join((pg.extract_text() or "") for pg in pdf.pages)
+    # NB: l'etichetta del campione e' il punto-seme (es. "DEPURAZIONE - ..."),
+    # non una zona leggibile: il comune lo assegna build_veneto via coordinate,
+    # quindi qui non si imposta `zona` per non sovrascrivere quello pulito.
+
+    exceed: list[dict] = []
+    total_with_limit = 0
+    for raw in text.splitlines():
+        line = _clean(raw)
+        m = _ATS_ROW_RX.match(line)
+        if not m:
+            continue
+        body, esito = m.group(2), m.group(3)
+        # body = "Parametro [unità] Valore Limite_normativo"
+        mb = re.match(r"^(.*?\])\s+(.+)$", body)
+        if mb:
+            parametro, rest = mb.group(1), mb.group(2)
+        else:
+            parts = body.split(None, 1)
+            parametro, rest = parts[0], (parts[1] if len(parts) > 1 else "")
+        rv = rest.split(None, 1)
+        valore = rv[0] if rv else ""
+        limite = rv[1] if len(rv) > 1 else ""
+        unita = ""
+        mu = re.search(r"\[([^\]]+)\]", parametro)
+        if mu:
+            unita = mu.group(1)
+            parametro = re.sub(r"\s*\[[^\]]+\]", "", parametro).strip()
+        out["parameters"].append({
+            "parametro": parametro,
+            "unita": unita,
+            "limite": limite,
+            "valore": valore,
+            "valore_num": _parse_number(valore),
+            "limite_num": _parse_number(limite),
+            "esito": esito,
+        })
+        if limite:
+            total_with_limit += 1
+        if esito.lower().startswith("non conf"):
+            exceed.append({"parametro": parametro, "valore": valore, "limite": limite})
+    out["summary"] = {
+        "total_parameters": len(out["parameters"]),
+        "total_with_limit": total_with_limit,
+        "exceedances": exceed,
+        "status": "OK" if not exceed else "ATTENZIONE",
+    }
+    return out
+
+
 def _worker(path_str: str) -> tuple[str, dict | str]:
     p = Path(path_str)
     try:
@@ -3334,6 +3400,8 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_acqualatina(p)
         if p.stem.startswith("etra_"):
             return p.stem, parse_pdf_etra(p)
+        if p.stem.startswith("ats_"):
+            return p.stem, parse_pdf_ats(p)
         if p.stem.startswith(VENETO_PREFIXES):
             return p.stem, parse_pdf_veneto(p)
         if p.stem.startswith("IMP"):

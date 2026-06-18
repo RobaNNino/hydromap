@@ -892,6 +892,22 @@ OFFICIAL_SOURCES = [
         "type": "Rapporti di laboratorio",
         "scraped": True,
     },
+    {
+        "id": "ats",
+        "provider": "ats",
+        "title": "Alto Trevigiano Servizi — Trevigiano",
+        "description": (
+            "ATS gestisce il servizio idrico di gran parte della provincia di "
+            "Treviso (Montebelluna, Castelfranco, Valdobbiadene, Asolo…). I dati "
+            "di qualità sono pubblicati per coordinate via API; qui sono "
+            "ricondotti al comune per point-in-polygon."
+        ),
+        "url": "https://altotrevigianoservizi.it/mappe-ats/qualita-acqua.html",
+        "agency": "Alto Trevigiano Servizi S.r.l.",
+        "ato": "ATO Veneto Orientale — Trevigiano (TV/BL)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
     # ---------- Fonti istituzionali ----------
     {
         "id": "salute",
