@@ -3449,6 +3449,67 @@ def parse_pdf_cafc(path: Path) -> dict:
     return out
 
 
+# ---------------------------------------------------------------------------
+# AcegasApsAmga (gruppo Hera): schede mensili per zona di fornitura (Padova,
+# Saccisica, Trieste). Tabella `Parametro U.M. Valore_Misurato Limite` con il
+# limite nell'ultima colonna ("<250", "6.5 ÷ 9.5", "-"). Parser ancorato
+# all'unita': nome prima dell'unita', valore = primo numero dopo, limite = resto.
+# ---------------------------------------------------------------------------
+_ACEGAS_UNIT_RX = re.compile(
+    r"(unità pH|µg/L|mg/L\s*O2|mg/L|ng/L|UFC/100(?:\s*mL)?|UFC/mL|µS/cm|°F|NTU)", re.I)
+_ACEGAS_VAL_RX = re.compile(r"(<\s*[\d.,]+|[\d.,]+|n\.[da]\.|assente)", re.I)
+
+
+def parse_pdf_acegas(path: Path) -> dict:
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    with pdfplumber.open(path) as pdf:
+        text = "\n".join((pg.extract_text() or "") for pg in pdf.pages)
+    mp = re.search(rf"Mese di\s+({_VEN_MONTHS})\s+(\d{{4}})", text, re.I)
+    if mp:
+        out["periodo"] = f"{mp.group(1)} {mp.group(2)}"
+    else:
+        mq = re.search(r"(\d)\D*trimestre\s+(\d{4})", text, re.I)
+        if mq:
+            out["periodo"] = f"{mq.group(1)}° trimestre {mq.group(2)}"
+    mz = re.search(r"FORNITURA:\s*\n?\s*([A-ZÀ-Ü][A-ZÀ-Ü ]+)", text)
+    if mz:
+        out["zona"] = _clean(mz.group(1)).title()
+
+    seen: set[str] = set()
+    for raw in text.splitlines():
+        line = _clean(raw)
+        m = _ACEGAS_UNIT_RX.search(line)
+        if not m or m.start() < 3:
+            continue
+        parametro = line[:m.start()].strip(" *")
+        if not parametro or len(parametro) > 80:
+            continue
+        rest = line[m.end():].strip()
+        mv = _ACEGAS_VAL_RX.search(rest)
+        if not mv:
+            continue
+        valore = _clean(mv.group(0))
+        limite = _clean(rest[mv.end():]).strip("() ")
+        if limite in ("-", "--"):
+            limite = ""
+        if parametro.lower() in seen:
+            continue
+        seen.add(parametro.lower())
+        out["parameters"].append({
+            "parametro": parametro,
+            "unita": _clean(m.group(1)),
+            "limite": limite,
+            "valore": valore,
+            "valore_num": _parse_number(valore),
+            "limite_num": _parse_number(limite),
+        })
+
+    _veneto_summary(out)
+    return out
+
+
 def _worker(path_str: str) -> tuple[str, dict | str]:
     p = Path(path_str)
     try:
@@ -3531,6 +3592,8 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_ats(p)
         if p.stem.startswith("cafc_"):
             return p.stem, parse_pdf_cafc(p)
+        if p.stem.startswith("acegasapsamga_"):
+            return p.stem, parse_pdf_acegas(p)
         if p.stem.startswith(VENETO_PREFIXES):
             return p.stem, parse_pdf_veneto(p)
         if p.stem.startswith("IMP"):

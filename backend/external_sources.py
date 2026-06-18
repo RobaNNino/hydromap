@@ -865,15 +865,15 @@ OFFICIAL_SOURCES = [
     {
         "id": "acegasapsamga",
         "provider": "acegasapsamga",
-        "title": "AcegasApsAmga — Padova (gruppo Hera)",
+        "title": "AcegasApsAmga — Padova, Saccisica e Trieste (gruppo Hera)",
         "description": (
-            "AcegasApsAmga (gruppo Hera) gestisce il servizio idrico di Padova "
-            "e Abano Terme: caratteristiche di qualità medie mensili dell'acqua "
-            "dei comuni serviti."
+            "AcegasApsAmga (gruppo Hera) gestisce il servizio idrico di Padova, "
+            "della Saccisica e di Trieste: caratteristiche di qualità medie "
+            "mensili dell'acqua per zona di fornitura."
         ),
-        "url": "https://www.gruppohera.it/clienti/casa/casa-acqua/casa-acqua-qualita",
+        "url": "https://www.acegasapsamga.it/servizi/acqua/qualita-acqua-potabile",
         "agency": "AcegasApsAmga S.p.A.",
-        "ato": "ATO Bacchiglione (PD)",
+        "ato": "Padova / Saccisica (PD-VE) e Trieste (TS)",
         "type": "Portale gestore",
         "scraped": True,
     },

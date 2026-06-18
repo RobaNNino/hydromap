@@ -352,30 +352,64 @@ def discover_gruppoveritas(idx: ComuneIndex) -> list[dict]:
     return out
 
 
+# AcegasApsAmga pubblica per zona di fornitura, non per comune. I comuni della
+# Saccisica sono elencati nelle schede trimestrali storiche (la zona Padova e
+# Trieste coincidono col comune capoluogo).
+ACEGAS_ZONE_COMUNI = {
+    "Padova": ["Padova"],
+    "Trieste": ["Trieste"],
+    "Saccisica": ["Piove di Sacco", "Brugine", "Legnaro", "Sant'Angelo di Piove di Sacco",
+                  "Polverara", "Arzergrande", "Codevigo", "Correzzola", "Pontelongo",
+                  "Cona", "Cavarzere"],
+}
+
+_ACEGAS_MONTHS = {m: i for i, m in enumerate(
+    ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio",
+     "agosto", "settembre", "ottobre", "novembre", "dicembre"], start=1)}
+
+
+def _acegas_order(year: str, label: str) -> tuple[int, int]:
+    low = (label or "").lower().strip()
+    if low in _ACEGAS_MONTHS:
+        m = _ACEGAS_MONTHS[low]
+    else:
+        mq = re.search(r"(\d)\D*trimestre", low)
+        m = int(mq.group(1)) * 3 if mq else 0
+    try:
+        return int(year), m
+    except (TypeError, ValueError):
+        return 0, m
+
+
 def discover_acegas(idx: ComuneIndex) -> list[dict]:
-    src = INPAGE_DIR / "acegasapsamga"
+    """AcegasApsAmga (cartella dedicata): scheda piu' recente per zona, mappata
+    ai comuni serviti (Padova, Trieste e gli 11 comuni della Saccisica)."""
+    src = HERE / "acegasapsamga_qualita_acqua"
+    csv_path = src / "pdfs.csv"
+    if not csv_path.exists():
+        return []
+    by_zone: dict[str, list[dict]] = defaultdict(list)
+    with io.open(csv_path, encoding="utf-8-sig") as f:
+        for r in csv.DictReader(f):
+            if (r.get("status") or "").lower() == "ok":
+                by_zone[r.get("zone")].append(r)
     out: list[dict] = []
-    for p in sorted(src.glob("**/*.pdf")):
-        text = _safe_text(p)
-        per = _period_from_text(text)
-        # I comuni sono nel nome file ('2025_Agosto_Padova_Abano') e/o nel testo
-        # ('...DEI COMUNI\nPADOVA e ABANO'). Togli anno/mese e cerca i comuni
-        # provando ogni parola e ogni coppia adiacente.
-        fname = re.sub(r"\b(20\d{2}|gennaio|febbraio|marzo|aprile|maggio|giugno|"
-                       r"luglio|agosto|settembre|ottobre|novembre|dicembre)\b",
-                       " ", p.stem, flags=re.I)
-        m = re.search(r"DE[IL]\s+COMUN[EI]\s*\n?([^\n]+)", text, re.I)
-        chunk = (m.group(1) + " " if m else "") + fname.replace("_", " ")
-        chunk = re.sub(r"\b(comune|comuni|di|del|della|e)\b", " ", chunk, flags=re.I)
-        words = [w for w in re.split(r"[\s/,]+", chunk) if len(w) >= 3]
-        seen = set()
-        for win in (2, 1):
-            for i in range(len(words) - win + 1):
-                hit = idx.match(" ".join(words[i:i + win]))
-                if hit and hit["name"] not in seen:
-                    seen.add(hit["name"])
-                    out.append({"comune_key": _norm(hit["name"]), "comune": hit,
-                                "zona": hit["name"], "periodo": per, "src": p})
+    for zone, comuni in ACEGAS_ZONE_COMUNI.items():
+        rows = by_zone.get(zone) or []
+        if not rows:
+            continue
+        rep = max(rows, key=lambda r: _acegas_order(r.get("year"), r.get("label")))
+        p = HERE / (rep.get("pdf_file") or "").replace("\\", "/")
+        if not p.exists():
+            continue
+        per = f"{rep.get('label')} {rep.get('year')}".strip()
+        for cname in comuni:
+            hit = idx.match(cname)
+            if not hit:
+                print(f"[acegasapsamga] no-match: {cname!r}")
+                continue
+            out.append({"comune_key": _norm(hit["name"]), "comune": hit,
+                        "zona": zone, "periodo": per, "src": p})
     return out
 
 
