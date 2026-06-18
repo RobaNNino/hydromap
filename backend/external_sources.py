@@ -908,6 +908,22 @@ OFFICIAL_SOURCES = [
         "type": "Portale gestore",
         "scraped": True,
     },
+    {
+        "id": "cafc",
+        "provider": "cafc",
+        "title": "CAFC — Friuli Centrale",
+        "description": (
+            "CAFC S.p.A. (Consorzio Acquedotto Friuli Centrale) gestisce il "
+            "servizio idrico di gran parte del Friuli Centrale (Udine e provincia, "
+            "Carnia): rapporti di prova del laboratorio FRIULAB per punto di "
+            "prelievo, ricondotti al comune."
+        ),
+        "url": "https://www.cafcspa.com/it/qualita-acqua",
+        "agency": "CAFC S.p.A.",
+        "ato": "ATO Centrale Friuli (UD)",
+        "type": "Rapporti di laboratorio",
+        "scraped": True,
+    },
     # ---------- Fonti istituzionali ----------
     {
         "id": "salute",

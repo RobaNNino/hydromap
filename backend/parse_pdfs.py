@@ -64,6 +64,7 @@ GEOJSON_FILES = {
     "acegasapsamga": ROOT / "mappa-qualita-acegasapsamga.json",
     "etra": ROOT / "mappa-qualita-etra.json",
     "ats": ROOT / "mappa-qualita-ats.json",
+    "cafc": ROOT / "mappa-qualita-cafc.json",
 }
 OUT_FILE = ROOT / "results.json"
 
@@ -3322,6 +3323,132 @@ def parse_pdf_ats(path: Path) -> dict:
     return out
 
 
+# ---------------------------------------------------------------------------
+# CAFC (Consorzio Acquedotto Friuli Centrale): rapporti di prova FRIULAB. La
+# tabella ha colonne 'Prova U.M. Risultato Incertezza Recupero LQ Limiti' non
+# delimitate nel testo: la colonna LQ e la colonna Limiti finiscono entrambe con
+# un numero, quindi si distinguono solo per posizione (x). Si usano le
+# coordinate delle parole per assegnare ogni cella alla sua colonna.
+# ---------------------------------------------------------------------------
+_CAFC_SKIP_RX = re.compile(
+    r"^(APAT|UNI|ISO|EN |DIN|Metodo|Documento|FRIULAB|Data |Spett|RAPPORTO|"
+    r"RISULTATI|Prova\b|Note |Condizioni|Luogo|Prelievo|Descrizione|Campione|"
+    r"Temperatura di|C\.F|Cloro residuo)", re.I)
+
+
+def _cafc_rows(words: list[dict], tol: float = 4.0) -> list[dict]:
+    rows: list[dict] = []
+    for w in sorted(words, key=lambda w: (w["top"], w["x0"])):
+        for row in rows:
+            if abs(row["top"] - w["top"]) <= tol:
+                row["words"].append(w)
+                break
+        else:
+            rows.append({"top": w["top"], "words": [w]})
+    for row in rows:
+        row["words"].sort(key=lambda w: w["x0"])
+    return rows
+
+
+def parse_pdf_cafc(path: Path) -> dict:
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    seen: set[str] = set()
+    page_texts: list[str] = []
+    with pdfplumber.open(path) as pdf:
+        for pg in pdf.pages:
+            page_texts.append(pg.extract_text() or "")
+        t0 = page_texts[0] if page_texts else ""
+        md = re.search(r"Udine,\s*(\d{2})/(\d{2})/(\d{4})", t0)
+        if md:
+            out["periodo"] = f"{md.group(2)}/{md.group(3)}"
+        ml = re.search(r"Luogo prelievo:\s*Comune di\s*([^\n]+)", t0)
+        if ml:
+            out["zona"] = _clean(ml.group(1))
+        mcl = re.search(r"Cloro residuo\s+mg/l\s+([\d.,]+)", t0)
+        if mcl:
+            out["parameters"].append({
+                "parametro": "Cloro residuo", "unita": "mg/l", "limite": "",
+                "valore": _clean(mcl.group(1)),
+                "valore_num": _parse_number(mcl.group(1)), "limite_num": None})
+            seen.add("cloro residuo")
+
+        for pg in pdf.pages:
+            rows = _cafc_rows(pg.extract_words())
+            cols, header_top = None, None
+            for row in rows:
+                joined = " ".join(w["text"] for w in row["words"])
+                if "Risultato" in joined and "Limiti" in joined:
+                    xs: dict[str, float] = {}
+                    for w in row["words"]:
+                        tx = w["text"]
+                        if tx.startswith("U.M"):
+                            xs["um"] = w["x0"]
+                        elif tx.startswith("Risultato"):
+                            xs["ris"] = w["x0"]
+                        elif tx.startswith("Incertezza"):
+                            xs["inc"] = w["x0"]
+                        elif tx.startswith("Recupero"):
+                            xs["rec"] = w["x0"]
+                        elif tx == "LQ":
+                            xs["lq"] = w["x0"]
+                        elif tx.startswith("Limiti"):
+                            xs["lim"] = w["x0"]
+                    if "ris" in xs and "lim" in xs:
+                        cols, header_top = xs, row["top"]
+                    break
+            if not cols:
+                continue
+            name_end = cols.get("um", cols["ris"] - 60) - 18
+            value_start = cols["ris"] - 10
+            value_end = (cols.get("inc") or cols.get("rec") or cols.get("lq")
+                         or cols["lim"]) - 6
+            limit_start = ((cols.get("lq", cols["lim"] - 30)) + cols["lim"]) / 2
+
+            for row in rows:
+                if row["top"] <= header_top + 2:
+                    continue
+                nm, un, va, li = [], [], [], []
+                for w in row["words"]:
+                    x = w["x0"]
+                    if x < name_end:
+                        nm.append(w["text"])
+                    elif x < value_start:
+                        un.append(w["text"])
+                    elif x < value_end:
+                        va.append(w["text"])
+                    elif x >= limit_start:
+                        li.append(w["text"])
+                parametro = _clean(" ".join(nm))
+                valore = _clean(" ".join(va))
+                if (not parametro or not valore or len(parametro) > 40
+                        or _CAFC_SKIP_RX.match(parametro)):
+                    continue
+                if not re.search(r"\d", valore) and valore.lower() not in (
+                        "assente", "presente", "accettabile"):
+                    continue
+                if parametro.lower() in seen:
+                    continue
+                seen.add(parametro.lower())
+                limite = _clean(" ".join(li))
+                out["parameters"].append({
+                    "parametro": parametro,
+                    "unita": _clean(" ".join(un)),
+                    "limite": limite,
+                    "valore": valore,
+                    "valore_num": _parse_number(valore),
+                    "limite_num": _parse_number(limite),
+                })
+
+    _veneto_summary(out)
+    # Dichiarazione di conformita' ufficiale del laboratorio: e' autorevole,
+    # quindi sovrascrive l'euristica se segnala NON CONFORME.
+    if re.search(r"risulta\s+NON\s+CONFORME", "\n".join(page_texts), re.I):
+        out["summary"]["status"] = "ATTENZIONE"
+    return out
+
+
 def _worker(path_str: str) -> tuple[str, dict | str]:
     p = Path(path_str)
     try:
@@ -3402,6 +3529,8 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_etra(p)
         if p.stem.startswith("ats_"):
             return p.stem, parse_pdf_ats(p)
+        if p.stem.startswith("cafc_"):
+            return p.stem, parse_pdf_cafc(p)
         if p.stem.startswith(VENETO_PREFIXES):
             return p.stem, parse_pdf_veneto(p)
         if p.stem.startswith("IMP"):

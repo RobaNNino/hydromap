@@ -445,6 +445,37 @@ def discover_ats(idx: ComuneIndex) -> list[dict]:
     return out
 
 
+def discover_cafc(idx: ComuneIndex) -> list[dict]:
+    """CAFC (Friuli Centrale): mapping_comune_indirizzo_pdf.csv associa ogni
+    comune ai suoi PDF. Si tiene il PDF piu' ricorrente per comune."""
+    src = HERE / "cafc_qualita_acqua"
+    mp = src / "mapping_comune_indirizzo_pdf.csv"
+    if not mp.exists():
+        return []
+    by_comune: dict[str, Counter] = defaultdict(Counter)
+    with io.open(mp, encoding="utf-8-sig") as f:
+        for r in csv.DictReader(f):
+            if (r.get("status") or "").lower() != "ok":
+                continue
+            comune = (r.get("comune") or "").strip()
+            pf = (r.get("pdf_file") or "").replace("\\", "/")
+            if comune and pf:
+                by_comune[comune][pf] += 1
+    out: list[dict] = []
+    for comune_raw, pdfs in by_comune.items():
+        hit = idx.match(comune_raw)
+        if not hit:
+            print(f"[cafc] no-match: {comune_raw!r}")
+            continue
+        for pf, _ in pdfs.most_common():
+            p = HERE / pf
+            if p.exists():
+                out.append({"comune_key": _norm(hit["name"]), "comune": hit,
+                            "zona": hit["name"], "periodo": None, "src": p})
+                break
+    return out
+
+
 def _multi_match(idx: ComuneIndex, raw: str) -> list[dict]:
     """Prova match singolo; se fallisce, splitta sui separatori e infine fa una
     scansione a finestre di parole (per liste tipo 'Godega S.Urbano Orsago
@@ -585,6 +616,7 @@ PROVIDERS = {
     "acegasapsamga": ("AcegasApsAmga", "ATO Bacchiglione / Trieste (gruppo Hera)"),
     "etra": ("Gruppo ETRA", "ATO Brenta — Alta Padovana e Bassano (PD/VI)"),
     "ats": ("Alto Trevigiano Servizi", "ATO Veneto Orientale — Trevigiano (TV/BL)"),
+    "cafc": ("CAFC", "ATO Centrale Friuli (UD)"),
 }
 
 
@@ -653,6 +685,7 @@ def main() -> int:
         "acegasapsamga": discover_acegas(idx),
         "etra": discover_etra(idx),
         "ats": discover_ats(idx),
+        "cafc": discover_cafc(idx),
     }
     records.update(discover_inpage(idx))
 
