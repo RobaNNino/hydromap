@@ -82,6 +82,8 @@ backend/ats_qualita_acqua/
 backend/cafc_qualita_acqua/
 backend/lta_qualita_acqua/
 backend/acegasapsamga_qualita_acqua/
+backend/irisacqua_qualita_acqua/
+backend/poiana_qualita_acqua/
 
 # Cache scaricabili/rigenerabili dai builder ASA/Fiora. Non servono al runtime
 # su Render e tenere il deploy leggero aiuta il free tier.

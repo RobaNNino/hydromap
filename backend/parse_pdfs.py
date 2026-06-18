@@ -65,6 +65,8 @@ GEOJSON_FILES = {
     "etra": ROOT / "mappa-qualita-etra.json",
     "ats": ROOT / "mappa-qualita-ats.json",
     "cafc": ROOT / "mappa-qualita-cafc.json",
+    "poiana": ROOT / "mappa-qualita-poiana.json",
+    "irisacqua": ROOT / "mappa-qualita-irisacqua.json",
 }
 OUT_FILE = ROOT / "results.json"
 
@@ -3510,6 +3512,58 @@ def parse_pdf_acegas(path: Path) -> dict:
     return out
 
 
+# ---------------------------------------------------------------------------
+# IrisAcqua (Goriziano/Monfalconese): PDF generati per comune dalla tabella
+# qualita'. Righe `Ordine Parametro+U.M. Valore [Limite]`: valore e limite sono
+# i token finali della riga (l'unita' puo' contenere "a 20°C").
+# ---------------------------------------------------------------------------
+_IRIS_UNIT_RX = re.compile(
+    r"(µg/L|mg/l\s*Cl2|mg/L|mg/l|µS/cm|unità pH|UFC/\S*|°F|NTU)", re.I)
+_IRIS_ROW_RX = re.compile(
+    r"^\d+\s+(.+?)\s+(<?\s*[\d.,]+|n\.[da]\.|assente)\s*(<?\s*[\d.,]+|-)?\s*$", re.I)
+
+
+def parse_pdf_irisacqua(path: Path) -> dict:
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    with pdfplumber.open(path) as pdf:
+        text = "\n".join((pg.extract_text() or "") for pg in pdf.pages)
+    mc = re.search(r"^Comune\s+(.+)$", text, re.M)
+    if mc:
+        out["comune"] = _clean(mc.group(1))
+    seen: set[str] = set()
+    for raw in text.splitlines():
+        line = _clean(raw)
+        m = _IRIS_ROW_RX.match(line)
+        if not m:
+            continue
+        body = m.group(1)
+        valore = _clean(m.group(2))
+        limite = _clean(m.group(3) or "")
+        if limite in ("-", "--"):
+            limite = ""
+        mu = _IRIS_UNIT_RX.search(body)
+        if mu:
+            parametro = body[:mu.start()].strip()
+            unita = body[mu.start():].strip()
+        else:
+            parametro, unita = body, ""
+        if not parametro or parametro.lower() in seen:
+            continue
+        seen.add(parametro.lower())
+        out["parameters"].append({
+            "parametro": parametro,
+            "unita": unita,
+            "limite": limite,
+            "valore": valore,
+            "valore_num": _parse_number(valore),
+            "limite_num": _parse_number(limite),
+        })
+    _veneto_summary(out)
+    return out
+
+
 def _worker(path_str: str) -> tuple[str, dict | str]:
     p = Path(path_str)
     try:
@@ -3594,6 +3648,10 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_cafc(p)
         if p.stem.startswith("acegasapsamga_"):
             return p.stem, parse_pdf_acegas(p)
+        if p.stem.startswith("poiana_"):
+            return p.stem, parse_pdf_cafc(p)  # stesso formato FRIULAB/CAFC
+        if p.stem.startswith("irisacqua_"):
+            return p.stem, parse_pdf_irisacqua(p)
         if p.stem.startswith(VENETO_PREFIXES):
             return p.stem, parse_pdf_veneto(p)
         if p.stem.startswith("IMP"):

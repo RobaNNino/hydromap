@@ -924,6 +924,36 @@ OFFICIAL_SOURCES = [
         "type": "Rapporti di laboratorio",
         "scraped": True,
     },
+    {
+        "id": "irisacqua",
+        "provider": "irisacqua",
+        "title": "IrisAcqua — Goriziano e Monfalconese",
+        "description": (
+            "IrisAcqua S.r.l. gestisce il servizio idrico dell'ISC Orientale "
+            "Goriziano (provincia di Gorizia e Monfalconese): valori medi "
+            "semestrali dei parametri dell'acqua erogata per comune."
+        ),
+        "url": "https://www.irisacqua.it/azienda/qualita-dellacqua-erogata/",
+        "agency": "IrisAcqua S.r.l.",
+        "ato": "ATO Orientale Goriziano (GO)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "poiana",
+        "provider": "poiana",
+        "title": "Acquedotto Poiana — Cividalese",
+        "description": (
+            "Acquedotto Poiana S.p.A. serve i comuni del Cividalese e delle Valli "
+            "del Natisone (UD): rapporti di prova del laboratorio FRIULAB per "
+            "punto di prelievo, ricondotti al comune."
+        ),
+        "url": "https://www.poiana.it/it/analisi-delle-acque-potabili/analisi_acq.php",
+        "agency": "Acquedotto Poiana S.p.A.",
+        "ato": "ATO Centrale Friuli — Cividalese (UD)",
+        "type": "Rapporti di laboratorio",
+        "scraped": True,
+    },
     # ---------- Fonti istituzionali ----------
     {
         "id": "salute",

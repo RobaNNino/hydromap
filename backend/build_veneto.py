@@ -555,6 +555,59 @@ def discover_lta_folder(idx: ComuneIndex) -> list[dict]:
     return out
 
 
+def discover_irisacqua(idx: ComuneIndex) -> list[dict]:
+    """IrisAcqua (Goriziano): un PDF generato per comune (comuni_corrente.csv)."""
+    src = HERE / "irisacqua_qualita_acqua"
+    cf = src / "comuni_corrente.csv"
+    if not cf.exists():
+        return []
+    out: list[dict] = []
+    with io.open(cf, encoding="utf-8-sig") as f:
+        for r in csv.DictReader(f):
+            if (r.get("status") or "").lower() != "ok":
+                continue
+            p = HERE / (r.get("pdf_file") or "").replace("\\", "/")
+            hit = idx.match(r.get("comune") or "")
+            if not p.exists() or not hit:
+                if not hit:
+                    print(f"[irisacqua] no-match: {r.get('comune')!r}")
+                continue
+            out.append({"comune_key": _norm(hit["name"]), "comune": hit,
+                        "zona": hit["name"], "periodo": None, "src": p})
+    return out
+
+
+def discover_poiana(idx: ComuneIndex) -> list[dict]:
+    """Acquedotto Poiana (Cividalese): mapping_comune_indirizzo_pdf.csv, PDF
+    rappresentativo per comune (formato FRIULAB come CAFC)."""
+    src = HERE / "poiana_qualita_acqua"
+    mp = src / "mapping_comune_indirizzo_pdf.csv"
+    if not mp.exists():
+        return []
+    by_comune: dict[str, Counter] = defaultdict(Counter)
+    with io.open(mp, encoding="utf-8-sig") as f:
+        for r in csv.DictReader(f):
+            if (r.get("status") or "").lower() != "ok":
+                continue
+            comune = (r.get("comune") or "").strip()
+            pf = (r.get("pdf_file") or "").replace("\\", "/")
+            if comune and pf:
+                by_comune[comune][pf] += 1
+    out: list[dict] = []
+    for comune_raw, pdfs in by_comune.items():
+        hit = idx.match(comune_raw)
+        if not hit:
+            print(f"[poiana] no-match: {comune_raw!r}")
+            continue
+        for pf, _ in pdfs.most_common():
+            p = HERE / pf
+            if p.exists():
+                out.append({"comune_key": _norm(hit["name"]), "comune": hit,
+                            "zona": hit["name"], "periodo": None, "src": p})
+                break
+    return out
+
+
 def _multi_match(idx: ComuneIndex, raw: str) -> list[dict]:
     """Prova match singolo; se fallisce, splitta sui separatori e infine fa una
     scansione a finestre di parole (per liste tipo 'Godega S.Urbano Orsago
@@ -696,6 +749,8 @@ PROVIDERS = {
     "etra": ("Gruppo ETRA", "ATO Brenta — Alta Padovana e Bassano (PD/VI)"),
     "ats": ("Alto Trevigiano Servizi", "ATO Veneto Orientale — Trevigiano (TV/BL)"),
     "cafc": ("CAFC", "ATO Centrale Friuli (UD)"),
+    "irisacqua": ("IrisAcqua", "ATO Orientale Goriziano (GO)"),
+    "poiana": ("Acquedotto Poiana", "ATO Centrale Friuli — Cividalese (UD)"),
 }
 
 
@@ -766,6 +821,8 @@ def main() -> int:
         "ats": discover_ats(idx),
         "cafc": discover_cafc(idx),
         "lta": discover_lta_folder(idx),
+        "irisacqua": discover_irisacqua(idx),
+        "poiana": discover_poiana(idx),
     }
     records.update(discover_inpage(idx))
 
