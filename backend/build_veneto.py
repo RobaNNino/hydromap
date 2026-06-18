@@ -315,10 +315,31 @@ def discover_mediochiampo(idx: ComuneIndex) -> list[dict]:
     return out
 
 
+# Le schede "macro-zona" di Piave Servizi (Nord/Sud/Destra Piave) non nominano i
+# comuni serviti: l'elenco viene dal sito ufficiale
+# (https://www.piaveservizi.eu/home/Acqua/Qualita.html). Vengono assegnate dopo
+# le schede specifiche, cosi' il merge per comune preferisce quella piu' puntuale.
+PIAVE_MACRO_COMUNI = {
+    "Zona_Nord": ["Cappella Maggiore", "Codognè", "Colle Umberto", "Cordignano",
+                  "Fontanelle", "Gaiarine", "Mareno di Piave", "Sarmede", "San Fior",
+                  "San Vendemiano", "Vazzola", "Godega di Sant'Urbano", "Orsago"],
+    "Zona_Sud": ["Chiarano", "Fontanelle", "Gorgo al Monticano", "Mansuè",
+                 "Motta di Livenza", "Oderzo", "Ormelle", "Portobuffolè",
+                 "Ponte di Piave", "Salgareda", "San Polo di Piave"],
+    "Zona_Destra_Piave": ["Casale sul Sile", "Casier", "Marcon", "Meolo",
+                          "Monastier di Treviso", "Quarto d'Altino", "Roncade",
+                          "San Biagio di Callalta", "Silea"],
+}
+
+
 def discover_piaveservizi(idx: ComuneIndex) -> list[dict]:
     src = HERE / "piaveservizi_pdf"
     out: list[dict] = []
+    macro: list[Path] = []
     for p in sorted(src.glob("*.pdf")):
+        if p.stem in PIAVE_MACRO_COMUNI:
+            macro.append(p)
+            continue
         stem = p.stem.replace("_", " ")
         zona = stem
         m = re.search(r"in Comune\s+(?:di\s+)?(.+)$", stem, re.I)
@@ -333,6 +354,17 @@ def discover_piaveservizi(idx: ComuneIndex) -> list[dict]:
         for hit in hits:
             out.append({"comune_key": _norm(hit["name"]), "comune": hit,
                         "zona": re.sub(r"^Zona\s+", "", zona), "periodo": per, "src": p})
+    # Macro-zone (assegnate ai comuni dal sito ufficiale), dopo le specifiche.
+    for p in macro:
+        per = _period_from_text(_safe_text(p))
+        zona = p.stem.replace("_", " ")
+        for cname in PIAVE_MACRO_COMUNI[p.stem]:
+            hit = idx.match(cname)
+            if not hit:
+                print(f"[piaveservizi] macro no-match: {cname!r}")
+                continue
+            out.append({"comune_key": _norm(hit["name"]), "comune": hit,
+                        "zona": zona, "periodo": per, "src": p})
     return out
 
 
@@ -609,9 +641,12 @@ def discover_poiana(idx: ComuneIndex) -> list[dict]:
 
 
 def _multi_match(idx: ComuneIndex, raw: str) -> list[dict]:
-    """Prova match singolo; se fallisce, splitta sui separatori e infine fa una
-    scansione a finestre di parole (per liste tipo 'Godega S.Urbano Orsago
-    Cordignano' senza separatori espliciti)."""
+    """Prova match singolo; se fallisce, splitta sui separatori espliciti.
+
+    NB: niente scansione a finestre di parole — su frammenti ambigui tipo
+    'S. Pietr'/'S.Urbano' produceva falsi positivi (San Pietro in Gu,
+    Sant'Urbano PD). Le liste multi-comune (es. Godega/Orsago/Cordignano) sono
+    coperte dalle schede macro-zona di Piave Servizi."""
     hit = idx.match(raw)
     if hit:
         return [hit]
@@ -621,15 +656,6 @@ def _multi_match(idx: ComuneIndex, raw: str) -> list[dict]:
         if h and h["name"] not in seen:
             seen.add(h["name"])
             out.append(h)
-    if out:
-        return out
-    words = [w for w in re.split(r"[\s.]+", raw) if len(w) >= 3 or w.lower() == "s"]
-    for win in (3, 2, 1):
-        for i in range(len(words) - win + 1):
-            h = idx.match(" ".join(words[i:i + win]))
-            if h and h["name"] not in seen:
-                seen.add(h["name"])
-                out.append(h)
     return out
 
 
