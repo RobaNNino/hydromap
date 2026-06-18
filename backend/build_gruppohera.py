@@ -16,6 +16,12 @@ granularità di zona.
 Ogni scheda riporta il "Civic key" dell'indirizzo campione, che inizia con il
 codice ISTAT del comune (es. 036026 = Montese): il poligono comunale viene
 risolto da quello, con fallback sul nome del comune nell'indirizzo.
+
+Una zona di fornitura può servire più comuni (es. PONTELAGOSCURO copre
+Ferrara, Argenta, Voghiera, ...): il nome feature è quindi per coppia
+(zona, comune). I file con il marcatore "__<COMUNE>" prodotti da
+build_gruppohera_zdf_pdfs.py hanno priorità sui vecchi file per-zona quando
+risolvono la stessa coppia (zona, comune).
 """
 from __future__ import annotations
 
@@ -84,13 +90,14 @@ def load_polygons() -> tuple[dict[str, dict], dict[str, dict]]:
         props = feat.get("properties") or {}
         if not feat.get("geometry"):
             continue
+        code = str(props.get("com_istat_code") or "")
         entry = {
             "name": props.get("name") or "",
             "provincia": props.get("prov_name") or "",
             "regione": props.get("reg_name") or "",
             "geometry": feat["geometry"],
+            "code": code,
         }
-        code = str(props.get("com_istat_code") or "")
         if code:
             by_code[code] = entry
         by_name[_normalize(entry["name"])] = entry
@@ -135,7 +142,12 @@ def main() -> int:
 
     features = []
     skipped = []
-    for path in sorted(SRC_DIR.glob("*.pdf")):
+    seen_names: set[str] = set()
+    # i file per-(zona, comune) con marcatore "__" prima dei vecchi per-zona,
+    # così a parità di coppia vince la scansione più recente
+    src_files = sorted(SRC_DIR.glob("*.pdf"),
+                       key=lambda p: (0 if "__" in p.stem else 1, p.name))
+    for path in src_files:
         text = _first_page_text(path)
         m_zona = re.search(r"fornitura idropotabile:</b>\s*([^\n<]+)", text)
         m_gest = re.search(r"Gestore:</b>\s*([^\n<]+)", text)
@@ -156,8 +168,12 @@ def main() -> int:
         name = short_feature_name(
             PROVIDER_ID,
             f"{poly['name']}_{zona}",
-            f"{PROVIDER_ID}|{gestore}|{zona}",
+            f"{PROVIDER_ID}|{gestore}|{zona}|{poly['code'] or poly['name']}",
         )
+        if name in seen_names:
+            skipped.append((path.name, f"duplicato (zona, comune): {zona} / {poly['name']}"))
+            continue
+        seen_names.add(name)
         shutil.copy2(path, PDF_OUT_DIR / f"{name}.pdf")
         lat, lon = _center(poly["geometry"])
         features.append({

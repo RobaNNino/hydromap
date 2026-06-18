@@ -65,6 +65,18 @@ backend/gruppohera_pdf/
 backend/gruppohera_zdf_pdf/
 backend/gruppohera_zdf_best_pdf/
 backend/gruppohera_zdf_deep_pdf/
+# checkpoint/log di scrape_gruppohera_zdf.py (riprendibili, rigenerabili)
+backend/gruppohera_zdf_scan*.json
+backend/gruppohera_zdf_scan*.log
+
+# Sorgenti Veneto / FVG (build_veneto.py). I PDF rappresentativi per comune
+# vengono copiati in backend/data/pdfs/ dai builder; le sorgenti grezze e lo
+# scrape "in pagina" (CSV + PDF originali) non servono a runtime su Render.
+backend/ags_pdf/
+backend/mediochiampo_pdf/
+backend/piaveservizi_pdf/
+backend/gruppoveritas_pdf/
+backend/inpage_water_quality/
 
 # Cache scaricabili/rigenerabili dai builder ASA/Fiora. Non servono al runtime
 # su Render e tenere il deploy leggero aiuta il free tier.

@@ -69,6 +69,18 @@ GEOJSON_FILES: dict[str, Path] = {
     "comuniriuniti": ROOT / "mappa-qualita-comuniriuniti.json",
     "gruppohera": ROOT / "mappa-qualita-gruppohera.json",
     "lazio_extra": ROOT / "mappa-qualita-lazio-extra.json",
+    # Veneto / FVG (build_veneto.py)
+    "ags": ROOT / "mappa-qualita-ags.json",
+    "mediochiampo": ROOT / "mappa-qualita-mediochiampo.json",
+    "piaveservizi": ROOT / "mappa-qualita-piaveservizi.json",
+    "gruppoveritas": ROOT / "mappa-qualita-gruppoveritas.json",
+    "acquevenete": ROOT / "mappa-qualita-acquevenete.json",
+    "acqueveronesi": ROOT / "mappa-qualita-acqueveronesi.json",
+    "lta": ROOT / "mappa-qualita-lta.json",
+    "sibspa": ROOT / "mappa-qualita-sibspa.json",
+    "viacqua": ROOT / "mappa-qualita-viacqua.json",
+    "acquedelchiampo": ROOT / "mappa-qualita-acquedelchiampo.json",
+    "acegasapsamga": ROOT / "mappa-qualita-acegasapsamga.json",
 }
 RESULTS_FILE = ROOT / "results.json"
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"

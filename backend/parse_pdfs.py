@@ -50,6 +50,18 @@ GEOJSON_FILES = {
     "comuniriuniti": ROOT / "mappa-qualita-comuniriuniti.json",
     "gruppohera": ROOT / "mappa-qualita-gruppohera.json",
     "lazio_extra": ROOT / "mappa-qualita-lazio-extra.json",
+    # Veneto / FVG (build_veneto.py)
+    "ags": ROOT / "mappa-qualita-ags.json",
+    "mediochiampo": ROOT / "mappa-qualita-mediochiampo.json",
+    "piaveservizi": ROOT / "mappa-qualita-piaveservizi.json",
+    "gruppoveritas": ROOT / "mappa-qualita-gruppoveritas.json",
+    "acquevenete": ROOT / "mappa-qualita-acquevenete.json",
+    "acqueveronesi": ROOT / "mappa-qualita-acqueveronesi.json",
+    "lta": ROOT / "mappa-qualita-lta.json",
+    "sibspa": ROOT / "mappa-qualita-sibspa.json",
+    "viacqua": ROOT / "mappa-qualita-viacqua.json",
+    "acquedelchiampo": ROOT / "mappa-qualita-acquedelchiampo.json",
+    "acegasapsamga": ROOT / "mappa-qualita-acegasapsamga.json",
 }
 OUT_FILE = ROOT / "results.json"
 
@@ -2911,6 +2923,262 @@ def parse_pdf_gruppohera(path: Path) -> dict:
     return _marche_finish(out)
 
 
+# ---------------------------------------------------------------------------
+# Veneto / FVG: 11 gestori integrati da build_veneto.py. I loro PDF sono tutti
+# tabelle "parametro / valore / limite" ma con layout di colonne diversi: un
+# unico parser rileva i ruoli delle colonne dall'header (keyword) e, per la
+# colonna valore senza header riconoscibile (es. Veritas, dove l'intestazione
+# e' il nome della zona), usa un fallback numerico.
+# ---------------------------------------------------------------------------
+VENETO_PREFIXES = (
+    "ags_", "mediochiampo_", "piaveservizi_", "gruppoveritas_", "acquevenete_",
+    "acqueveronesi_", "lta_", "sibspa_", "viacqua_", "acquedelchiampo_",
+    "acegasapsamga_",
+)
+
+_VEN_MONTHS = ("gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|"
+               "settembre|ottobre|novembre|dicembre")
+
+
+def _veneto_periodo(text: str) -> str | None:
+    low = text.lower()
+    # 'Anno Mese / 2025 Agosto' (AcegasApsAmga): anno seguito da mese
+    m = re.search(rf"\b(20\d{{2}})\s+({_VEN_MONTHS})\b", low)
+    if m:
+        return f"{m.group(2)} {m.group(1)}"
+    for rx in (
+        r"periodo di riferimento[:\s]*([^\n]+)",
+        rf"(?:{_VEN_MONTHS})\s*\d{{4}}\s*-\s*(?:{_VEN_MONTHS})\s*\d{{4}}",
+        r"[12]?\s*semestre[^\n]*?\d{4}",
+        # mese+anno, ma non la data del decreto (D.Lgs ... 23 febbraio 2023)
+        rf"(?<!d\.lgs )(?<!n\. 18 del )(?:{_VEN_MONTHS})\s+(?:2024|2025|2026)",
+        r"pubblicat[oi][^\n]*?\d{1,2}/\d{1,2}/(\d{4})",
+    ):
+        m = re.search(rx, low)
+        if m:
+            grp = m.group(1) if (m.groups() and m.group(1)) else m.group(0)
+            return _clean(grp)[:60]
+    return None
+
+
+_LIMIT_KW = ("limit", "legge", "riferiment", "normativ", "massim", "consigliat", "ammess")
+
+
+def _veneto_col_roles(header: list[str], ncols: int) -> dict:
+    roles = {"param": None, "unit": None, "value": None, "limit": None}
+    for i in range(ncols):
+        l = (header[i] if i < len(header) else "").lower()
+        if not l:
+            continue
+        if roles["param"] is None and ("parametr" in l or "descrizione" in l):
+            roles["param"] = i
+            continue
+        if any(k in l for k in _LIMIT_KW):
+            if roles["limit"] is None:
+                roles["limit"] = i
+            continue
+        if roles["unit"] is None and ("u.m" in l or "unit" in l or "misura" in l):
+            roles["unit"] = i
+            continue
+        if (roles["value"] is None and "freq" not in l
+                and any(k in l for k in ("valore", "valori", "risultato", "misurato"))):
+            roles["value"] = i
+    if roles["param"] is None:
+        roles["param"] = 0
+    return roles
+
+
+def _veneto_value_fallback(rows: list[list[str]], roles: dict, ncols: int) -> int | None:
+    """Colonna valore senza header: scegli quella piu' numerica tra le libere."""
+    used = {roles["param"], roles["unit"], roles["limit"]}
+    best, best_n = None, 0
+    for i in range(ncols):
+        if i in used:
+            continue
+        n = sum(1 for r in rows if i < len(r) and _parse_number(_clean(r[i])) is not None)
+        if n > best_n:
+            best, best_n = i, n
+    return best if best_n >= 2 else None
+
+
+def _veneto_collect(rows: list[list[str]], roles: dict, ncols: int, out: dict) -> None:
+    if roles["value"] is None:
+        roles["value"] = _veneto_value_fallback(rows, roles, ncols)
+    pc, vc = roles["param"], roles["value"]
+    uc, lc = roles["unit"], roles["limit"]
+    if vc is None:
+        return
+    for r in rows:
+        if pc >= len(r):
+            continue
+        parametro = _clean(r[pc]).replace("\n", " ")
+        if not parametro or parametro.lower() in ("parametro", "parametri", "descrizione"):
+            continue
+        valore = _clean(r[vc]) if vc < len(r) else ""
+        if not valore:
+            continue
+        unita = _clean(r[uc]) if (uc is not None and uc < len(r)) else ""
+        limite = _clean(r[lc]) if (lc is not None and lc < len(r)) else ""
+        # unita' tra parentesi nel nome (LTA: "Alluminio [µg/l]")
+        if not unita:
+            mb = re.search(r"[\[(]\s*([^\])]+?)\s*[\])]\s*$", parametro)
+            if mb:
+                unita = mb.group(1)
+                parametro = parametro[:mb.start()].strip()
+        out["parameters"].append({
+            "parametro": parametro,
+            "unita": unita,
+            "limite": limite,
+            "valore": valore,
+            "valore_num": _parse_number(valore),
+            "limite_num": _parse_number(limite),
+        })
+
+
+_VEN_UNIT_RX = re.compile(
+    r"((?:µ|μ|u)g/l|mg/l|ng/l|(?:µ|μ|u)s/cm|ufc/\S*|numero/\d+\s*ml|unità pH|"
+    r"ntu|°f|°c|hazen)", re.I)
+_VEN_VAL_RX = re.compile(r"[<>]?\s*\d[\d.,]*")
+
+
+def _veneto_text_fallback(text: str, out: dict) -> None:
+    """Per i rapporti di prova (Medio Chiampo, AcegasApsAmga) extract_tables non
+    ricostruisce le righe: si estrae 'nome unita' valore' dal testo."""
+    for line in text.splitlines():
+        line = _clean(line)
+        m = _VEN_UNIT_RX.search(line)
+        if not m or m.start() < 3:
+            continue
+        parametro = line[:m.start()].strip(" .:-")
+        if not parametro or len(parametro) > 90:
+            continue
+        rest = line[m.end():]
+        mv = _VEN_VAL_RX.search(rest)
+        if not mv:
+            continue
+        valore = _clean(mv.group(0))
+        out["parameters"].append({
+            "parametro": parametro,
+            "unita": m.group(1),
+            "limite": "",
+            "valore": valore,
+            "valore_num": _parse_number(valore),
+            "limite_num": None,
+        })
+
+
+_VEN_NONNUM_WORDS = ("se ", "senza", "anomale", "accettabile", "previsto", "min",
+                     "max", "variazioni", "somma", "trattata", "disinfettata",
+                     "s.v.r", "tra ", "ph", "calcolo")
+
+
+def _veneto_is_max_threshold(lim_raw: str) -> bool:
+    """True solo se il limite e' una soglia MASSIMA semplice (es. '200',
+    '≤ 100', '< 3'). I range (pH '6,5 ÷ 9,5'), le soglie minime ('≥ 30 se
+    trattata') e i limiti descrittivi NON sono soglie massime confrontabili."""
+    low = lim_raw.lower()
+    if any(w in low for w in _VEN_NONNUM_WORDS):
+        return False
+    nums = re.findall(r"\d[\d.,]*", lim_raw)
+    if len(nums) != 1:
+        return False
+    if "≥" in lim_raw or ">" in lim_raw:  # soglia minima
+        return False
+    return True
+
+
+def _veneto_summary(out: dict) -> None:
+    exceed: list[dict] = []
+    total_with_limit = 0
+    for p in out["parameters"]:
+        v, l = p["valore_num"], p["limite_num"]
+        lim_raw = (p["limite"] or "").strip()
+        val_raw = (p["valore"] or "").strip().lower()
+        if val_raw in ("non conforme", "presenti", "positivo"):
+            exceed.append({"parametro": p["parametro"], "valore": p["valore"], "limite": p["limite"]})
+            continue
+        if l is None or v is None or not _veneto_is_max_threshold(lim_raw):
+            continue
+        if val_raw.startswith("<") or val_raw in ("n.d.", "nd", "assente", "n.a."):
+            total_with_limit += 1
+            continue
+        total_with_limit += 1
+        if "cloro residuo" in p["parametro"].lower():
+            continue
+        if v > l:
+            exceed.append({"parametro": p["parametro"], "valore": p["valore"], "limite": p["limite"]})
+    out["summary"] = {
+        "total_parameters": len(out["parameters"]),
+        "total_with_limit": total_with_limit,
+        "exceedances": exceed,
+        "status": "OK" if not exceed else "ATTENZIONE",
+    }
+
+
+def parse_pdf_veneto(path: Path) -> dict:
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    with pdfplumber.open(path) as pdf:
+        page = pdf.pages[0]
+        text = page.extract_text() or ""
+        tables = page.extract_tables() or []
+
+    out["periodo"] = _veneto_periodo(text)
+
+    # metadati dal blocco chiave/valore (header degli scrape "in pagina")
+    for t in tables:
+        for r in (t or []):
+            if r and len(r) == 2 and r[0] and r[1]:
+                k = _clean(r[0]).lower()
+                v = _clean(r[1])
+                if k.startswith("comune") and not out["comune"]:
+                    out["comune"] = v.split(" - ")[0]
+                elif k in ("zone", "zona", "centrale") and not out["zona"]:
+                    out["zona"] = v
+
+    # tabella parametri = quella con header "parametr/descrizione" e piu' righe
+    best_t, best_hdr = None, 0
+    for t in tables:
+        if not t:
+            continue
+        hdr_idx = None
+        for i, r in enumerate(t[:4]):
+            joined = " ".join(_clean(c) for c in r if c).lower()
+            if "parametr" in joined or "descrizione" in joined:
+                hdr_idx = i
+                break
+        if hdr_idx is None:
+            continue
+        ndata = len(t) - hdr_idx - 1
+        if ndata > best_hdr:
+            best_t, best_hdr, best_t_hdr = t, ndata, hdr_idx
+    if best_t is not None:
+        header = [_clean(c) for c in best_t[best_t_hdr]]
+        rows = best_t[best_t_hdr + 1:]
+        ncols = max(len(r) for r in best_t)
+
+        # doppia colonna affiancata (Acque del Chiampo): header "parametro" ripetuto
+        n_param_hdr = sum(1 for c in header
+                          if "parametro" in c.lower() or "descrizione" in c.lower())
+        if n_param_hdr >= 2 and ncols >= 8:
+            half = ncols // 2
+            lr = _veneto_col_roles(header[:half], half)
+            rr = _veneto_col_roles(header[half:], half)
+            _veneto_collect([r[:half] for r in rows], lr, half, out)
+            _veneto_collect([r[half:] for r in rows], rr, ncols - half, out)
+        else:
+            roles = _veneto_col_roles(header, ncols)
+            _veneto_collect(rows, roles, ncols, out)
+
+    if len(out["parameters"]) < 3:
+        out["parameters"] = []
+        _veneto_text_fallback(text, out)
+
+    _veneto_summary(out)
+    return out
+
+
 def _worker(path_str: str) -> tuple[str, dict | str]:
     p = Path(path_str)
     try:
@@ -2987,6 +3255,8 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_lazio_idrica(p)
         if p.stem.startswith("acqualatina_"):
             return p.stem, parse_pdf_acqualatina(p)
+        if p.stem.startswith(VENETO_PREFIXES):
+            return p.stem, parse_pdf_veneto(p)
         if p.stem.startswith("IMP"):
             return p.stem, parse_pdf_aps(p)
         return p.stem, parse_pdf(p)

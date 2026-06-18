@@ -711,6 +711,172 @@ OFFICIAL_SOURCES = [
         "type": "Portale gestore",
         "scraped": True,
     },
+    # ---------- Veneto / Friuli-Venezia Giulia ----------
+    {
+        "id": "ags",
+        "provider": "ags",
+        "title": "Azienda Gardesana Servizi — Garda veronese",
+        "description": (
+            "AGS gestisce il servizio idrico della sponda veronese del Garda "
+            "e della Valpolicella: schede semestrali con i parametri medi "
+            "dell'acqua erogata per comune."
+        ),
+        "url": "https://www.azienda-gardesana.it/",
+        "agency": "Azienda Gardesana Servizi S.p.A.",
+        "ato": "ATO Veronese — Garda (VR)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "mediochiampo",
+        "provider": "mediochiampo",
+        "title": "Medio Chiampo — Valle del Chiampo",
+        "description": (
+            "Medio Chiampo S.p.A. serve i comuni della bassa valle del Chiampo "
+            "(VI). Rapporti di prova del laboratorio acquevenete, con focus sul "
+            "monitoraggio PFAS."
+        ),
+        "url": "https://www.mediochiampo.it/",
+        "agency": "Medio Chiampo S.p.A.",
+        "ato": "AATO Bacchiglione — Valle del Chiampo (VI)",
+        "type": "Rapporti di laboratorio",
+        "scraped": True,
+    },
+    {
+        "id": "piaveservizi",
+        "provider": "piaveservizi",
+        "title": "Piave Servizi — Sinistra Piave",
+        "description": (
+            "Piave Servizi gestisce l'acquedotto della Sinistra Piave (TV): "
+            "tabella semestrale dei parametri caratteristici per zona di "
+            "distribuzione."
+        ),
+        "url": "https://www.piaveservizi.it/",
+        "agency": "Piave Servizi S.r.l.",
+        "ato": "ATO Veneto Orientale (TV)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "gruppoveritas",
+        "provider": "gruppoveritas",
+        "title": "Gruppo Veritas — Venezia",
+        "description": (
+            "Veritas S.p.A. è il gestore idrico dell'area metropolitana di "
+            "Venezia e del Veneziano: valori medi dell'acqua potabile per "
+            "comune, aggiornati a semestre."
+        ),
+        "url": "https://www.gruppoveritas.it/",
+        "agency": "Veritas S.p.A.",
+        "ato": "ATO Laguna di Venezia (VE)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "acquevenete",
+        "provider": "acquevenete",
+        "title": "Acque Venete — Polesine e Bassa Padovana",
+        "description": (
+            "acquevenete S.p.A. serve il Polesine e la bassa padovana: portale "
+            "qualità con l'ultimo valore dei parametri per comune e centrale di "
+            "produzione."
+        ),
+        "url": "https://www.acquevenete.it/",
+        "agency": "acquevenete S.p.A.",
+        "ato": "ATO Polesine / Bacchiglione (RO/PD)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "acqueveronesi",
+        "provider": "acqueveronesi",
+        "title": "Acque Veronesi — Veronese",
+        "description": (
+            "Acque Veronesi gestisce il servizio idrico integrato della "
+            "provincia di Verona: schede per comune e punto di prelievo con i "
+            "valori dei parametri."
+        ),
+        "url": "https://acqueveronesi.it/",
+        "agency": "Acque Veronesi S.c.a r.l.",
+        "ato": "ATO Veronese (VR)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "lta",
+        "provider": "lta",
+        "title": "LTA — Lemene (Veneto orientale / Pordenone)",
+        "description": (
+            "LTA S.p.A. (Livenza Tagliamento Acque) serve il Veneto orientale e "
+            "il Pordenonese: schede qualità con valore medio, limite di legge e "
+            "frequenza di monitoraggio."
+        ),
+        "url": "https://www.lta.it/schede-qualita",
+        "agency": "LTA S.p.A.",
+        "ato": "ATO Lemene (Veneto orientale / PN)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "sibspa",
+        "provider": "sibspa",
+        "title": "SIB — Alto Veneto (Belluno)",
+        "description": (
+            "Società Intercomunale Bellunese (SIB) gestisce l'acquedotto della "
+            "provincia di Belluno: valori medi semestrali per comune e zona di "
+            "distribuzione."
+        ),
+        "url": "https://sibspa.it/",
+        "agency": "SIB S.p.A.",
+        "ato": "ATO Alto Veneto (BL)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "viacqua",
+        "provider": "viacqua",
+        "title": "Viacqua — Vicentino",
+        "description": (
+            "Viacqua S.p.A. gestisce il servizio idrico integrato della "
+            "provincia di Vicenza: valori dei parametri dell'acqua distribuita "
+            "per comune e zona."
+        ),
+        "url": "https://www.viacqua.it/it/clienti/acquedotto/qualita-dell-acqua/",
+        "agency": "Viacqua S.p.A.",
+        "ato": "ATO Bacchiglione (VI)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "acquedelchiampo",
+        "provider": "acquedelchiampo",
+        "title": "Acque del Chiampo — Valle del Chiampo",
+        "description": (
+            "Acque del Chiampo S.p.A. serve l'alta valle del Chiampo e l'Ovest "
+            "Vicentino: schede per distretto con valore medio rilevato e valore "
+            "di riferimento di legge."
+        ),
+        "url": "https://www.acquedelchiampo.it/",
+        "agency": "Acque del Chiampo S.p.A.",
+        "ato": "AATO Valle del Chiampo (VI)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
+    {
+        "id": "acegasapsamga",
+        "provider": "acegasapsamga",
+        "title": "AcegasApsAmga — Padova (gruppo Hera)",
+        "description": (
+            "AcegasApsAmga (gruppo Hera) gestisce il servizio idrico di Padova "
+            "e Abano Terme: caratteristiche di qualità medie mensili dell'acqua "
+            "dei comuni serviti."
+        ),
+        "url": "https://www.gruppohera.it/clienti/casa/casa-acqua/casa-acqua-qualita",
+        "agency": "AcegasApsAmga S.p.A.",
+        "ato": "ATO Bacchiglione (PD)",
+        "type": "Portale gestore",
+        "scraped": True,
+    },
     # ---------- Fonti istituzionali ----------
     {
         "id": "salute",
