@@ -77,6 +77,7 @@ backend/mediochiampo_pdf/
 backend/piaveservizi_pdf/
 backend/gruppoveritas_pdf/
 backend/inpage_water_quality/
+backend/etra_pdf/
 
 # Cache scaricabili/rigenerabili dai builder ASA/Fiora. Non servono al runtime
 # su Render e tenere il deploy leggero aiuta il free tier.

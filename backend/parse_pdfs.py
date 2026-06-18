@@ -62,6 +62,7 @@ GEOJSON_FILES = {
     "viacqua": ROOT / "mappa-qualita-viacqua.json",
     "acquedelchiampo": ROOT / "mappa-qualita-acquedelchiampo.json",
     "acegasapsamga": ROOT / "mappa-qualita-acegasapsamga.json",
+    "etra": ROOT / "mappa-qualita-etra.json",
 }
 OUT_FILE = ROOT / "results.json"
 
@@ -3179,6 +3180,82 @@ def parse_pdf_veneto(path: Path) -> dict:
     return out
 
 
+# ---------------------------------------------------------------------------
+# ETRA (Alta Padovana / Bassano): rapporti di prova multi-pagina del laboratorio
+# ETRA. Ogni parametro e' una riga `[*] Nome U.M. Risultato [± inc] [limite]
+# [Rif] data`, alternata a una riga col metodo (APAT/UNI/ISO...) da ignorare.
+# ---------------------------------------------------------------------------
+_ETRA_UNIT_RX = re.compile(
+    r"(unità di pH|µS/cm|UFC/100\s*ml|UFC/ml|mg/l(?:\s*(?:NH4\+|NO2|NO3|HCO3-?))?|"
+    r"µg/l|ng/l|°C|°F|NTU)")
+_ETRA_VAL_RX = re.compile(r"(<\s*[\d.,]+|[\d.,]+)")
+_ETRA_SKIP_RX = re.compile(r"^(APAT|UNI|ISO|DIN|EPA|SM |MI |UNICHIM|Std|Metodo)", re.I)
+
+
+def _etra_comune(text: str) -> str | None:
+    m = re.search(r"Sito:\s*(.+)", text)
+    if m:
+        mm = re.search(r"([A-ZÀ-Ü][A-ZÀ-Ü'’ ]{2,})\s*$", m.group(1).strip())
+        if mm:
+            return _clean(mm.group(1)).title()
+    m = re.search(r"prelievo:\s*[^,\n]+,\s*([^-\n]+?)\s*-", text)
+    return _clean(m.group(1)) if m else None
+
+
+def parse_pdf_etra(path: Path) -> dict:
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    with pdfplumber.open(path) as pdf:
+        pages = [pg.extract_text() or "" for pg in pdf.pages]
+    text = "\n".join(pages)
+    out["comune"] = _etra_comune(pages[0] if pages else "")
+    mz = re.search(r"prelievo:\s*([^\n]+?)\s*-\s*pozzetto", pages[0] if pages else "")
+    if mz:
+        out["zona"] = _clean(mz.group(1))
+    md = re.search(r"del\s*(\d{2})/(\d{2})/(\d{4})", text)
+    if md:
+        out["periodo"] = f"{md.group(2)}/{md.group(3)}"
+
+    seen: set[str] = set()
+    for raw in text.splitlines():
+        line = _clean(raw)
+        if not line or _ETRA_SKIP_RX.match(line):
+            continue
+        line = re.sub(r"(\s+\d{2}/\d{2}/\d{2})+\s*$", "", line)
+        chosen = None
+        for um in _ETRA_UNIT_RX.finditer(line):
+            tail = line[um.end():].lstrip()
+            if _ETRA_VAL_RX.match(tail) or re.match(r"(NON|ASSENTE|INSAPORE|n\.a\.)", tail):
+                chosen = um
+                break
+        if chosen is None:
+            continue
+        parametro = line[:chosen.start()].strip(" *").strip()
+        if not parametro or len(parametro) > 70 or parametro.lower() in seen:
+            continue
+        rest = line[chosen.end():].strip()
+        mv = _ETRA_VAL_RX.match(rest)
+        if not mv:
+            continue
+        valore = _clean(mv.group(1))
+        after = re.sub(r"^\s*±\s*[\d.,]+", "", rest[mv.end():])
+        ml = re.match(r"\s*([\d.,]+\s*÷\s*[\d.,]+|[\d.,]+)", after)
+        limite = _clean(ml.group(1)) if ml else ""
+        seen.add(parametro.lower())
+        out["parameters"].append({
+            "parametro": parametro,
+            "unita": _clean(chosen.group(1)),
+            "limite": limite,
+            "valore": valore,
+            "valore_num": _parse_number(valore),
+            "limite_num": _parse_number(limite),
+        })
+
+    _veneto_summary(out)
+    return out
+
+
 def _worker(path_str: str) -> tuple[str, dict | str]:
     p = Path(path_str)
     try:
@@ -3255,6 +3332,8 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_lazio_idrica(p)
         if p.stem.startswith("acqualatina_"):
             return p.stem, parse_pdf_acqualatina(p)
+        if p.stem.startswith("etra_"):
+            return p.stem, parse_pdf_etra(p)
         if p.stem.startswith(VENETO_PREFIXES):
             return p.stem, parse_pdf_veneto(p)
         if p.stem.startswith("IMP"):

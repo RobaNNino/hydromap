@@ -362,6 +362,41 @@ def discover_acegas(idx: ComuneIndex) -> list[dict]:
     return out
 
 
+def discover_etra(idx: ComuneIndex) -> list[dict]:
+    src = HERE / "etra_pdf" / "analisi"
+    out: list[dict] = []
+    for p in sorted(src.glob("**/*.pdf")):
+        text = _safe_text(p)
+        raw = None
+        m = re.search(r"Sito:\s*(.+)", text)
+        if m:
+            mm = re.search(r"([A-ZÀ-Ü][A-ZÀ-Ü'’ ]{2,})\s*$", m.group(1).strip())
+            if mm:
+                raw = mm.group(1)
+        if not raw:
+            m = re.search(r"prelievo:\s*[^,\n]+,\s*([^-\n]+?)\s*-", text)
+            raw = m.group(1) if m else ""
+        # Il comune e' in coda alla riga 'Sito:', ma l'indirizzo (tutto
+        # maiuscolo) puo' precederlo: prova i suffissi di parole, dal piu' lungo.
+        hit = None
+        if raw:
+            words = raw.split()
+            for n in range(min(4, len(words)), 0, -1):
+                hit = idx.match(" ".join(words[-n:]))
+                if hit:
+                    break
+        if not hit:
+            print(f"[etra] no-match: {p.name} ({raw!r})")
+            continue
+        mz = re.search(r"prelievo:\s*([^\n]+?)\s*-\s*pozzetto", text)
+        zona = _clean_title(mz.group(1)) if mz else hit["name"]
+        md = re.search(r"del\s*(\d{2})/(\d{2})/(\d{4})", text)
+        per = f"{md.group(2)}/{md.group(3)}" if md else None
+        out.append({"comune_key": _norm(hit["name"]), "comune": hit, "zona": zona,
+                    "periodo": per, "src": p})
+    return out
+
+
 def _multi_match(idx: ComuneIndex, raw: str) -> list[dict]:
     """Prova match singolo; se fallisce, splitta sui separatori e infine fa una
     scansione a finestre di parole (per liste tipo 'Godega S.Urbano Orsago
@@ -500,6 +535,7 @@ PROVIDERS = {
     "viacqua": ("Viacqua", "ATO Bacchiglione (VI)"),
     "acquedelchiampo": ("Acque del Chiampo", "AATO Valle del Chiampo (VI)"),
     "acegasapsamga": ("AcegasApsAmga", "ATO Bacchiglione / Trieste (gruppo Hera)"),
+    "etra": ("Gruppo ETRA", "ATO Brenta — Alta Padovana e Bassano (PD/VI)"),
 }
 
 
@@ -566,6 +602,7 @@ def main() -> int:
         "piaveservizi": discover_piaveservizi(idx),
         "gruppoveritas": discover_gruppoveritas(idx),
         "acegasapsamga": discover_acegas(idx),
+        "etra": discover_etra(idx),
     }
     records.update(discover_inpage(idx))
 

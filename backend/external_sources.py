@@ -877,6 +877,21 @@ OFFICIAL_SOURCES = [
         "type": "Portale gestore",
         "scraped": True,
     },
+    {
+        "id": "etra",
+        "provider": "etra",
+        "title": "Gruppo ETRA — Alta Padovana e Bassano",
+        "description": (
+            "ETRA S.p.A. (Energia Territorio Risorse Ambientali) gestisce il "
+            "servizio idrico dell'Alta Padovana, del Bassanese e del Camposampierese "
+            "(PD/VI): rapporti di prova del laboratorio ETRA per punto di prelievo."
+        ),
+        "url": "https://www.etraspa.it/",
+        "agency": "ETRA S.p.A. Società Benefit",
+        "ato": "ATO Brenta — Alta Padovana e Bassano (PD/VI)",
+        "type": "Rapporti di laboratorio",
+        "scraped": True,
+    },
     # ---------- Fonti istituzionali ----------
     {
         "id": "salute",
