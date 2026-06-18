@@ -476,6 +476,51 @@ def discover_cafc(idx: ComuneIndex) -> list[dict]:
     return out
 
 
+def discover_lta_folder(idx: ComuneIndex) -> list[dict]:
+    """LTA (Lemene, Veneto orientale / Pordenonese): cartella dedicata con
+    mapping_comune_via_pdf.csv + datasets.csv (periodo). Un PDF rappresentativo
+    per comune (il dataset che copre piu' vie). Sostituisce lo scrape inpage."""
+    src = HERE / "lta_qualita_acqua"
+    mp = src / "mapping_comune_via_pdf.csv"
+    ds = src / "datasets.csv"
+    if not mp.exists():
+        return []
+    ds_info: dict[str, dict] = {}
+    if ds.exists():
+        with io.open(ds, encoding="utf-8-sig") as f:
+            for r in csv.DictReader(f):
+                per = re.split(r"\s*\(pubblic", r.get("periodo") or "")[0].strip()
+                ds_info[r["dataset_id"]] = {
+                    "periodo": per or None,
+                    "pdf": (r.get("pdf_file") or "").replace("\\", "/"),
+                }
+    by_comune: dict[str, Counter] = defaultdict(Counter)
+    with io.open(mp, encoding="utf-8-sig") as f:
+        for r in csv.DictReader(f):
+            if (r.get("status") or "").lower() != "ok":
+                continue
+            comune = (r.get("comune") or "").strip()
+            did = r.get("dataset_id")
+            if comune and did:
+                by_comune[comune][did] += 1
+    out: list[dict] = []
+    for comune_raw, counter in by_comune.items():
+        hit = idx.match(comune_raw)
+        if not hit:
+            print(f"[lta] no-match: {comune_raw!r}")
+            continue
+        for did, _ in counter.most_common():
+            info = ds_info.get(did)
+            pf = info["pdf"] if info else f"lta_qualita_acqua/pdf/{did}.pdf"
+            p = HERE / pf
+            if p.exists():
+                out.append({"comune_key": _norm(hit["name"]), "comune": hit,
+                            "zona": hit["name"],
+                            "periodo": info["periodo"] if info else None, "src": p})
+                break
+    return out
+
+
 def _multi_match(idx: ComuneIndex, raw: str) -> list[dict]:
     """Prova match singolo; se fallisce, splitta sui separatori e infine fa una
     scansione a finestre di parole (per liste tipo 'Godega S.Urbano Orsago
@@ -502,10 +547,10 @@ def _multi_match(idx: ComuneIndex, raw: str) -> list[dict]:
 
 
 # CSV-driven (inpage): site label -> provider id
+# NB: LTA non e' piu' qui: ha una cartella dedicata (discover_lta_folder).
 INPAGE_SITES = {
     "Acque Venete": "acquevenete",
     "Acque Veronesi": "acqueveronesi",
-    "LTA": "lta",
     "SIB": "sibspa",
     "Viacqua": "viacqua",
     "Acque del Chiampo": "acquedelchiampo",
@@ -686,6 +731,7 @@ def main() -> int:
         "etra": discover_etra(idx),
         "ats": discover_ats(idx),
         "cafc": discover_cafc(idx),
+        "lta": discover_lta_folder(idx),
     }
     records.update(discover_inpage(idx))
 
