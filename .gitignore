@@ -84,6 +84,19 @@ backend/lta_qualita_acqua/
 backend/acegasapsamga_qualita_acqua/
 backend/irisacqua_qualita_acqua/
 backend/poiana_qualita_acqua/
+# Lombardia (build_veneto.py): sorgenti PDF "etichetta/qualita acqua"
+backend/a2a-cicloidrico-pdf/
+backend/acqua-lodigiana-pdf/
+backend/acque-bresciane-pdf/
+backend/alfavarese-pdf/
+backend/aqa-mantova-pdf/
+backend/brianzacque-pdf/
+backend/gruppo-cap-pdf/
+backend/padania-acque-pdf/
+backend/pavia-acque-pdf/
+backend/secam-pdf/
+backend/uniacque-pdf/
+backend/qualita-acqua-comuni/
 
 # Cache scaricabili/rigenerabili dai builder ASA/Fiora. Non servono al runtime
 # su Render e tenere il deploy leggero aiuta il free tier.

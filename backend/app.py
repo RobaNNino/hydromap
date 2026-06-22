@@ -86,6 +86,19 @@ GEOJSON_FILES: dict[str, Path] = {
     "cafc": ROOT / "mappa-qualita-cafc.json",
     "poiana": ROOT / "mappa-qualita-poiana.json",
     "irisacqua": ROOT / "mappa-qualita-irisacqua.json",
+    # Lombardia (build_veneto.py)
+    "a2a": ROOT / "mappa-qualita-a2a.json",
+    "acqualodigiana": ROOT / "mappa-qualita-acqualodigiana.json",
+    "acquebresciane": ROOT / "mappa-qualita-acquebresciane.json",
+    "alfa": ROOT / "mappa-qualita-alfa.json",
+    "aqamantova": ROOT / "mappa-qualita-aqamantova.json",
+    "brianzacque": ROOT / "mappa-qualita-brianzacque.json",
+    "gruppocap": ROOT / "mappa-qualita-gruppocap.json",
+    "padaniaacque": ROOT / "mappa-qualita-padaniaacque.json",
+    "paviaacque": ROOT / "mappa-qualita-paviaacque.json",
+    "secam": ROOT / "mappa-qualita-secam.json",
+    "uniacque": ROOT / "mappa-qualita-uniacque.json",
+    "comoacqua": ROOT / "mappa-qualita-comoacqua.json",
 }
 RESULTS_FILE = ROOT / "results.json"
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"

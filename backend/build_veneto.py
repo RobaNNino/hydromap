@@ -57,7 +57,7 @@ SIMPLIFY_TOL = 0.0006  # ~60 m: poligoni comunali leggeri per la cache
 # Regioni da indicizzare per il matching del comune. Tutti questi gestori
 # operano in Veneto/FVG: restringere l'indice riduce gli omonimi e i falsi
 # positivi del matching per prefisso.
-REGIONS_PRIMARY = ("Veneto", "Friuli-Venezia Giulia")
+REGIONS_PRIMARY = ("Veneto", "Friuli-Venezia Giulia", "Lombardia")
 REGIONS_BORDER = ()
 
 # Comuni soppressi/fusi o con abbreviazioni non risolvibili automaticamente.
@@ -68,6 +68,12 @@ ALIASES = {
     "fara vic": "fara vicentino",
     "isola vic": "isola vicentina",
     "marano vic": "marano vicentino",
+    # Lombardia: varianti e comuni fusi
+    "bagnolo del mella": "bagnolo mella",
+    "tovo santagata": "tovo di sant agata",
+    "bardello": "bardello con malgesso e bregano",
+    "malgesso": "bardello con malgesso e bregano",
+    "uggiate con ronago": "uggiate trevano",
 }
 
 
@@ -138,6 +144,10 @@ class ComuneIndex:
         """Genera varianti normalizzate da provare (abbreviazioni S./Vic.)."""
         base = _norm(raw)
         cands = [base, ALIASES.get(base, base)]
+        # comune fuso indicato tra parentesi, es. "Revere (Borgo Mantovano)"
+        mpar = re.search(r"\(([^)]+)\)", raw)
+        if mpar:
+            cands.append(_norm(mpar.group(1)))
         toks = base.split()
         # espandi 's' / 'ss' iniziale o isolato -> San/Santa/...
         for i, t in enumerate(toks):
@@ -640,6 +650,94 @@ def discover_poiana(idx: ComuneIndex) -> list[dict]:
     return out
 
 
+# Gestori della Lombardia: PDF "etichetta/qualita acqua" con comune nel manifest
+# CSV o nel nome file. Config: (cartella, colonna comune, colonna file, regex
+# per ricavare il comune dal nome file quando manca il manifest).
+LOMBARDIA = {
+    "a2a": {"folder": "a2a-cicloidrico-pdf", "comune_col": "comune", "file_col": "file"},
+    "acquebresciane": {"folder": "acque-bresciane-pdf", "comune_col": "comune", "file_col": "file"},
+    "alfa": {"folder": "alfavarese-pdf", "comune_col": "comune", "file_col": "file"},
+    "aqamantova": {"folder": "aqa-mantova-pdf", "comune_col": "comune", "file_col": "file"},
+    "brianzacque": {"folder": "brianzacque-pdf", "comune_col": "city", "file_col": "file"},
+    "gruppocap": {"folder": "gruppo-cap-pdf", "comune_col": "comune", "file_col": "file"},
+    "padaniaacque": {"folder": "padania-acque-pdf", "comune_col": "comune", "file_col": "file"},
+    "paviaacque": {"folder": "pavia-acque-pdf", "comune_col": "comune", "file_col": "pdf_path"},
+    "secam": {"folder": "secam-pdf", "comune_col": "comune", "file_col": "file"},
+    "uniacque": {"folder": "uniacque-pdf", "comune_col": "comune", "file_col": "file"},
+    # senza colonna comune nel manifest -> comune dal nome file
+    "acqualodigiana": {"folder": "acqua-lodigiana-pdf",
+                       "fname_re": r"^\d{4}-\d{2}-(.+?)_\d{4}"},
+    "comoacqua": {"folder": "qualita-acqua-comuni",
+                  "fname_re": r"^qualita-acqua-(.+)$"},
+}
+
+LOMBARDIA_META = {
+    "a2a": ("A2A Ciclo Idrico", "ATO Brescia"),
+    "acquebresciane": ("Acque Bresciane", "ATO Brescia"),
+    "alfa": ("Alfa (Varese)", "ATO Varese"),
+    "aqamantova": ("AqA Mantova", "ATO Mantova"),
+    "brianzacque": ("BrianzAcque", "ATO Monza e Brianza"),
+    "gruppocap": ("Gruppo CAP", "ATO Città Metropolitana di Milano"),
+    "padaniaacque": ("Padania Acque", "ATO Cremona"),
+    "paviaacque": ("Pavia Acque", "ATO Pavia"),
+    "secam": ("SECAM", "ATO Sondrio"),
+    "uniacque": ("Uniacque", "ATO Bergamo"),
+    "acqualodigiana": ("Acqua Lodigiana (SAL)", "ATO Lodi"),
+    "comoacqua": ("Como Acqua", "ATO Como"),
+}
+
+
+def _sniff_delim(path: Path) -> str:
+    head = path.read_text(encoding="utf-8-sig", errors="replace")[:4000].splitlines()[:1]
+    line = head[0] if head else ""
+    return ";" if line.count(";") > line.count(",") else ","
+
+
+def discover_lombardia(idx: ComuneIndex, prov: str) -> list[dict]:
+    cfg = LOMBARDIA[prov]
+    src = HERE / cfg["folder"]
+    if not src.exists():
+        return []
+    by_name = {p.name: p for p in src.rglob("*.pdf")}
+    raw: list[tuple[str, Path]] = []  # (comune_raw, pdf_path)
+
+    if cfg.get("fname_re"):
+        rx = re.compile(cfg["fname_re"], re.I)
+        for p in sorted(src.glob("*.pdf")):
+            m = rx.match(p.stem)
+            if not m:
+                continue
+            raw.append((m.group(1).replace("-", " "), p))
+    else:
+        manifests = [m for m in src.glob("*.csv")]
+        if not manifests:
+            return []
+        mf = manifests[0]
+        with io.open(mf, encoding="utf-8-sig") as f:
+            rdr = csv.DictReader(f, delimiter=_sniff_delim(mf))
+            for r in rdr:
+                if (r.get("valid_pdf") or "yes").strip().lower() not in ("yes", "true", "1", "ok", ""):
+                    continue
+                comune = (r.get(cfg["comune_col"]) or "").strip()
+                fn = (r.get(cfg["file_col"]) or "").replace("\\", "/")
+                p = by_name.get(fn.split("/")[-1])
+                if comune and p:
+                    raw.append((comune, p))
+
+    out: list[dict] = []
+    nomatch: set[str] = set()
+    for comune_raw, p in raw:
+        hit = idx.match(comune_raw)
+        if not hit:
+            nomatch.add(comune_raw)
+            continue
+        out.append({"comune_key": _norm(hit["name"]), "comune": hit,
+                    "zona": hit["name"], "periodo": None, "src": p})
+    if nomatch:
+        print(f"[{prov}] no-match ({len(nomatch)}): {sorted(nomatch)[:8]}")
+    return out
+
+
 def _multi_match(idx: ComuneIndex, raw: str) -> list[dict]:
     """Prova match singolo; se fallisce, splitta sui separatori espliciti.
 
@@ -778,6 +876,7 @@ PROVIDERS = {
     "irisacqua": ("IrisAcqua", "ATO Orientale Goriziano (GO)"),
     "poiana": ("Acquedotto Poiana", "ATO Centrale Friuli — Cividalese (UD)"),
 }
+PROVIDERS.update(LOMBARDIA_META)
 
 
 def build_provider(prov: str, records: list[dict]) -> int:
@@ -850,6 +949,8 @@ def main() -> int:
         "irisacqua": discover_irisacqua(idx),
         "poiana": discover_poiana(idx),
     }
+    for prov in LOMBARDIA:
+        records[prov] = discover_lombardia(idx, prov)
     records.update(discover_inpage(idx))
 
     total = 0

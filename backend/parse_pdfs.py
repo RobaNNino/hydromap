@@ -67,6 +67,19 @@ GEOJSON_FILES = {
     "cafc": ROOT / "mappa-qualita-cafc.json",
     "poiana": ROOT / "mappa-qualita-poiana.json",
     "irisacqua": ROOT / "mappa-qualita-irisacqua.json",
+    # Lombardia (build_veneto.py)
+    "a2a": ROOT / "mappa-qualita-a2a.json",
+    "acqualodigiana": ROOT / "mappa-qualita-acqualodigiana.json",
+    "acquebresciane": ROOT / "mappa-qualita-acquebresciane.json",
+    "alfa": ROOT / "mappa-qualita-alfa.json",
+    "aqamantova": ROOT / "mappa-qualita-aqamantova.json",
+    "brianzacque": ROOT / "mappa-qualita-brianzacque.json",
+    "gruppocap": ROOT / "mappa-qualita-gruppocap.json",
+    "padaniaacque": ROOT / "mappa-qualita-padaniaacque.json",
+    "paviaacque": ROOT / "mappa-qualita-paviaacque.json",
+    "secam": ROOT / "mappa-qualita-secam.json",
+    "uniacque": ROOT / "mappa-qualita-uniacque.json",
+    "comoacqua": ROOT / "mappa-qualita-comoacqua.json",
 }
 OUT_FILE = ROOT / "results.json"
 
@@ -109,14 +122,31 @@ def _parse_number(v: str) -> float | None:
             return mantissa * (10 ** int(m_sci.group(2)))
         except ValueError:
             pass
-    # Strip operators / units, keep number portion.
-    m = re.search(r"[<>]?\s*([0-9]+(?:[.,][0-9]+)?)", s)
+    # Strip operators / units, keep number portion (con separatori di migliaia).
+    m = re.search(r"[<>]?\s*([0-9]+(?:[.,][0-9]+)*)", s)
     if not m:
         return None
     try:
-        return float(m.group(1).replace(",", "."))
+        return float(_it_number(m.group(1)))
     except ValueError:
         return None
+
+
+def _it_number(s: str) -> str:
+    """Normalizza un numero italiano in float-string. La virgola e' il decimale;
+    il punto e' separatore di migliaia quando raggruppa 3 cifre (es. '2.500' ->
+    2500, '1.234,5' -> 1234.5), mentre '0.5'/'12.34' restano decimali."""
+    if "," in s:
+        return s.replace(".", "").replace(",", ".")
+    if s.count(".") > 1:
+        return s.replace(".", "")
+    if "." in s:
+        intp, dec = s.split(".")
+        # migliaia solo se la parte intera non e' 0 (es. '2.500'->2500), mai per
+        # i decimali tipo '0.028'/'0.005' comuni nelle analisi (µg/L, PFAS).
+        if len(dec) == 3 and 1 <= len(intp) <= 3 and intp != "0":
+            return intp + dec
+    return s
 
 
 def parse_pdf(path: Path) -> dict:
@@ -2941,6 +2971,12 @@ VENETO_PREFIXES = (
     "acegasapsamga_",
 )
 
+LOMBARDIA_PREFIXES = (
+    "a2a_", "acqualodigiana_", "acquebresciane_", "alfa_", "aqamantova_",
+    "brianzacque_", "gruppocap_", "padaniaacque_", "paviaacque_", "secam_",
+    "uniacque_", "comoacqua_",
+)
+
 _VEN_MONTHS = ("gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|"
                "settembre|ottobre|novembre|dicembre")
 
@@ -2966,7 +3002,10 @@ def _veneto_periodo(text: str) -> str | None:
     return None
 
 
-_LIMIT_KW = ("limit", "legge", "riferiment", "normativ", "massim", "consigliat", "ammess")
+_LIMIT_KW = ("limit", "legge", "riferiment", "normativ", "massim", "consigliat",
+             "ammess", "di parametro", "d.lgs", "d. lgs", "guida")
+_VALUE_KW = ("valore", "valori", "risultato", "misurato", "media", "dato",
+             "rilevat", "ultimo")
 
 
 def _veneto_col_roles(header: list[str], ncols: int) -> dict:
@@ -2975,7 +3014,8 @@ def _veneto_col_roles(header: list[str], ncols: int) -> dict:
         l = (header[i] if i < len(header) else "").lower()
         if not l:
             continue
-        if roles["param"] is None and ("parametr" in l or "descrizione" in l):
+        if roles["param"] is None and ("parametr" in l or "descrizione" in l
+                                       or l.strip() == "analisi" or "prova" == l.strip()):
             roles["param"] = i
             continue
         if any(k in l for k in _LIMIT_KW):
@@ -2985,8 +3025,8 @@ def _veneto_col_roles(header: list[str], ncols: int) -> dict:
         if roles["unit"] is None and ("u.m" in l or "unit" in l or "misura" in l):
             roles["unit"] = i
             continue
-        if (roles["value"] is None and "freq" not in l
-                and any(k in l for k in ("valore", "valori", "risultato", "misurato"))):
+        if (roles["value"] is None and "freq" not in l and "data" not in l
+                and any(k in l for k in _VALUE_KW)):
             roles["value"] = i
     if roles["param"] is None:
         roles["param"] = 0
@@ -3062,13 +3102,17 @@ def _veneto_text_fallback(text: str, out: dict) -> None:
         if not mv:
             continue
         valore = _clean(mv.group(0))
+        # limite: numero o range subito dopo il valore (salta incertezza ±, note)
+        after = rest[mv.end():].lstrip()
+        ml = re.match(r"([\d.,]+\s*[-÷]\s*[\d.,]+|[<>]?\s*[\d.,]+)", after)
+        limite = _clean(ml.group(1)) if ml else ""
         out["parameters"].append({
             "parametro": parametro,
             "unita": m.group(1),
-            "limite": "",
+            "limite": limite,
             "valore": valore,
             "valore_num": _parse_number(valore),
-            "limite_num": None,
+            "limite_num": _parse_number(limite),
         })
 
 
@@ -3180,6 +3224,101 @@ def parse_pdf_veneto(path: Path) -> dict:
         out["parameters"] = []
         _veneto_text_fallback(text, out)
 
+    _veneto_summary(out)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Lombardia: ~12 gestori con PDF "etichetta/qualita acqua" generati. Sono tutti
+# tabelle parametro/valore/limite con layout diversi e talvolta su piu' pagine
+# (la prima puo' essere un elenco di punti). Variante multi-pagina del parser
+# Veneto: cerca la tabella parametri su tutte le pagine.
+# ---------------------------------------------------------------------------
+_BRIANZA_UNIT_RX = re.compile(
+    r"(µg\s*/\s*l|mg\s*/\s*l(?:\s*[A-Za-z]\w*)?|numero\s*/\s*100\s*ml|µs\s*/\s*cm|"
+    r"unità di misura|unità di pH|°f|°c|ntu)", re.I)
+
+
+def parse_pdf_brianzacque(path: Path) -> dict:
+    """BrianzAcque: tabella 'Descrizione Media Unità Frequenza Valore_di_parametro'.
+    Il valore (Media) sta PRIMA dell'unita', il limite e' in coda (dopo la
+    frequenza), quindi serve un parser dedicato."""
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    with pdfplumber.open(path) as pdf:
+        text = "\n".join((pg.extract_text() or "") for pg in pdf.pages)
+    seen: set[str] = set()
+    for raw in text.splitlines():
+        line = _clean(raw)
+        m = _BRIANZA_UNIT_RX.search(line)
+        if not m or m.start() < 3:
+            continue
+        before = line[:m.start()].strip()
+        vals = list(re.finditer(r"(<\s*[\d.,]+|[\d.,]+)", before))
+        if not vals:
+            continue
+        last = vals[-1]
+        valore = _clean(before[last.start():])
+        parametro = _clean(before[:last.start()])
+        if not parametro or len(parametro) > 60 or parametro.lower() in seen:
+            continue
+        # dopo l'unita': frequenza (intero) poi il valore di parametro (limite)
+        after = re.sub(r"^\s*\d+\s*", "", line[m.end():].strip())
+        ml = re.match(r"([\d.,]+\s*[-÷]\s*[\d.,]+|[<>]?\s*[\d.,]+)", after)
+        limite = _clean(ml.group(1)) if ml else ""
+        seen.add(parametro.lower())
+        out["parameters"].append({
+            "parametro": parametro, "unita": _clean(m.group(1)),
+            "limite": limite, "valore": valore,
+            "valore_num": _parse_number(valore), "limite_num": _parse_number(limite),
+        })
+    _veneto_summary(out)
+    return out
+
+
+def parse_pdf_lombardia(path: Path) -> dict:
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    tables: list[list] = []
+    texts: list[str] = []
+    with pdfplumber.open(path) as pdf:
+        for pg in pdf.pages:
+            texts.append(pg.extract_text() or "")
+            tables.extend(pg.extract_tables() or [])
+    text = "\n".join(texts)
+    out["periodo"] = _veneto_periodo(text)
+    m = re.search(r"^Comune\s+(.+)$", text, re.M) or re.search(r"Comune di\s+([^\n]+)", text)
+    if m:
+        out["comune"] = _clean(m.group(1))
+
+    # tabella parametri = quella con header 'parametr/descrizione/analisi' e piu' righe
+    best_t, best_n, best_hdr = None, 0, 0
+    for t in tables:
+        if not t:
+            continue
+        hdr_idx = None
+        for i, r in enumerate(t[:4]):
+            joined = " ".join(_clean(c) for c in r if c).lower()
+            if any(k in joined for k in ("parametro", "parametri", "descrizione", "analisi")):
+                hdr_idx = i
+                break
+        if hdr_idx is None:
+            continue
+        ndata = len(t) - hdr_idx - 1
+        if ndata > best_n:
+            best_t, best_n, best_hdr = t, ndata, hdr_idx
+    if best_t is not None:
+        header = [_clean(c) for c in best_t[best_hdr]]
+        rows = best_t[best_hdr + 1:]
+        ncols = max(len(r) for r in best_t)
+        roles = _veneto_col_roles(header, ncols)
+        _veneto_collect(rows, roles, ncols, out)
+
+    if len(out["parameters"]) < 3:
+        out["parameters"] = []
+        _veneto_text_fallback(text, out)
     _veneto_summary(out)
     return out
 
@@ -3652,6 +3791,10 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_cafc(p)  # stesso formato FRIULAB/CAFC
         if p.stem.startswith("irisacqua_"):
             return p.stem, parse_pdf_irisacqua(p)
+        if p.stem.startswith("brianzacque_"):
+            return p.stem, parse_pdf_brianzacque(p)
+        if p.stem.startswith(LOMBARDIA_PREFIXES):
+            return p.stem, parse_pdf_lombardia(p)
         if p.stem.startswith(VENETO_PREFIXES):
             return p.stem, parse_pdf_veneto(p)
         if p.stem.startswith("IMP"):

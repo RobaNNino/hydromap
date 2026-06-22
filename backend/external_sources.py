@@ -954,6 +954,121 @@ OFFICIAL_SOURCES = [
         "type": "Rapporti di laboratorio",
         "scraped": True,
     },
+    # ---------- Lombardia ----------
+    {
+        "id": "gruppocap", "provider": "gruppocap",
+        "title": "Gruppo CAP — Città metropolitana di Milano",
+        "description": (
+            "Gruppo CAP gestisce il servizio idrico della Città metropolitana di "
+            "Milano e di parte delle province limitrofe: 'etichetta dell'acqua' "
+            "per comune con i parametri medi."),
+        "url": "https://www.gruppocap.it/it/cosa-facciamo/qualita-acqua/etichetta",
+        "agency": "Gruppo CAP", "ato": "ATO Città metropolitana di Milano (MI)",
+        "type": "Portale gestore", "scraped": True,
+    },
+    {
+        "id": "uniacque", "provider": "uniacque",
+        "title": "Uniacque — Bergamasca",
+        "description": (
+            "Uniacque S.p.A. gestisce il servizio idrico integrato della provincia "
+            "di Bergamo: parametri dell'acqua per comune e punto di rete."),
+        "url": "https://www.uniacque.bg.it/qualita-dellacqua/i-parametri-del-tuo-comune/",
+        "agency": "Uniacque S.p.A.", "ato": "ATO Bergamo (BG)",
+        "type": "Portale gestore", "scraped": True,
+    },
+    {
+        "id": "paviaacque", "provider": "paviaacque",
+        "title": "Pavia Acque — Pavese",
+        "description": (
+            "Pavia Acque gestisce il servizio idrico della provincia di Pavia: "
+            "analisi chimico-fisiche per comune e luogo di prelievo."),
+        "url": "https://www.paviaacque.it/", "agency": "Pavia Acque S.c.a r.l.",
+        "ato": "ATO Pavia (PV)", "type": "Portale gestore", "scraped": True,
+    },
+    {
+        "id": "padaniaacque", "provider": "padaniaacque",
+        "title": "Padania Acque — Cremonese",
+        "description": (
+            "Padania Acque S.p.A. gestisce il servizio idrico della provincia di "
+            "Cremona: controlli analitici per comune e punto di prelievo."),
+        "url": "https://www.padania-acque.it/ControlliAnalitici.jsp",
+        "agency": "Padania Acque S.p.A.", "ato": "ATO Cremona (CR)",
+        "type": "Portale gestore", "scraped": True,
+    },
+    {
+        "id": "acquebresciane", "provider": "acquebresciane",
+        "title": "Acque Bresciane — Bresciano",
+        "description": (
+            "Acque Bresciane gestisce il servizio idrico di gran parte della "
+            "provincia di Brescia: qualità dell'acqua per comune e punto di prelievo."),
+        "url": "https://www.acquebresciane.it/", "agency": "Acque Bresciane S.r.l.",
+        "ato": "ATO Brescia (BS)", "type": "Portale gestore", "scraped": True,
+    },
+    {
+        "id": "a2a", "provider": "a2a",
+        "title": "A2A Ciclo Idrico — Bresciano",
+        "description": (
+            "A2A Ciclo Idrico gestisce il servizio idrico della città di Brescia e "
+            "di numerosi comuni bresciani: valori medi semestrali per punto di rilevazione."),
+        "url": "https://www.a2acicloidrico.it/it/servizi/verifica-qualita-acqua",
+        "agency": "A2A Ciclo Idrico S.p.A.", "ato": "ATO Brescia (BS)",
+        "type": "Portale gestore", "scraped": True,
+    },
+    {
+        "id": "brianzacque", "provider": "brianzacque",
+        "title": "BrianzAcque — Monza e Brianza",
+        "description": (
+            "BrianzAcque S.r.l. gestisce il servizio idrico della provincia di Monza "
+            "e della Brianza: parametri dell'acqua per comune e punto di prelievo."),
+        "url": "https://www.brianzacque.it/", "agency": "BrianzAcque S.r.l.",
+        "ato": "ATO Monza e Brianza (MB)", "type": "Portale gestore", "scraped": True,
+    },
+    {
+        "id": "alfa", "provider": "alfa",
+        "title": "Alfa — Varesotto",
+        "description": (
+            "Alfa S.r.l. gestisce il servizio idrico integrato della provincia di "
+            "Varese: parametri analitici per comune e colonnina/punto di analisi."),
+        "url": "https://alfasii.it/", "agency": "Alfa S.r.l.",
+        "ato": "ATO Varese (VA)", "type": "Portale gestore", "scraped": True,
+    },
+    {
+        "id": "comoacqua", "provider": "comoacqua",
+        "title": "Como Acqua — Comasco",
+        "description": (
+            "Como Acqua S.r.l. gestisce il servizio idrico della provincia di Como: "
+            "qualità dell'acqua per comune e punto di prelievo."),
+        "url": "https://comoacqua.it/qualita-acqua", "agency": "Como Acqua S.r.l.",
+        "ato": "ATO Como (CO)", "type": "Portale gestore", "scraped": True,
+    },
+    {
+        "id": "secam", "provider": "secam",
+        "title": "SECAM — Valtellina e Valchiavenna",
+        "description": (
+            "SECAM S.p.A. gestisce il servizio idrico della provincia di Sondrio "
+            "(Valtellina e Valchiavenna): analisi per comune e fontana/punto."),
+        "url": "https://www.secam.co/", "agency": "SECAM S.p.A.",
+        "ato": "ATO Sondrio (SO)", "type": "Rapporti di laboratorio", "scraped": True,
+    },
+    {
+        "id": "aqamantova", "provider": "aqamantova",
+        "title": "AqA Mantova — Mantovano",
+        "description": (
+            "AqA Mantova (gruppo Tea) gestisce il servizio idrico di Mantova e di "
+            "molti comuni del Mantovano: qualità dell'acqua del tuo comune."),
+        "url": "https://www.aqamantova.it/aqa/qualita-acqua-del-tuo-comune",
+        "agency": "AqA Mantova S.r.l.", "ato": "ATO Mantova (MN)",
+        "type": "Portale gestore", "scraped": True,
+    },
+    {
+        "id": "acqualodigiana", "provider": "acqualodigiana",
+        "title": "Acqua Lodigiana (SAL) — Lodigiano",
+        "description": (
+            "Società Acqua Lodigiana (SAL) gestisce il servizio idrico della "
+            "provincia di Lodi: 'etichetta dell'acqua' semestrale per comune."),
+        "url": "https://www.acqualodigiana.it/", "agency": "Società Acqua Lodigiana S.r.l.",
+        "ato": "ATO Lodi (LO)", "type": "Portale gestore", "scraped": True,
+    },
     # ---------- Fonti istituzionali ----------
     {
         "id": "salute",
