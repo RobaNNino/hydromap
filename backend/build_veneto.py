@@ -90,6 +90,17 @@ ALIASES = {
     "serravalle": "serravalle scrivia",
     "cassano": "cassano spinola",
     "borghetto": "borghetto di borbera",
+    # Piemonte: comuni fusi nel 2018-2019 -> comune attuale
+    "falmenta": "valle cannobina",
+    "cavaglio spoccia": "valle cannobina",
+    "cursolo orasso": "valle cannobina",
+    "mosso": "valdilana",
+    "vallemosso": "valdilana",
+    "soprana": "valdilana",
+    "riva valdobbia": "alagna valsesia",
+    "rima s giuseppe": "alto sermenza",
+    "rimasco": "alto sermenza",
+    "quittengo": "campiglia cervo",
 }
 
 
@@ -200,6 +211,10 @@ class ComuneIndex:
                     tail = tail[1:]
                 for repl in ("vicentino", "vicentina"):
                     cands.append(" ".join(toks[:i] + [repl] + tail))
+            # 'v se'/'b se' -> Vercellese/Biellese (SII Vercellese)
+            if t in ("v", "b") and toks[i + 1:i + 2] == ["se"]:
+                repl = "vercellese" if t == "v" else "biellese"
+                cands.append(" ".join(toks[:i] + [repl] + toks[i + 2:]))
         seen, out = set(), []
         for c in cands:
             c = c.strip()
@@ -729,6 +744,18 @@ LOMBARDIA = {
     "sisi": {"folder": "sisi_pdf", "text_multi_re": r"COMUNE DI\s+([A-ZÀ-Ü'’, ]+?)\s*\n"},
     "valtiglione": {"folder": "valtiglione_pdf",
                     "text_re": r"Comune di prelievo:\s*([A-Za-zÀ-ü' ]+)"},
+    # ---- Piemonte 2ª tranche ----
+    "smat": {"folder": "smat-torino-pdf", "comune_col": "comune", "file_col": "file"},
+    "acda": {"folder": "acda-pdf", "comune_col": "comune", "file_col": "file"},
+    "acquanovara": {"folder": "acquanovara-vco-pdf", "comune_col": "comune", "file_col": "file"},
+    "acquedottopiana": {"folder": "acquedotto-piana-pdf", "comune_col": "comune", "file_col": "file"},
+    "cordarbiella": {"folder": "cordarbiella-lizmap-pdf", "comune_col": "acquedotto", "file_col": "file"},
+    "cordarvalsesia": {"folder": "cordar-valsesia-pdf", "comune_col": "comune", "file_col": "file"},
+    "siispa": {"folder": "siispa-pdf", "comune_col": "comune", "file_col": "file"},
+    "alpiacque": {"folder": "alpiacque-pdf", "comune_col": "comune_cartella", "file_col": "file"},
+    "sogeri": {"folder": "sogeri-pdf", "fixed_comune": "Alessandria"},
+    "mondoacqua": {"folder": "mondoacqua-pdf", "fixed_comune": "Mondovì"},
+    "aspasti": {"folder": "asp-asti-2025-pdf", "fixed_comune": "Asti"},
 }
 
 LOMBARDIA_META = {
@@ -763,6 +790,17 @@ LOMBARDIA_META = {
     "calso": ("C.A.L.S.O.", "ATO 4 Cuneese — Monregalese (CN)"),
     "sisi": ("SISI — Servizi Idrici Intercomunali", "ATO 4 Cuneese — Langhe (CN)"),
     "valtiglione": ("Acquedotto Valtiglione", "ATO 5 Astigiano (AT)"),
+    "smat": ("SMAT — Società Metropolitana Acque Torino", "ATO 3 Torinese (TO)"),
+    "acda": ("ACDA — Azienda Cuneese dell'Acqua", "ATO 4 Cuneese (CN)"),
+    "acquanovara": ("Acqua Novara.VCO", "ATO 1 Novarese / Verbano-Cusio-Ossola"),
+    "acquedottopiana": ("Acquedotto della Piana", "ATO 5 Astigiano (AT)"),
+    "cordarbiella": ("Cordar Biella Servizi", "ATO 2 Biellese (BI)"),
+    "cordarvalsesia": ("CO.R.D.A.R. Valsesia", "ATO 2 Biellese-Vercellese — Valsesia (VC)"),
+    "siispa": ("S.I.I. — Servizio Idrico Integrato", "ATO 2 Biellese-Vercellese (VC)"),
+    "alpiacque": ("Alpi Acque — Savigliano e Fossano", "ATO 4 Cuneese (CN)"),
+    "sogeri": ("SO.G.E.R.I. — Alessandria", "ATO 6 Alessandrino (AL)"),
+    "mondoacqua": ("Mondo Acqua — Mondovì", "ATO 4 Cuneese — Monregalese (CN)"),
+    "aspasti": ("ASP — Asti Servizi Pubblici", "ATO 5 Astigiano (AT)"),
 }
 
 

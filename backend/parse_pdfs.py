@@ -99,6 +99,17 @@ GEOJSON_FILES = {
     "infernotto": ROOT / "mappa-qualita-infernotto.json",
     "gestioneacqua": ROOT / "mappa-qualita-gestioneacqua.json",
     "valtiglione": ROOT / "mappa-qualita-valtiglione.json",
+    "smat": ROOT / "mappa-qualita-smat.json",
+    "acda": ROOT / "mappa-qualita-acda.json",
+    "acquanovara": ROOT / "mappa-qualita-acquanovara.json",
+    "acquedottopiana": ROOT / "mappa-qualita-acquedottopiana.json",
+    "cordarbiella": ROOT / "mappa-qualita-cordarbiella.json",
+    "cordarvalsesia": ROOT / "mappa-qualita-cordarvalsesia.json",
+    "siispa": ROOT / "mappa-qualita-siispa.json",
+    "sogeri": ROOT / "mappa-qualita-sogeri.json",
+    "alpiacque": ROOT / "mappa-qualita-alpiacque.json",
+    "mondoacqua": ROOT / "mappa-qualita-mondoacqua.json",
+    "aspasti": ROOT / "mappa-qualita-aspasti.json",
 }
 OUT_FILE = ROOT / "results.json"
 
@@ -139,6 +150,13 @@ def _parse_number(v: str) -> float | None:
         try:
             mantissa = float(m_sci.group(1).replace(",", "."))
             return mantissa * (10 ** int(m_sci.group(2)))
+        except ValueError:
+            pass
+    # Notazione "E": "7,71019E-05" → 7.71019e-5 (float grezzi di Acqua Novara)
+    m_e = re.search(r"([0-9]+(?:[.,][0-9]+)?)[eE]([+-]?\d+)", s)
+    if m_e:
+        try:
+            return float(m_e.group(1).replace(",", ".")) * (10 ** int(m_e.group(2)))
         except ValueError:
             pass
     # Strip operators / units, keep number portion (con separatori di migliaia).
@@ -2998,6 +3016,8 @@ LOMBARDIA_PREFIXES = (
     "bolzano_", "pubbliservizibrunico_",
     # Piemonte: tabelle generate
     "altalanga_", "calso_", "ccam_", "sisi_",
+    "smat_", "acda_", "acquanovara_", "acquedottopiana_", "cordarbiella_",
+    "cordarvalsesia_",
 )
 # Non parsabili (solo poligono + PDF, stato UNKNOWN): airspa e gestioneacqua
 # (scansioni/stub senza dati), latuaacqua e valtiglione (testo illeggibile).
@@ -3193,7 +3213,11 @@ def _veneto_summary(out: dict) -> None:
                 "durezza", "residuo", "conducib", "conduttiv", "bicarbonat",
                 "alcalin")):
             continue
-        if v > l:
+        # confronto come da D.Lgs 18/23: arrotonda il valore alle cifre decimali
+        # del limite (evita falsi allarmi da float grezzi: 0,703999996 vs 0,7).
+        md = re.search(r"\d[.,](\d+)", lim_raw)
+        v_cmp = round(v, len(md.group(1))) if md else round(v)
+        if v_cmp > l:
             exceed.append({"parametro": p["parametro"], "valore": p["valore"], "limite": p["limite"]})
     out["summary"] = {
         "total_parameters": len(out["parameters"]),

@@ -118,6 +118,17 @@ GEOJSON_FILES: dict[str, Path] = {
     "infernotto": ROOT / "mappa-qualita-infernotto.json",
     "gestioneacqua": ROOT / "mappa-qualita-gestioneacqua.json",
     "valtiglione": ROOT / "mappa-qualita-valtiglione.json",
+    "smat": ROOT / "mappa-qualita-smat.json",
+    "acda": ROOT / "mappa-qualita-acda.json",
+    "acquanovara": ROOT / "mappa-qualita-acquanovara.json",
+    "acquedottopiana": ROOT / "mappa-qualita-acquedottopiana.json",
+    "cordarbiella": ROOT / "mappa-qualita-cordarbiella.json",
+    "cordarvalsesia": ROOT / "mappa-qualita-cordarvalsesia.json",
+    "siispa": ROOT / "mappa-qualita-siispa.json",
+    "sogeri": ROOT / "mappa-qualita-sogeri.json",
+    "alpiacque": ROOT / "mappa-qualita-alpiacque.json",
+    "mondoacqua": ROOT / "mappa-qualita-mondoacqua.json",
+    "aspasti": ROOT / "mappa-qualita-aspasti.json",
 }
 RESULTS_FILE = ROOT / "results.json"
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
@@ -171,6 +182,36 @@ def _get_results() -> dict:
         if _RESULTS_CACHE is None:
             _RESULTS_CACHE = _load_results()
     return _RESULTS_CACHE
+
+
+_FEATURE_META_CACHE: dict | None = None
+
+
+def _get_feature_meta() -> dict:
+    """Indice leggero name -> proprieta' base (senza geometria) di OGNI feature
+    in mappa. Serve come fallback per /api/zone delle zone senza parametri
+    parsati (poligono + PDF soltanto), così non restituiscono 404."""
+    global _FEATURE_META_CACHE
+    if _FEATURE_META_CACHE is not None:
+        return _FEATURE_META_CACHE
+    meta: dict[str, dict] = {}
+    keys = ("comune", "zona_label", "provider", "provincia", "regione",
+            "periodo", "source_pdf")
+    for gf in GEOJSON_FILES.values():
+        if not gf.exists():
+            continue
+        try:
+            data = json.loads(gf.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for feat in data.get("features", []):
+            p = feat.get("properties") or {}
+            n = p.get("name")
+            if n and n not in meta:
+                meta[n] = {k: p.get(k) for k in keys}
+        data = None
+    _FEATURE_META_CACHE = meta
+    return meta
 
 
 # ---------- freshness analisi (data analisi → "nuova"/"in scadenza"/"vecchia") ----------
@@ -446,7 +487,31 @@ def api_health():
 def api_zone(name: str):
     r = _get_results().get(name)
     if not r:
-        abort(404, description=f"zone '{name}' not found")
+        # Zona presente in mappa ma senza parametri parsati (es. PDF immagine o
+        # scheda-stub): rispondi 200 con i metadati di base + link al PDF, niente
+        # 404. Lo stato e' UNKNOWN e il frontend mostra "dati non disponibili".
+        from zone_names import enrich_zone
+        fm = _get_feature_meta().get(name)
+        if not fm:
+            abort(404, description=f"zone '{name}' not found")
+        prov_id = fm.get("provider") or "acea_ato2"
+        enr = enrich_zone(name, fm.get("comune"), fm.get("zona_label"))
+        return jsonify({
+            "name": name,
+            "comune": fm.get("comune"),
+            "zona": fm.get("zona_label"),
+            "parameters": [],
+            "sections": {},
+            "periodo": fm.get("periodo"),
+            "summary": {"total_parameters": 0, "total_with_limit": 0,
+                        "exceedances": [], "status": "UNKNOWN"},
+            "pdf_url": f"/api/pdf/{name}",
+            "enrichment": enr,
+            "freshness": _freshness(fm.get("periodo")),
+            "provider": prov_id,
+            "provider_meta": PROVIDER_META.get(prov_id) or {},
+            "no_data": True,
+        })
     from zone_names import enrich_zone
     enr = enrich_zone(name, r.get("comune"), r.get("zona"))
     prov_id = r.get("provider", "acea_ato2")

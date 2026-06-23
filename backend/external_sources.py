@@ -1239,6 +1239,107 @@ OFFICIAL_SOURCES = [
         "url": "https://www.acquedottovaltiglione.it/", "agency": "Acquedotto Valtiglione e Comuni Riuniti S.p.A.",
         "ato": "ATO 5 Astigiano (AT)", "type": "Rapporti di laboratorio", "scraped": True,
     },
+    # ---------- Piemonte (2ª tranche) ----------
+    {
+        "id": "smat", "provider": "smat",
+        "title": "SMAT — Torino e area metropolitana",
+        "description": (
+            "SMAT (Società Metropolitana Acque Torino) gestisce il servizio idrico "
+            "della Città metropolitana di Torino (ATO 3): valori mediani annuali dei "
+            "parametri biologici e chimici per comune."),
+        "url": "https://www.smatorino.it/", "agency": "SMAT S.p.A.",
+        "ato": "ATO 3 Torinese (TO)", "type": "Portale gestore", "scraped": True,
+    },
+    {
+        "id": "acda", "provider": "acda",
+        "title": "ACDA — Cuneese e Saluzzese",
+        "description": (
+            "ACDA S.p.A. (Azienda Cuneese dell'Acqua) gestisce il servizio idrico di "
+            "gran parte della provincia di Cuneo: analisi semestrali per comune."),
+        "url": "https://www.acda.it/", "agency": "ACDA S.p.A.",
+        "ato": "ATO 4 Cuneese (CN)", "type": "Portale gestore", "scraped": True,
+    },
+    {
+        "id": "acquanovara", "provider": "acquanovara",
+        "title": "Acqua Novara.VCO — Novarese e VCO",
+        "description": (
+            "Acqua Novara.VCO S.p.A. gestisce il servizio idrico delle province di "
+            "Novara e del Verbano-Cusio-Ossola: qualità dell'acqua per comune."),
+        "url": "https://www.acquanovaravco.eu/", "agency": "Acqua Novara.VCO S.p.A.",
+        "ato": "ATO 1 Novarese / VCO", "type": "Portale gestore", "scraped": True,
+    },
+    {
+        "id": "acquedottopiana", "provider": "acquedottopiana",
+        "title": "Acquedotto della Piana — Astigiano",
+        "description": (
+            "L'Acquedotto della Piana serve comuni dell'Astigiano: nota informativa "
+            "sulla qualità dell'acqua distribuita per comune."),
+        "url": "https://www.acquedottodellapiana.it/", "agency": "Acquedotto della Piana S.p.A.",
+        "ato": "ATO 5 Astigiano (AT)", "type": "Portale gestore", "scraped": True,
+    },
+    {
+        "id": "cordarbiella", "provider": "cordarbiella",
+        "title": "Cordar Biella Servizi — Biellese",
+        "description": (
+            "Cordar Biella Servizi S.p.A. gestisce il servizio idrico della provincia "
+            "di Biella: certificati di analisi per acquedotto/località."),
+        "url": "https://www.cordarbiella.it/", "agency": "Cordar Biella Servizi S.p.A.",
+        "ato": "ATO 2 Biellese (BI)", "type": "Rapporti di laboratorio", "scraped": True,
+    },
+    {
+        "id": "cordarvalsesia", "provider": "cordarvalsesia",
+        "title": "CO.R.D.A.R. Valsesia — Valsesia",
+        "description": (
+            "CO.R.D.A.R. Valsesia S.p.A. gestisce il servizio idrico della Valsesia "
+            "(VC): analisi semestrali per comune e punto di prelievo."),
+        "url": "https://www.cordarvalsesia.it/", "agency": "CO.R.D.A.R. Valsesia S.p.A.",
+        "ato": "ATO 2 — Valsesia (VC)", "type": "Rapporti di laboratorio", "scraped": True,
+    },
+    {
+        "id": "siispa", "provider": "siispa",
+        "title": "S.I.I. — Servizio Idrico Integrato (Vercellese-Biellese)",
+        "description": (
+            "S.I.I. S.p.A. gestisce il servizio idrico di comuni del Vercellese e "
+            "Biellese: tabella riassuntiva dei parametri per comune."),
+        "url": "https://www.siispa.it/", "agency": "S.I.I. S.p.A.",
+        "ato": "ATO 2 Biellese-Vercellese (VC)", "type": "Portale gestore", "scraped": True,
+    },
+    {
+        "id": "sogeri", "provider": "sogeri",
+        "title": "SO.G.E.R.I. — Alessandria",
+        "description": (
+            "SO.G.E.R.I. gestisce l'acquedotto di Alessandria e comuni vicini: "
+            "documenti delle analisi delle acque potabili."),
+        "url": "https://www.sogeri.it/", "agency": "SO.G.E.R.I. S.p.A.",
+        "ato": "ATO 6 Alessandrino (AL)", "type": "Documenti gestore", "scraped": True,
+    },
+    {
+        "id": "alpiacque", "provider": "alpiacque",
+        "title": "Alpi Acque — Savigliano e Fossano",
+        "description": (
+            "Alpi Acque S.p.A. gestisce il servizio idrico del Saviglianese e "
+            "Fossanese (CN): rapporti di prova del laboratorio per comune."),
+        "url": "https://www.alpiacque.it/", "agency": "Alpi Acque S.p.A.",
+        "ato": "ATO 4 Cuneese (CN)", "type": "Rapporti di laboratorio", "scraped": True,
+    },
+    {
+        "id": "mondoacqua", "provider": "mondoacqua",
+        "title": "Mondo Acqua — Mondovì",
+        "description": (
+            "Mondo Acqua S.p.A. gestisce il servizio idrico di Mondovì e comuni del "
+            "Monregalese (CN): valori medi annuali dei parametri."),
+        "url": "https://www.mondoacqua.it/", "agency": "Mondo Acqua S.p.A.",
+        "ato": "ATO 4 Cuneese — Monregalese (CN)", "type": "Portale gestore", "scraped": True,
+    },
+    {
+        "id": "aspasti", "provider": "aspasti",
+        "title": "ASP — Asti Servizi Pubblici",
+        "description": (
+            "ASP S.p.A. (Asti Servizi Pubblici) gestisce il servizio idrico della "
+            "città di Asti: punti di prelievo e analisi dell'acqua distribuita."),
+        "url": "https://www.asp.asti.it/", "agency": "ASP S.p.A.",
+        "ato": "ATO 5 Astigiano (AT)", "type": "Portale gestore", "scraped": True,
+    },
     # ---------- Fonti istituzionali ----------
     {
         "id": "salute",

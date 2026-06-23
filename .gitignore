@@ -127,3 +127,15 @@ backend/data/fiora_polygons_cache.json
 
 # build logs
 *.log
+# Piemonte (2ª tranche, build_veneto.py)
+backend/acda-pdf/
+backend/acquanovara-vco-pdf/
+backend/acquedotto-piana-pdf/
+backend/alpiacque-pdf/
+backend/asp-asti-2025-pdf/
+backend/cordar-valsesia-pdf/
+backend/cordarbiella-lizmap-pdf/
+backend/mondoacqua-pdf/
+backend/siispa-pdf/
+backend/smat-torino-pdf/
+backend/sogeri-pdf/
