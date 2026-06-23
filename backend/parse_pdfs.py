@@ -80,6 +80,16 @@ GEOJSON_FILES = {
     "secam": ROOT / "mappa-qualita-secam.json",
     "uniacque": ROOT / "mappa-qualita-uniacque.json",
     "comoacqua": ROOT / "mappa-qualita-comoacqua.json",
+    # Trentino-Alto Adige (build_veneto.py)
+    "bolzano": ROOT / "mappa-qualita-bolzano.json",
+    "airspa": ROOT / "mappa-qualita-airspa.json",
+    "latuaacqua": ROOT / "mappa-qualita-latuaacqua.json",
+    "pubbliservizibrunico": ROOT / "mappa-qualita-pubbliservizibrunico.json",
+    "dolomitienergia": ROOT / "mappa-qualita-dolomitienergia.json",
+    "altogarda": ROOT / "mappa-qualita-altogarda.json",
+    "amambiente": ROOT / "mappa-qualita-amambiente.json",
+    "seab": ROOT / "mappa-qualita-seab.json",
+    "asmb": ROOT / "mappa-qualita-asmb.json",
 }
 OUT_FILE = ROOT / "results.json"
 
@@ -2975,7 +2985,14 @@ LOMBARDIA_PREFIXES = (
     "a2a_", "acqualodigiana_", "acquebresciane_", "alfa_", "aqamantova_",
     "brianzacque_", "gruppocap_", "padaniaacque_", "paviaacque_", "secam_",
     "uniacque_", "comoacqua_",
+    # Trentino-Alto Adige: formati tabellari generati
+    "bolzano_", "pubbliservizibrunico_",
 )
+# airspa (scansioni immagine) e latuaacqua (PDF Milano con testo sovrapposto e
+# illeggibile) non sono parsabili: restano solo poligono + PDF (stato UNKNOWN).
+
+# Trentino-Alto Adige: rapporti di prova dei laboratori (colonne posizionali).
+TAALAB_PREFIXES = ("dolomitienergia_", "altogarda_", "amambiente_", "seab_", "asmb_")
 
 _VEN_MONTHS = ("gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|"
                "settembre|ottobre|novembre|dicembre")
@@ -3273,6 +3290,76 @@ def parse_pdf_brianzacque(path: Path) -> dict:
             "limite": limite, "valore": valore,
             "valore_num": _parse_number(valore), "limite_num": _parse_number(limite),
         })
+    _veneto_summary(out)
+    return out
+
+
+def parse_pdf_taalab(path: Path) -> dict:
+    """Rapporti di prova dei laboratori trentini/altoatesini (Dolomiti Energia,
+    ECOOPERA, eco center). Colonne posizionali: la colonna 'Risultato' e' il
+    valore, il limite di legge e' nella colonna 'Limiti'/'L.Max.'/'Valore di
+    parametro'. LOD/LOQ/Incertezza vanno ignorati: si distinguono solo per x."""
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    seen: set[str] = set()
+    page_texts: list[str] = []
+    with pdfplumber.open(path) as pdf:
+        for pg in pdf.pages:
+            page_texts.append(pg.extract_text() or "")
+            rows = _cafc_rows(pg.extract_words())
+            # posizioni colonne dall'header (cerca le label tra tutte le parole)
+            xs: dict[str, float] = {}
+            for row in rows:
+                for w in row["words"]:
+                    t = w["text"]
+                    tl = t.lower()
+                    if "ris" not in xs and t.startswith("Risultato"):
+                        xs["ris"] = w["x0"]
+                    elif "um" not in xs and (t.startswith("U.M") or tl == "u.m."):
+                        xs["um"] = w["x0"]
+                    elif "lim" not in xs and (t.startswith("Limiti") or t.startswith("L.Max")
+                                              or tl.startswith("valore di par")):
+                        xs["lim"] = w["x0"]
+                    elif "inc" not in xs and t.startswith("Incertezza"):
+                        xs["inc"] = w["x0"]
+                    elif "lmin" not in xs and t.startswith("L.Min"):
+                        xs["lmin"] = w["x0"]
+            if "ris" not in xs or "lim" not in xs:
+                continue
+            ris, lim = xs["ris"], xs["lim"]
+            # confine destro della colonna valore = prima colonna dopo 'ris'
+            after_ris = [x for x in (xs.get("inc"), xs.get("lmin"), lim) if x and x > ris]
+            val_hi = (min(after_ris) if after_ris else ris + 70) - 6
+            name_hi = xs.get("um", ris - 80) - 14
+            val_lo = ris - 12
+            lim_lo = lim - 12
+            for row in rows:
+                nm, va, li = [], [], []
+                for w in row["words"]:
+                    x = w["x0"]
+                    if x < name_hi:
+                        nm.append(w["text"])
+                    elif val_lo <= x < val_hi:
+                        va.append(w["text"])
+                    elif x >= lim_lo:
+                        li.append(w["text"])
+                parametro = _clean(" ".join(nm)).lstrip("* ").strip()
+                valore = _clean(" ".join(va))
+                if (not parametro or not valore or len(parametro) > 50
+                        or _CAFC_SKIP_RX.match(parametro) or parametro.lower() in seen):
+                    continue
+                if not re.search(r"\d", valore) and valore.lower() not in (
+                        "assente", "presente", "n.r.", "incolore"):
+                    continue
+                # limite: togli l'incertezza '± ...' eventualmente agganciata
+                limite = re.sub(r"\s*[±+].*$", "", _clean(" ".join(li))).strip()
+                seen.add(parametro.lower())
+                out["parameters"].append({
+                    "parametro": parametro, "unita": "", "limite": limite,
+                    "valore": valore, "valore_num": _parse_number(valore),
+                    "limite_num": _parse_number(limite)})
+    out["periodo"] = _veneto_periodo("\n".join(page_texts))
     _veneto_summary(out)
     return out
 
@@ -3793,6 +3880,8 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_irisacqua(p)
         if p.stem.startswith("brianzacque_"):
             return p.stem, parse_pdf_brianzacque(p)
+        if p.stem.startswith(TAALAB_PREFIXES):
+            return p.stem, parse_pdf_taalab(p)
         if p.stem.startswith(LOMBARDIA_PREFIXES):
             return p.stem, parse_pdf_lombardia(p)
         if p.stem.startswith(VENETO_PREFIXES):

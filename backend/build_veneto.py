@@ -57,7 +57,8 @@ SIMPLIFY_TOL = 0.0006  # ~60 m: poligoni comunali leggeri per la cache
 # Regioni da indicizzare per il matching del comune. Tutti questi gestori
 # operano in Veneto/FVG: restringere l'indice riduce gli omonimi e i falsi
 # positivi del matching per prefisso.
-REGIONS_PRIMARY = ("Veneto", "Friuli-Venezia Giulia", "Lombardia")
+REGIONS_PRIMARY = ("Veneto", "Friuli-Venezia Giulia", "Lombardia",
+                   "Trentino-Alto Adige/Südtirol")
 REGIONS_BORDER = ()
 
 # Comuni soppressi/fusi o con abbreviazioni non risolvibili automaticamente.
@@ -74,6 +75,10 @@ ALIASES = {
     "bardello": "bardello con malgesso e bregano",
     "malgesso": "bardello con malgesso e bregano",
     "uggiate con ronago": "uggiate trevano",
+    # Trentino: comuni fusi in Terre d'Adige (2016)
+    "zambana": "terre d adige",
+    "nave san rocco": "terre d adige",
+    "faedo": "san michele all adige",  # fuso 2020 (evita match con Faedo Valtellino, SO)
 }
 
 
@@ -100,7 +105,9 @@ def short_feature_name(prefix: str, label: str, seed: str) -> str:
 
 def _norm(s: str) -> str:
     """Normalizza un nome di comune per il matching."""
-    s = _strip_accents(str(s or "")).lower()
+    s = _strip_accents(str(s or ""))
+    # camelCase da apostrofo perso nei nomi file: "dAdda" -> "d Adda"
+    s = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", s).lower()
     s = s.replace("'", " ").replace("`", " ")
     s = re.sub(r"[^a-z0-9\s]", " ", s)
     return re.sub(r"\s+", " ", s).strip()
@@ -129,13 +136,21 @@ class ComuneIndex:
         # primari hanno precedenza sui comuni di confine omonimi
         if key in self.by_norm and not primary:
             return
-        self.by_norm[key] = {
+        entry = {
             "name": name,
             "provincia": props.get("prov_name") or "",
             "prov_acr": props.get("prov_acr") or "",
             "regione": props.get("reg_name") or "",
             "geometry": geom,
         }
+        self.by_norm[key] = entry
+        # nomi bilingui IT/DE dell'Alto Adige ("Bressanone/Brixen"): indicizza
+        # anche le singole parti, cosi' "brixen"/"bressanone" trovano il comune.
+        if "/" in name:
+            for part in name.split("/"):
+                pk = _norm(part)
+                if pk and pk != key:
+                    self.by_norm.setdefault(pk, entry)
 
     def finalize(self) -> None:
         self.keys = sorted(self.by_norm.keys())
@@ -143,11 +158,24 @@ class ComuneIndex:
     def _candidates(self, raw: str) -> list[str]:
         """Genera varianti normalizzate da provare (abbreviazioni S./Vic.)."""
         base = _norm(raw)
-        cands = [base, ALIASES.get(base, base)]
+        # gli alias hanno la PRECEDENZA (override di comuni fusi/omonimi): vanno
+        # provati prima del match per prefisso, che sceglierebbe l'omonimo.
+        cands = []
+        if base in ALIASES:
+            cands.append(ALIASES[base])
+        cands.append(base)
         # comune fuso indicato tra parentesi, es. "Revere (Borgo Mantovano)"
         mpar = re.search(r"\(([^)]+)\)", raw)
         if mpar:
             cands.append(_norm(mpar.group(1)))
+        # nomi bilingui in input ("SALORNO/SALURN"): prova ogni parte separata
+        if "/" in raw:
+            for part in raw.split("/"):
+                pn = _norm(part)
+                if pn:
+                    if pn in ALIASES:
+                        cands.append(ALIASES[pn])
+                    cands.append(pn)
         toks = base.split()
         # espandi 's' / 'ss' iniziale o isolato -> San/Santa/...
         for i, t in enumerate(toks):
@@ -669,6 +697,17 @@ LOMBARDIA = {
                        "fname_re": r"^\d{4}-\d{2}-(.+?)_\d{4}"},
     "comoacqua": {"folder": "qualita-acqua-comuni",
                   "fname_re": r"^qualita-acqua-(.+)$"},
+    # ---- Trentino-Alto Adige ----
+    "bolzano": {"folder": "bolzano-trinkwasser-pdf", "comune_col": "comune", "file_col": "file"},
+    "dolomitienergia": {"folder": "dolomiti-energia-pdf", "comune_col": "comune", "file_col": "file"},
+    "amambiente": {"folder": "amambiente-pdf", "fname_re": r"^amambiente_([^_]+)_"},
+    "airspa": {"folder": "airspa-pdf", "fname_re": r"^airspa_([^_]+)_"},
+    "altogarda": {"folder": "altogarda-servizi-pdf",
+                  "text_re": r"Punto di prelievo:\s*([A-ZÀ-Ü'][A-ZÀ-Ü' ]+?)\s*-"},
+    "seab": {"folder": "seab-bolzano-pdf", "fixed_comune": "Bolzano/Bozen"},
+    "asmb": {"folder": "asmb-bressanone-pdf", "fixed_comune": "Bressanone/Brixen"},
+    "latuaacqua": {"folder": "latuaacqua-milano-pdf", "fixed_comune": "Milano"},
+    "pubbliservizibrunico": {"folder": "pubbliservizi-brunico-pdf", "fixed_comune": "Brunico/Bruneck"},
 }
 
 LOMBARDIA_META = {
@@ -684,6 +723,16 @@ LOMBARDIA_META = {
     "uniacque": ("Uniacque", "ATO Bergamo"),
     "acqualodigiana": ("Acqua Lodigiana (SAL)", "ATO Lodi"),
     "comoacqua": ("Como Acqua", "ATO Como"),
+    # Trentino-Alto Adige
+    "bolzano": ("Provincia di Bolzano — Trinkwasser", "Provincia Autonoma di Bolzano (BZ)"),
+    "dolomitienergia": ("Novareti (Dolomiti Energia)", "ATO Trentino — Vallagarina (TN)"),
+    "amambiente": ("AMAMBIENTE", "ATO Trentino — Valsugana (TN)"),
+    "airspa": ("AIR Servizi", "ATO Trentino (TN)"),
+    "altogarda": ("Alto Garda Servizi", "ATO Trentino — Alto Garda (TN)"),
+    "seab": ("SEAB Bolzano", "Comune di Bolzano (BZ)"),
+    "asmb": ("ASM Bressanone", "Comune di Bressanone (BZ)"),
+    "latuaacqua": ("MM — LaTuaAcqua Milano", "Città metropolitana di Milano (MI)"),
+    "pubbliservizibrunico": ("Pubbliservizi Brunico", "Comune di Brunico (BZ)"),
 }
 
 
@@ -701,7 +750,16 @@ def discover_lombardia(idx: ComuneIndex, prov: str) -> list[dict]:
     by_name = {p.name: p for p in src.rglob("*.pdf")}
     raw: list[tuple[str, Path]] = []  # (comune_raw, pdf_path)
 
-    if cfg.get("fname_re"):
+    if cfg.get("fixed_comune"):
+        for p in sorted(src.rglob("*.pdf")):
+            raw.append((cfg["fixed_comune"], p))
+    elif cfg.get("text_re"):
+        rx = re.compile(cfg["text_re"], re.I)
+        for p in sorted(src.rglob("*.pdf")):
+            m = rx.search(_safe_text(p))
+            if m:
+                raw.append((_clean_title(m.group(1)), p))
+    elif cfg.get("fname_re"):
         rx = re.compile(cfg["fname_re"], re.I)
         for p in sorted(src.glob("*.pdf")):
             m = rx.match(p.stem)

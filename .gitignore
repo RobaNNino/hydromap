@@ -97,6 +97,17 @@ backend/pavia-acque-pdf/
 backend/secam-pdf/
 backend/uniacque-pdf/
 backend/qualita-acqua-comuni/
+# Trentino-Alto Adige (build_veneto.py)
+backend/airspa-pdf/
+backend/altogarda-servizi-pdf/
+backend/amambiente-pdf/
+backend/asmb-bressanone-pdf/
+backend/bolzano-trinkwasser-pdf/
+backend/dolomiti-energia-pdf/
+backend/latuaacqua-milano-pdf/
+backend/novareti-pdf/
+backend/pubbliservizi-brunico-pdf/
+backend/seab-bolzano-pdf/
 
 # Cache scaricabili/rigenerabili dai builder ASA/Fiora. Non servono al runtime
 # su Render e tenere il deploy leggero aiuta il free tier.

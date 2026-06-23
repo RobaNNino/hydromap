@@ -1069,6 +1069,95 @@ OFFICIAL_SOURCES = [
         "url": "https://www.acqualodigiana.it/", "agency": "Società Acqua Lodigiana S.r.l.",
         "ato": "ATO Lodi (LO)", "type": "Portale gestore", "scraped": True,
     },
+    # ---------- Trentino-Alto Adige ----------
+    {
+        "id": "bolzano", "provider": "bolzano",
+        "title": "Provincia di Bolzano — Acqua potabile / Trinkwasser",
+        "description": (
+            "La Provincia Autonoma di Bolzano pubblica i dati di qualità "
+            "dell'acqua potabile per i comuni altoatesini (acquedotti e punti di "
+            "prelievo), in italiano e tedesco."),
+        "url": "https://www.provincia.bz.it/agricoltura-foreste/acqua-potabile-irrigazione/",
+        "agency": "Provincia Autonoma di Bolzano", "ato": "Provincia Autonoma di Bolzano (BZ)",
+        "type": "Portale istituzionale", "scraped": True,
+    },
+    {
+        "id": "dolomitienergia", "provider": "dolomitienergia",
+        "title": "Novareti / Dolomiti Energia — Trento e Vallagarina",
+        "description": (
+            "Novareti S.p.A. (gruppo Dolomiti Energia) gestisce il servizio idrico "
+            "di Trento, Rovereto e della Vallagarina: rapporti di prova del "
+            "laboratorio per punto di prelievo."),
+        "url": "https://www.novareti.eu/", "agency": "Novareti S.p.A.",
+        "ato": "ATO Trentino — Trento e Vallagarina (TN)",
+        "type": "Rapporti di laboratorio", "scraped": True,
+    },
+    {
+        "id": "amambiente", "provider": "amambiente",
+        "title": "AMAMBIENTE — Valsugana e Pergine",
+        "description": (
+            "AMAMBIENTE S.p.A. gestisce il servizio idrico di Pergine Valsugana e "
+            "comuni dell'Alta Valsugana: rapporti di prova del laboratorio ECOOPERA."),
+        "url": "https://www.amambiente.it/", "agency": "AMAMBIENTE S.p.A.",
+        "ato": "ATO Trentino — Valsugana (TN)", "type": "Rapporti di laboratorio", "scraped": True,
+    },
+    {
+        "id": "airspa", "provider": "airspa",
+        "title": "AIR Servizi — Trentino",
+        "description": (
+            "AIR Servizi pubblica i rapporti di prova della qualità dell'acqua "
+            "per i comuni serviti in Trentino."),
+        "url": "https://www.air-spa.it/", "agency": "AIR Servizi S.r.l.",
+        "ato": "ATO Trentino (TN)", "type": "Rapporti di laboratorio", "scraped": True,
+    },
+    {
+        "id": "altogarda", "provider": "altogarda",
+        "title": "Alto Garda Servizi — Riva del Garda",
+        "description": (
+            "Alto Garda Servizi S.p.A. gestisce il servizio idrico dell'Alto Garda "
+            "trentino (Riva del Garda, Arco, Nago-Torbole…): rapporti di prova del "
+            "laboratorio per punto di prelievo."),
+        "url": "https://www.altogardaservizi.com/servizi/acqua-e-fognatura/qualita-del-servizio",
+        "agency": "Alto Garda Servizi S.p.A.", "ato": "ATO Trentino — Alto Garda (TN)",
+        "type": "Rapporti di laboratorio", "scraped": True,
+    },
+    {
+        "id": "seab", "provider": "seab",
+        "title": "SEAB — Bolzano",
+        "description": (
+            "SEAB S.p.A. gestisce il servizio idrico della città di Bolzano: "
+            "rapporti di prova del laboratorio per i punti di prelievo cittadini."),
+        "url": "https://www.seab.bz.it/", "agency": "SEAB S.p.A.",
+        "ato": "Comune di Bolzano (BZ)", "type": "Rapporti di laboratorio", "scraped": True,
+    },
+    {
+        "id": "asmb", "provider": "asmb",
+        "title": "ASM Bressanone / Stadtwerke Brixen",
+        "description": (
+            "Le Aziende Servizi Municipalizzati di Bressanone (Stadtwerke Brixen) "
+            "pubblicano i rapporti di prova dell'acqua potabile (laboratorio eco "
+            "center), in italiano e tedesco."),
+        "url": "https://www.asmb.it/", "agency": "ASM Bressanone S.p.A.",
+        "ato": "Comune di Bressanone (BZ)", "type": "Rapporti di laboratorio", "scraped": True,
+    },
+    {
+        "id": "latuaacqua", "provider": "latuaacqua",
+        "title": "MM — LaTuaAcqua Milano",
+        "description": (
+            "MM S.p.A. gestisce l'acquedotto di Milano: dati analitici medi per "
+            "le quattro zone della città (Nord-Est, Nord-Ovest, Sud-Est, Sud-Ovest)."),
+        "url": "https://www.latuaacqua.it/", "agency": "MM S.p.A.",
+        "ato": "Città metropolitana di Milano (MI)", "type": "Portale gestore", "scraped": True,
+    },
+    {
+        "id": "pubbliservizibrunico", "provider": "pubbliservizibrunico",
+        "title": "Pubbliservizi Brunico / Bruneck",
+        "description": (
+            "L'Azienda Pubbliservizi di Brunico (Bruneck) pubblica i valori di "
+            "qualità dell'acqua potabile del comune."),
+        "url": "https://www.pubbliservizi.it/", "agency": "Azienda Pubbliservizi Brunico",
+        "ato": "Comune di Brunico (BZ)", "type": "Portale gestore", "scraped": True,
+    },
     # ---------- Fonti istituzionali ----------
     {
         "id": "salute",
