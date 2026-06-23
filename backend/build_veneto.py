@@ -86,6 +86,10 @@ ALIASES = {
     # disambigua omonimi dopo l'aggiunta di Piemonte
     "cerano intelvi": "cerano d intelvi",      # Como (comoacqua), non Cerano (NO)
     "villafranca": "villafranca di verona",    # Acque Veronesi, non d'Asti
+    # Gestione Acqua (Alessandrino): nomi file troncati -> comune AL corretto
+    "serravalle": "serravalle scrivia",
+    "cassano": "cassano spinola",
+    "borghetto": "borghetto di borbera",
 }
 
 
