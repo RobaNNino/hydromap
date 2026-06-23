@@ -1158,6 +1158,87 @@ OFFICIAL_SOURCES = [
         "url": "https://www.pubbliservizi.it/", "agency": "Azienda Pubbliservizi Brunico",
         "ato": "Comune di Brunico (BZ)", "type": "Portale gestore", "scraped": True,
     },
+    # ---------- Piemonte ----------
+    {
+        "id": "acquambiente", "provider": "acquambiente",
+        "title": "ALAC — Azienda Cuneese dell'Acqua",
+        "description": (
+            "ALAC S.p.A. gestisce il servizio idrico di Cuneo e di numerosi comuni "
+            "del Cuneese (Alba, Bra…): rapporti di prova del laboratorio per punto "
+            "di campionamento."),
+        "url": "https://www.alac.cuneo.it/", "agency": "ALAC S.p.A.",
+        "ato": "ATO 4 Cuneese (CN)", "type": "Rapporti di laboratorio", "scraped": True,
+    },
+    {
+        "id": "altalanga", "provider": "altalanga",
+        "title": "Acquedotto delle Langhe e delle Alpi Cuneesi",
+        "description": (
+            "L'acquedotto serve i comuni dell'Alta Langa (CN): valori medi dei "
+            "parametri dell'acqua erogata per comune."),
+        "url": "https://www.acquealtalanga.it/", "agency": "Acquedced Langhe e Alpi Cuneesi S.p.A.",
+        "ato": "ATO 4 Cuneese — Alta Langa (CN)", "type": "Portale gestore", "scraped": True,
+    },
+    {
+        "id": "calso", "provider": "calso",
+        "title": "C.A.L.S.O. — Monregalese",
+        "description": (
+            "C.A.L.S.O. S.p.A. (Consorzio Acquedotto Langhe e Alpi - Sud Ovest) "
+            "gestisce il servizio idrico di comuni del Monregalese (CN): qualità "
+            "dell'acqua per comune."),
+        "url": "https://calso.org/qualita-e-risorse/analisi-delle-acque/",
+        "agency": "C.A.L.S.O. S.p.A.", "ato": "ATO 4 Cuneese — Monregalese (CN)",
+        "type": "Portale gestore", "scraped": True,
+    },
+    {
+        "id": "infernotto", "provider": "infernotto",
+        "title": "Infernotto Acqua — Valle Infernotto",
+        "description": (
+            "Infernotto Acqua S.p.A. gestisce il servizio idrico di Bagnolo "
+            "Piemonte e dintorni (CN): rapporti di prova del laboratorio ARPA "
+            "Piemonte."),
+        "url": "https://www.infernottoacqua.it/", "agency": "Infernotto Acqua S.p.A.",
+        "ato": "ATO 4 Cuneese — Valle Infernotto (CN)", "type": "Rapporti di laboratorio", "scraped": True,
+    },
+    {
+        "id": "sisi", "provider": "sisi",
+        "title": "SISI — Servizi Idrici Intercomunali (Langhe)",
+        "description": (
+            "SISI S.r.l. (Società Intercomunale Servizi Idrici, Alba) gestisce "
+            "l'acquedotto di comuni delle Langhe (CN): analisi dell'acqua per "
+            "comune e rete di distribuzione."),
+        "url": "https://www.sisiacque.it/", "agency": "SISI S.r.l.",
+        "ato": "ATO 4 Cuneese — Langhe (CN)", "type": "Rapporti di laboratorio", "scraped": True,
+    },
+    {
+        "id": "gestioneacqua", "provider": "gestioneacqua",
+        "title": "Gestione Acqua — Alessandrino",
+        "description": (
+            "Gestione Acqua S.p.A. gestisce il servizio idrico di comuni della "
+            "provincia di Alessandria (Val Borbera, Tortonese): scheda qualità "
+            "dell'acqua per comune."),
+        "url": "https://www.gestioneacqua.it/servizi/qualita-dellacqua/",
+        "agency": "Gestione Acqua S.p.A.", "ato": "ATO 6 Alessandrino (AL)",
+        "type": "Portale gestore", "scraped": True,
+    },
+    {
+        "id": "ccam", "provider": "ccam",
+        "title": "CCAM — Casale Monferrato",
+        "description": (
+            "CCAM S.p.A. (Consorzio di Comuni per l'Acquedotto del Monferrato) "
+            "gestisce il servizio idrico del Casalese (AL): dati medi trimestrali "
+            "per fonte di campionamento."),
+        "url": "https://ccam.it/qualita-acqua/", "agency": "CCAM S.p.A.",
+        "ato": "ATO 6 Alessandrino — Casalese (AL)", "type": "Portale gestore", "scraped": True,
+    },
+    {
+        "id": "valtiglione", "provider": "valtiglione",
+        "title": "Acquedotto Valtiglione — Astigiano",
+        "description": (
+            "Il Consorzio Acquedotto Valtiglione serve comuni dell'Astigiano (AT): "
+            "composizione analitica dell'acqua distribuita."),
+        "url": "https://www.acquedottovaltiglione.it/", "agency": "Acquedotto Valtiglione e Comuni Riuniti S.p.A.",
+        "ato": "ATO 5 Astigiano (AT)", "type": "Rapporti di laboratorio", "scraped": True,
+    },
     # ---------- Fonti istituzionali ----------
     {
         "id": "salute",

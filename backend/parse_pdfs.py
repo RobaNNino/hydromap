@@ -90,6 +90,15 @@ GEOJSON_FILES = {
     "amambiente": ROOT / "mappa-qualita-amambiente.json",
     "seab": ROOT / "mappa-qualita-seab.json",
     "asmb": ROOT / "mappa-qualita-asmb.json",
+    # Piemonte (build_veneto.py)
+    "altalanga": ROOT / "mappa-qualita-altalanga.json",
+    "calso": ROOT / "mappa-qualita-calso.json",
+    "ccam": ROOT / "mappa-qualita-ccam.json",
+    "sisi": ROOT / "mappa-qualita-sisi.json",
+    "acquambiente": ROOT / "mappa-qualita-acquambiente.json",
+    "infernotto": ROOT / "mappa-qualita-infernotto.json",
+    "gestioneacqua": ROOT / "mappa-qualita-gestioneacqua.json",
+    "valtiglione": ROOT / "mappa-qualita-valtiglione.json",
 }
 OUT_FILE = ROOT / "results.json"
 
@@ -2987,12 +2996,15 @@ LOMBARDIA_PREFIXES = (
     "uniacque_", "comoacqua_",
     # Trentino-Alto Adige: formati tabellari generati
     "bolzano_", "pubbliservizibrunico_",
+    # Piemonte: tabelle generate
+    "altalanga_", "calso_", "ccam_", "sisi_",
 )
-# airspa (scansioni immagine) e latuaacqua (PDF Milano con testo sovrapposto e
-# illeggibile) non sono parsabili: restano solo poligono + PDF (stato UNKNOWN).
+# Non parsabili (solo poligono + PDF, stato UNKNOWN): airspa e gestioneacqua
+# (scansioni/stub senza dati), latuaacqua e valtiglione (testo illeggibile).
 
-# Trentino-Alto Adige: rapporti di prova dei laboratori (colonne posizionali).
-TAALAB_PREFIXES = ("dolomitienergia_", "altogarda_", "amambiente_", "seab_", "asmb_")
+# Rapporti di prova dei laboratori a colonne posizionali (TAA + Piemonte).
+TAALAB_PREFIXES = ("dolomitienergia_", "altogarda_", "amambiente_", "seab_", "asmb_",
+                   "acquambiente_", "infernotto_")
 
 _VEN_MONTHS = ("gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|"
                "settembre|ottobre|novembre|dicembre")
@@ -3133,9 +3145,10 @@ def _veneto_text_fallback(text: str, out: dict) -> None:
         })
 
 
+# NB: "max" non e' qui: "Max 1500" (CALSO) e' una soglia massima valida.
 _VEN_NONNUM_WORDS = ("se ", "senza", "anomale", "accettabile", "previsto", "min",
-                     "max", "variazioni", "somma", "trattata", "disinfettata",
-                     "s.v.r", "tra ", "ph", "calcolo")
+                     "variazioni", "somma", "trattata", "disinfettata",
+                     "s.v.r", "tra ", "ph", "calcolo", "consigliat")
 
 
 def _veneto_is_max_threshold(lim_raw: str) -> bool:
@@ -3169,7 +3182,16 @@ def _veneto_summary(out: dict) -> None:
             total_with_limit += 1
             continue
         total_with_limit += 1
-        if "cloro residuo" in p["parametro"].lower():
+        plow = p["parametro"].lower()
+        if "cloro residuo" in plow:
+            continue
+        # Ioni maggiori/indicatori: il loro limite di legge e' sempre >= alcuni
+        # mg/l (solfati 250, sodio 200, conducibilita' 2500...). Un limite < 1 e'
+        # un errore della scheda sorgente: non generare un falso allarme.
+        if l < 1 and any(m in plow for m in (
+                "solfat", "clorur", "sodio", "calcio", "potassio", "magnesio",
+                "durezza", "residuo", "conducib", "conduttiv", "bicarbonat",
+                "alcalin")):
             continue
         if v > l:
             exceed.append({"parametro": p["parametro"], "valore": p["valore"], "limite": p["limite"]})
@@ -3312,28 +3334,28 @@ def parse_pdf_taalab(path: Path) -> dict:
             xs: dict[str, float] = {}
             for row in rows:
                 for w in row["words"]:
-                    t = w["text"]
-                    tl = t.lower()
-                    if "ris" not in xs and t.startswith("Risultato"):
+                    tl = w["text"].lower()
+                    if "ris" not in xs and (tl.startswith("risultato") or tl == "valore"):
                         xs["ris"] = w["x0"]
-                    elif "um" not in xs and (t.startswith("U.M") or tl == "u.m."):
+                    elif "um" not in xs and tl.startswith("u.m"):
                         xs["um"] = w["x0"]
-                    elif "lim" not in xs and (t.startswith("Limiti") or t.startswith("L.Max")
+                    elif "lim" not in xs and (tl.startswith("limiti") or tl.startswith("l.max")
                                               or tl.startswith("valore di par")):
                         xs["lim"] = w["x0"]
-                    elif "inc" not in xs and t.startswith("Incertezza"):
+                    elif "inc" not in xs and tl.startswith("incertezza"):
                         xs["inc"] = w["x0"]
-                    elif "lmin" not in xs and t.startswith("L.Min"):
+                    elif "lmin" not in xs and tl.startswith("l.min"):
                         xs["lmin"] = w["x0"]
-            if "ris" not in xs or "lim" not in xs:
+            if "ris" not in xs:  # senza colonna valore non si parsa
                 continue
-            ris, lim = xs["ris"], xs["lim"]
+            ris = xs["ris"]
+            lim = xs.get("lim")  # la colonna limiti puo' mancare (es. ARPA)
             # confine destro della colonna valore = prima colonna dopo 'ris'
             after_ris = [x for x in (xs.get("inc"), xs.get("lmin"), lim) if x and x > ris]
             val_hi = (min(after_ris) if after_ris else ris + 70) - 6
             name_hi = xs.get("um", ris - 80) - 14
             val_lo = ris - 12
-            lim_lo = lim - 12
+            lim_lo = (lim - 12) if lim else 1e9
             for row in rows:
                 nm, va, li = [], [], []
                 for w in row["words"]:
@@ -3561,7 +3583,8 @@ def parse_pdf_ats(path: Path) -> dict:
 _CAFC_SKIP_RX = re.compile(
     r"^(APAT|UNI|ISO|EN |DIN|Metodo|Documento|FRIULAB|Data |Spett|RAPPORTO|"
     r"RISULTATI|Prova\b|Note |Condizioni|Luogo|Prelievo|Descrizione|Campione|"
-    r"Temperatura di|C\.F|Cloro residuo)", re.I)
+    r"Temperatura di|C\.F|Cloro residuo|Segue|Si rileva|Riferimento|Rapporto|"
+    r"Pag\b|Numero|Punto)", re.I)
 
 
 def _cafc_rows(words: list[dict], tol: float = 4.0) -> list[dict]:

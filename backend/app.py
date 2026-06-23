@@ -109,6 +109,15 @@ GEOJSON_FILES: dict[str, Path] = {
     "amambiente": ROOT / "mappa-qualita-amambiente.json",
     "seab": ROOT / "mappa-qualita-seab.json",
     "asmb": ROOT / "mappa-qualita-asmb.json",
+    # Piemonte (build_veneto.py)
+    "altalanga": ROOT / "mappa-qualita-altalanga.json",
+    "calso": ROOT / "mappa-qualita-calso.json",
+    "ccam": ROOT / "mappa-qualita-ccam.json",
+    "sisi": ROOT / "mappa-qualita-sisi.json",
+    "acquambiente": ROOT / "mappa-qualita-acquambiente.json",
+    "infernotto": ROOT / "mappa-qualita-infernotto.json",
+    "gestioneacqua": ROOT / "mappa-qualita-gestioneacqua.json",
+    "valtiglione": ROOT / "mappa-qualita-valtiglione.json",
 }
 RESULTS_FILE = ROOT / "results.json"
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"

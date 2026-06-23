@@ -58,7 +58,7 @@ SIMPLIFY_TOL = 0.0006  # ~60 m: poligoni comunali leggeri per la cache
 # operano in Veneto/FVG: restringere l'indice riduce gli omonimi e i falsi
 # positivi del matching per prefisso.
 REGIONS_PRIMARY = ("Veneto", "Friuli-Venezia Giulia", "Lombardia",
-                   "Trentino-Alto Adige/Südtirol")
+                   "Trentino-Alto Adige/Südtirol", "Piemonte")
 REGIONS_BORDER = ()
 
 # Comuni soppressi/fusi o con abbreviazioni non risolvibili automaticamente.
@@ -79,6 +79,13 @@ ALIASES = {
     "zambana": "terre d adige",
     "nave san rocco": "terre d adige",
     "faedo": "san michele all adige",  # fuso 2020 (evita match con Faedo Valtellino, SO)
+    # Piemonte: nomi corti -> comune corretto
+    "bagnolo": "bagnolo piemonte",
+    "bastia": "bastia mondovi",
+    "albaretto torre": "albaretto della torre",
+    # disambigua omonimi dopo l'aggiunta di Piemonte
+    "cerano intelvi": "cerano d intelvi",      # Como (comoacqua), non Cerano (NO)
+    "villafranca": "villafranca di verona",    # Acque Veronesi, non d'Asti
 }
 
 
@@ -708,6 +715,16 @@ LOMBARDIA = {
     "asmb": {"folder": "asmb-bressanone-pdf", "fixed_comune": "Bressanone/Brixen"},
     "latuaacqua": {"folder": "latuaacqua-milano-pdf", "fixed_comune": "Milano"},
     "pubbliservizibrunico": {"folder": "pubbliservizi-brunico-pdf", "fixed_comune": "Brunico/Bruneck"},
+    # ---- Piemonte (comune dal nome file o dal testo) ----
+    "altalanga": {"folder": "altalanga_pdf", "fname_re": r"^(.+?)_\d{4}-\d{2}-\d{2}"},
+    "acquambiente": {"folder": "acquambiente_pdf", "fname_re": r"^(.+?)_\d{4}-\d{2}-\d{2}"},
+    "infernotto": {"folder": "infernotto_pdf", "fname_re": r"^(.+?)_\d{4}-\d{2}-\d{2}"},
+    "gestioneacqua": {"folder": "gestioneacqua_pdf", "fname_re": r"^(.+?)_\d{4}-S"},
+    "ccam": {"folder": "ccam_pdf", "fname_re": r"^CCAM_(.+?)_\d"},
+    "calso": {"folder": "calso_pdf", "fname_re": r"^(.+)$"},
+    "sisi": {"folder": "sisi_pdf", "text_multi_re": r"COMUNE DI\s+([A-ZÀ-Ü'’, ]+?)\s*\n"},
+    "valtiglione": {"folder": "valtiglione_pdf",
+                    "text_re": r"Comune di prelievo:\s*([A-Za-zÀ-ü' ]+)"},
 }
 
 LOMBARDIA_META = {
@@ -733,6 +750,15 @@ LOMBARDIA_META = {
     "asmb": ("ASM Bressanone", "Comune di Bressanone (BZ)"),
     "latuaacqua": ("MM — LaTuaAcqua Milano", "Città metropolitana di Milano (MI)"),
     "pubbliservizibrunico": ("Pubbliservizi Brunico", "Comune di Brunico (BZ)"),
+    # Piemonte
+    "altalanga": ("Alta Langa (Acquedotto)", "ATO 4 Cuneese — Alta Langa (CN)"),
+    "acquambiente": ("ALAC — Azienda Cuneese dell'Acqua", "ATO 4 Cuneese (CN)"),
+    "infernotto": ("Infernotto Acqua", "ATO 4 Cuneese — Valle Infernotto (CN)"),
+    "gestioneacqua": ("Gestione Acqua", "ATO 6 Alessandrino (AL)"),
+    "ccam": ("CCAM", "ATO 1 Verbano-Cusio-Ossola / Novara (Casale M.)"),
+    "calso": ("C.A.L.S.O.", "ATO 4 Cuneese — Monregalese (CN)"),
+    "sisi": ("SISI — Servizi Idrici Intercomunali", "ATO 4 Cuneese — Langhe (CN)"),
+    "valtiglione": ("Acquedotto Valtiglione", "ATO 5 Astigiano (AT)"),
 }
 
 
@@ -753,6 +779,17 @@ def discover_lombardia(idx: ComuneIndex, prov: str) -> list[dict]:
     if cfg.get("fixed_comune"):
         for p in sorted(src.rglob("*.pdf")):
             raw.append((cfg["fixed_comune"], p))
+    elif cfg.get("text_multi_re"):
+        # un PDF copre piu' comuni elencati nel testo ("COMUNE DI X, Y, Z")
+        rx = re.compile(cfg["text_multi_re"], re.I)
+        for p in sorted(src.rglob("*.pdf")):
+            m = rx.search(_safe_text(p))
+            if not m:
+                continue
+            for part in re.split(r",|\se\s", m.group(1)):
+                part = _clean_title(part)
+                if len(part) >= 3:
+                    raw.append((part, p))
     elif cfg.get("text_re"):
         rx = re.compile(cfg["text_re"], re.I)
         for p in sorted(src.rglob("*.pdf")):
