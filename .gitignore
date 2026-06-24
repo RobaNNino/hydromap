@@ -7,6 +7,9 @@ node_modules/
 backend/data/news_cache.json
 backend/data/realtime_cache.json
 backend/data/geocache.json
+# AcquaMap Business: dati clienti + manage_token (NON committare)
+backend/data/business.json
+backend/data/business.json.tmp
 # File di debug
 _dbg.py
 news_out.json

@@ -59,6 +59,7 @@ const state = {
   activeCategory: "tutte",
   nasoniLayer: null,
   aqueductsLayer: null,
+  businessLayer: null,
   parameter: "",
   paramData: null,
   compareList: [],
@@ -1081,6 +1082,62 @@ async function loadAqueducts() {
   return grp;
 }
 
+// ---------- ACQUAMAP BUSINESS ----------
+// Layer additivo: attività verificate (bar, ristoranti, hotel…) come marker.
+// Cliccando un marker si apre una scheda rapida con link al profilo completo.
+const BUSINESS_CAT_ICONS = {
+  bar: "☕", ristorante: "🍽️", hotel: "🏨", palestra: "🏋️",
+  centro_sportivo: "🤸", ufficio: "🏢", altro: "📍",
+};
+function _businessDivIcon(p) {
+  const verified = p.verification_status && p.verification_status !== "not_verified";
+  const ico = BUSINESS_CAT_ICONS[p.category] || "📍";
+  return L.divIcon({
+    className: "",
+    html: `<div class="biz-marker ${verified ? "verified" : ""}">
+      <span class="biz-marker-ico">${ico}</span>
+      ${verified ? '<span class="biz-marker-check">✓</span>' : ""}
+    </div>`,
+    iconSize: [34, 34],
+    iconAnchor: [17, 17],
+  });
+}
+async function loadBusiness() {
+  if (state.businessLayer) return state.businessLayer;
+  $("toggle-business").disabled = true;
+  try {
+    const r = await fetch(API("/api/business/map"));
+    const d = await r.json();
+    const grp = L.layerGroup();
+    (d.features || []).forEach(f => {
+      const p = f.properties || {};
+      const [lng, lat] = f.geometry.coordinates;
+      const verifyTxt = p.verification_status === "business_verified"
+        ? "AcquaMap Business Verified"
+        : p.verification_status === "verified" ? "Verificato" : "Non verificato";
+      const expand = p.is_expand_program ? '<span class="pill sev-info">★ Expand Program</span>' : "";
+      const water = (p.water_type || []).slice(0, 3)
+        .map(t => `<span class="pill">💧 ${escapeHtml(t)}</span>`).join("");
+      const m = L.marker([lat, lng], { icon: _businessDivIcon(p) });
+      m.bindPopup(`<div class="news-popup">
+        <div class="title">${BUSINESS_CAT_ICONS[p.category] || "📍"} ${escapeHtml(p.business_name || "Attività")}</div>
+        <div class="pills">
+          <span class="pill ${p.verification_status !== "not_verified" ? "sev-info" : ""}">${escapeHtml(verifyTxt)}</span>
+          ${expand}
+        </div>
+        ${water ? `<div class="pills">${water}</div>` : ""}
+        <div class="summary">${escapeHtml(p.city || "")}</div>
+        <a class="news-popup-link" href="/acquamap/business/${encodeURIComponent(p.slug)}" target="_blank" rel="noopener">Apri profilo →</a>
+      </div>`);
+      grp.addLayer(m);
+    });
+    state.businessLayer = grp;
+    return grp;
+  } finally {
+    $("toggle-business").disabled = false;
+  }
+}
+
 // ---------- LAYER TOGGLES ----------
 $("toggle-zones").addEventListener("change", e => {
   if (!state.geoLayer) return;
@@ -1097,6 +1154,12 @@ $("toggle-nasoni").addEventListener("change", async e => {
 $("toggle-aqueducts").addEventListener("change", async e => {
   const grp = await loadAqueducts();
   if (e.target.checked) grp.addTo(map); else map.removeLayer(grp);
+});
+$("toggle-business").addEventListener("change", async e => {
+  try {
+    const grp = await loadBusiness();
+    if (e.target.checked) grp.addTo(map); else map.removeLayer(grp);
+  } catch (_) { e.target.checked = false; }
 });
 
 // ---------- FONTI UFFICIALI ----------

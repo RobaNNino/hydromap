@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="it" class="biz">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#0c4a6e" />
+<meta name="description" content="Profilo AcquaMap Business: qualità e tipo di acqua servita dall'attività." />
+<meta name="api-base" content="https://hydromap-api.onrender.com" />
+<title>Profilo — AcquaMap Business</title>
+<link rel="icon" href="/LOGO.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
+<link rel="stylesheet" href="/style.css" />
+<link rel="stylesheet" href="/business/business.css" />
+</head>
+<body class="biz-page">
+
+<header class="biz-topbar">
+  <a class="biz-brand" href="/">
+    <img src="/LOGO.svg" alt="" /><b>Acqua<span>Map</span> Business</b>
+  </a>
+  <div class="spacer"></div>
+  <a class="biz-link" href="/">← Mappa</a>
+</header>
+
+<div class="biz-wrap" id="profile-root">
+  <div class="biz-loading">Caricamento profilo…</div>
+</div>
+
+<script src="/business/business.js"></script>
+<script>
+(async function () {
+  const root = $("profile-root");
+  const slug = slugFromLocation();
+  if (!slug) {
+    root.innerHTML = emptyState("Profilo non specificato", "Manca lo slug dell'attività nell'indirizzo.");
+    return;
+  }
+
+  function emptyState(title, msg) {
+    return `<div class="biz-empty"><span class="ico">🔍</span>
+      <h2>${escapeHtml(title)}</h2><p>${escapeHtml(msg)}</p>
+      <div class="biz-actions" style="justify-content:center;margin-top:16px">
+        <a class="biz-btn biz-btn-ghost" href="/">Torna alla mappa</a></div></div>`;
+  }
+
+  function waterSection(wi) {
+    if (!wi) return "";
+    const types = (wi.water_type || []).map(t =>
+      `<span class="water-pill">💧 ${escapeHtml(WATER_TYPE_LABELS[t] || t)}</span>`).join("");
+    const filter = FILTER_LABELS[wi.has_filter_system] || "Non dichiarato";
+    const params = Object.keys(WATER_PARAM_LABELS)
+      .filter(k => wi[k] !== null && wi[k] !== undefined)
+      .map(k => `<div class="param-tile"><div class="pt-k">${escapeHtml(WATER_PARAM_LABELS[k])}</div>
+                  <div class="pt-v">${escapeHtml(String(wi[k]))}</div></div>`).join("");
+    const updated = wi.last_updated_at
+      ? `<div class="water-updated">Ultimo aggiornamento: ${escapeHtml(new Date(wi.last_updated_at).toLocaleDateString("it-IT"))}</div>` : "";
+    const extras = [];
+    if (wi.has_sparkling_water) extras.push("Acqua frizzante disponibile");
+    if (wi.has_natural_water) extras.push("Acqua naturale disponibile");
+    return `<div class="biz-card">
+      <h2>💧 L'acqua qui</h2>
+      ${types ? `<div class="water-types">${types}</div>` : `<p class="sub">Tipo di acqua non dichiarato.</p>`}
+      <div class="biz-meta-list" style="margin-top:14px">
+        <div class="row"><span class="k">Filtrazione</span><span><b>${escapeHtml(filter)}</b></span></div>
+        ${extras.length ? `<div class="row"><span class="k">Extra</span><span>${escapeHtml(extras.join(" · "))}</span></div>` : ""}
+      </div>
+      ${params ? `<h3>Parametri principali</h3><div class="water-params">${params}</div>` : ""}
+      ${wi.notes ? `<div class="water-note">📝 ${escapeHtml(wi.notes)}</div>` : ""}
+      ${updated}
+    </div>`;
+  }
+
+  try {
+    const p = await apiFetch(`/api/business/${encodeURIComponent(slug)}`);
+    document.title = `${p.business_name} — AcquaMap Business`;
+
+    const logo = p.logo_url
+      ? `<img class="biz-logo" src="${escapeHtml(p.logo_url)}" alt="" />`
+      : `<div class="biz-logo">${catIcon(p.category)}</div>`;
+    const cover = p.cover_image_url
+      ? `<img class="biz-cover" src="${escapeHtml(p.cover_image_url)}" alt="" />` : "";
+
+    const badges = `<div class="biz-badges">
+      ${verifyBadgeHtml(p)}${expandBadgeHtml(p)}${premiumBadgeHtml(p)}</div>`;
+
+    const addr = [p.address, p.city, p.province].filter(Boolean).join(", ");
+    const meta = [];
+    if (addr) meta.push(`<div class="row"><span class="k">Indirizzo</span><span>${escapeHtml(addr)}${p.region ? " — " + escapeHtml(p.region) : ""}</span></div>`);
+    if (p.phone) meta.push(`<div class="row"><span class="k">Telefono</span><a href="tel:${escapeHtml(p.phone)}">${escapeHtml(p.phone)}</a></div>`);
+    if (p.public_email) meta.push(`<div class="row"><span class="k">Email</span><a href="mailto:${escapeHtml(p.public_email)}">${escapeHtml(p.public_email)}</a></div>`);
+    if (p.website) meta.push(`<div class="row"><span class="k">Sito</span><a href="${escapeHtml(p.website)}" target="_blank" rel="noopener">${escapeHtml(p.website.replace(/^https?:\/\//,""))}</a></div>`);
+    if (p.instagram) meta.push(`<div class="row"><span class="k">Instagram</span><a href="https://instagram.com/${escapeHtml(p.instagram)}" target="_blank" rel="noopener">@${escapeHtml(p.instagram)}</a></div>`);
+
+    const verifiedNote = p.verification_status !== "not_verified"
+      ? `<div class="biz-note success" style="margin-top:14px">✓ Profilo verificato da AcquaMap.</div>` : "";
+    const expandNote = p.is_expand_program
+      ? `<div class="biz-note" style="margin-top:10px">★ Membro AcquaMap Business Expand Program.</div>` : "";
+
+    root.innerHTML = `
+      ${cover}
+      <div class="biz-card">
+        <div class="biz-profile-head">
+          ${logo}
+          <div>
+            <h1>${escapeHtml(p.business_name)}</h1>
+            <div class="biz-cat">${catIcon(p.category)} ${escapeHtml(catLabel(p.category))}${p.city ? " · " + escapeHtml(p.city) : ""}</div>
+          </div>
+        </div>
+        <div style="margin-top:14px">${badges}</div>
+        ${p.description ? `<p style="margin-top:14px">${escapeHtml(p.description)}</p>` : ""}
+        ${meta.length ? `<div class="biz-meta-list" style="margin-top:16px">${meta.join("")}</div>` : ""}
+        ${verifiedNote}${expandNote}
+      </div>
+      ${waterSection(p.water_info)}
+      <p class="biz-empty" style="padding:20px;font-size:13px">Dati forniti dall'attività e verificati da AcquaMap. <a href="/acquamap/business/apply">Anche tu hai un'attività?</a></p>
+    `;
+  } catch (err) {
+    if (err.status === 404) {
+      root.innerHTML = emptyState("Profilo non trovato", "Questa attività non esiste o non è ancora pubblicata.");
+    } else {
+      root.innerHTML = emptyState("Errore", err.message || "Impossibile caricare il profilo.");
+    }
+  }
+})();
+</script>
+</body>
+</html>

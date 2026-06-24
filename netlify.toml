@@ -6,6 +6,25 @@
   # nessun build step: il frontend è HTML + JS vanilla, già pronto
   command = ""
 
+# AcquaMap Business — URL amichevoli verso le pagine statiche (rewrite 200).
+# Devono precedere il fallback SPA "/*" (Netlify: prima regola che matcha vince).
+[[redirects]]
+  from = "/acquamap/business/apply"
+  to = "/business/apply.html"
+  status = 200
+[[redirects]]
+  from = "/acquamap/business/dashboard"
+  to = "/business/dashboard.html"
+  status = 200
+[[redirects]]
+  from = "/admin/acquamap/business"
+  to = "/business/admin.html"
+  status = 200
+[[redirects]]
+  from = "/acquamap/business/:slug"
+  to = "/business/profile.html?slug=:slug"
+  status = 200
+
 # SPA-style fallback (in realtà c'è una sola pagina, ma evita 404 su refresh)
 [[redirects]]
   from = "/*"

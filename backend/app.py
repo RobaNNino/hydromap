@@ -714,6 +714,12 @@ def api_sources():
     return jsonify({"items": OFFICIAL_SOURCES})
 
 
+# ---------- AcquaMap Business (profili attività + Expand Program) ----------
+from business import register_business_routes  # noqa: E402
+
+register_business_routes(app)
+
+
 # ---------- Dati reali esterni: meteo ----------
 from realtime import get_meteo  # noqa: E402
 
@@ -738,6 +744,34 @@ def _no_cache(resp):
 @app.get("/")
 def index():
     return _no_cache(send_from_directory(FRONTEND_DIR, "index.html"))
+
+
+# ---------- AcquaMap Business: pagine con URL "amichevoli" ----------
+# Servono le pagine statiche di frontend/business/ su rotte leggibili.
+# (Su Netlify gli stessi URL sono mappati via redirect in netlify.toml.)
+def _serve_business_page(fname: str):
+    return _no_cache(send_from_directory(FRONTEND_DIR / "business", fname))
+
+
+@app.get("/acquamap/business/apply")
+def page_business_apply():
+    return _serve_business_page("apply.html")
+
+
+@app.get("/acquamap/business/dashboard")
+def page_business_dashboard():
+    return _serve_business_page("dashboard.html")
+
+
+@app.get("/admin/acquamap/business")
+def page_business_admin():
+    return _serve_business_page("admin.html")
+
+
+@app.get("/acquamap/business/<slug>")
+def page_business_profile(slug: str):
+    # Lo slug viene letto dal JS della pagina (location.pathname).
+    return _serve_business_page("profile.html")
 
 
 @app.get("/<path:fname>")

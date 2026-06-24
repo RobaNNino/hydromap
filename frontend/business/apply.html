@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="it" class="biz">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#0c4a6e" />
+<meta name="description" content="Richiedi l'accesso ad AcquaMap Business: profilo verificato per la tua attività." />
+<!-- Backend API base. Vuoto in dev (localhost): vedi business.js. -->
+<meta name="api-base" content="https://hydromap-api.onrender.com" />
+<title>Richiedi accesso — AcquaMap Business</title>
+<link rel="icon" href="/LOGO.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
+<link rel="stylesheet" href="/style.css" />
+<link rel="stylesheet" href="/business/business.css" />
+</head>
+<body class="biz-page">
+
+<header class="biz-topbar">
+  <a class="biz-brand" href="/">
+    <img src="/LOGO.svg" alt="" /><b>Acqua<span>Map</span> Business</b>
+  </a>
+  <div class="spacer"></div>
+  <a class="biz-link" href="/">← Torna alla mappa</a>
+</header>
+
+<div class="biz-wrap narrow">
+  <section class="biz-hero">
+    <span class="biz-kicker">Expand Program</span>
+    <h1>Porta la tua attività su AcquaMap</h1>
+    <p>Richiedi un profilo verificato per bar, ristoranti, hotel, palestre e strutture.
+       Mostra ai tuoi clienti la qualità e il tipo di acqua che offri.</p>
+  </section>
+
+  <div class="biz-card">
+    <!-- Stato: form -->
+    <div id="form-stage">
+      <h2>Richiesta di accesso</h2>
+      <p class="sub">I campi con <span style="color:var(--bad)">*</span> sono obbligatori. Ti ricontatteremo dopo la verifica.</p>
+
+      <form id="apply-form" class="biz-form" novalidate>
+        <div class="biz-field" data-field="business_name">
+          <label>Nome attività <span class="req">*</span></label>
+          <input name="business_name" type="text" maxlength="200" autocomplete="organization" required />
+          <div class="field-err"></div>
+        </div>
+
+        <div class="biz-grid-2">
+          <div class="biz-field" data-field="category">
+            <label>Categoria</label>
+            <select name="category" id="category-select"></select>
+          </div>
+          <div class="biz-field" data-field="contact_phone">
+            <label>Telefono</label>
+            <input name="contact_phone" type="tel" maxlength="40" autocomplete="tel" />
+          </div>
+        </div>
+
+        <div class="biz-grid-2">
+          <div class="biz-field" data-field="contact_name">
+            <label>Nome referente <span class="req">*</span></label>
+            <input name="contact_name" type="text" maxlength="200" autocomplete="name" required />
+            <div class="field-err"></div>
+          </div>
+          <div class="biz-field" data-field="contact_email">
+            <label>Email referente <span class="req">*</span></label>
+            <input name="contact_email" type="email" maxlength="254" autocomplete="email" required />
+            <div class="field-err"></div>
+          </div>
+        </div>
+
+        <div class="biz-field" data-field="address">
+          <label>Indirizzo</label>
+          <input name="address" type="text" maxlength="200" autocomplete="street-address" />
+        </div>
+
+        <div class="biz-grid-2">
+          <div class="biz-field" data-field="city">
+            <label>Città</label>
+            <input name="city" type="text" maxlength="200" />
+          </div>
+          <div class="biz-field" data-field="province">
+            <label>Provincia</label>
+            <input name="province" type="text" maxlength="60" placeholder="es. RM" />
+          </div>
+        </div>
+
+        <div class="biz-field" data-field="region">
+          <label>Regione</label>
+          <input name="region" type="text" maxlength="60" />
+        </div>
+
+        <div class="biz-grid-2">
+          <div class="biz-field" data-field="website">
+            <label>Sito web</label>
+            <input name="website" type="text" maxlength="500" placeholder="https://…" />
+          </div>
+          <div class="biz-field" data-field="instagram">
+            <label>Instagram</label>
+            <input name="instagram" type="text" maxlength="100" placeholder="@nomeprofilo" />
+          </div>
+        </div>
+
+        <div class="biz-field" data-field="message">
+          <label>Messaggio (opzionale)</label>
+          <textarea name="message" maxlength="2000" placeholder="Raccontaci della tua attività e dell'acqua che servi…"></textarea>
+        </div>
+
+        <hr class="biz-hr" />
+
+        <label class="biz-check">
+          <input type="checkbox" name="wants_expand_program" checked />
+          <span>Voglio partecipare ad <b>AcquaMap Business Expand Program</b> (ingresso gratuito durante la fase di lancio).</span>
+        </label>
+
+        <div class="biz-field" data-field="privacy_accepted" style="gap:4px">
+          <label class="biz-check">
+            <input type="checkbox" name="privacy_accepted" required />
+            <span>Ho letto e accetto l'informativa sulla <b>privacy</b> e il trattamento dei dati. <span class="req">*</span></span>
+          </label>
+          <div class="field-err"></div>
+        </div>
+
+        <div class="biz-actions">
+          <button type="submit" class="biz-btn biz-btn-primary" id="submit-btn">Invia richiesta</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Stato: conferma -->
+    <div id="success-stage" style="display:none; text-align:center; padding: 14px 0;">
+      <div style="font-size:54px">✅</div>
+      <h2>Richiesta inviata!</h2>
+      <p class="sub">Grazie. Il nostro team verificherà la tua attività e ti contatterà via email.</p>
+      <div class="biz-note success" id="success-ref"></div>
+      <div class="biz-actions" style="justify-content:center; margin-top:18px">
+        <a class="biz-btn biz-btn-ghost" href="/">Torna alla mappa</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/business/business.js"></script>
+<script>
+(async function () {
+  // Popola le categorie dal backend (fallback statico se offline).
+  const sel = $("category-select");
+  let cats = ["bar","ristorante","hotel","palestra","centro_sportivo","ufficio","altro"];
+  try {
+    const cfg = await apiFetch("/api/business/config");
+    if (cfg && cfg.categories) cats = cfg.categories;
+  } catch (_) {}
+  sel.innerHTML = cats.map(c => `<option value="${c}">${escapeHtml(catLabel(c))}</option>`).join("");
+
+  const form = $("apply-form");
+  const clearErrors = () => {
+    form.querySelectorAll(".biz-field").forEach(f => {
+      f.classList.remove("invalid");
+      const e = f.querySelector(".field-err"); if (e) e.textContent = "";
+    });
+  };
+  const showErrors = (errors) => {
+    for (const [k, msg] of Object.entries(errors || {})) {
+      const f = form.querySelector(`.biz-field[data-field="${k}"]`);
+      if (f) { f.classList.add("invalid"); const e = f.querySelector(".field-err"); if (e) e.textContent = msg; }
+    }
+  };
+
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    clearErrors();
+    const btn = $("submit-btn");
+    btn.disabled = true; btn.textContent = "Invio…";
+    const fd = new FormData(form);
+    const payload = Object.fromEntries(fd.entries());
+    payload.wants_expand_program = form.wants_expand_program.checked;
+    payload.privacy_accepted = form.privacy_accepted.checked;
+
+    // Validazione minima lato client (eco del server).
+    const localErr = {};
+    if (!payload.business_name?.trim()) localErr.business_name = "Nome attività obbligatorio.";
+    if (!payload.contact_name?.trim()) localErr.contact_name = "Nome referente obbligatorio.";
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(payload.contact_email || "")) localErr.contact_email = "Email non valida.";
+    if (!payload.privacy_accepted) localErr.privacy_accepted = "Devi accettare la privacy.";
+    if (Object.keys(localErr).length) {
+      showErrors(localErr); btn.disabled = false; btn.textContent = "Invia richiesta"; return;
+    }
+
+    try {
+      const res = await apiFetch("/api/business/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      $("form-stage").style.display = "none";
+      $("success-stage").style.display = "block";
+      $("success-ref").textContent = `Codice richiesta: ${res.application_id}`;
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (err) {
+      if (err.body && err.body.errors) showErrors(err.body.errors);
+      else toast(err.message || "Errore durante l'invio.", "err");
+      btn.disabled = false; btn.textContent = "Invia richiesta";
+    }
+  });
+})();
+</script>
+</body>
+</html>

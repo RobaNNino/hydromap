@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="it" class="biz">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#0c4a6e" />
+<meta name="robots" content="noindex" />
+<meta name="api-base" content="https://hydromap-api.onrender.com" />
+<title>Admin — AcquaMap Business</title>
+<link rel="icon" href="/LOGO.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
+<link rel="stylesheet" href="/style.css" />
+<link rel="stylesheet" href="/business/business.css" />
+<style>
+  .modal-bg { position: fixed; inset: 0; background: rgba(2,6,23,.55); display: none; z-index: 1000; padding: 24px 12px; overflow-y: auto; }
+  .modal-bg.open { display: block; }
+  .modal-box { width: min(100%, 720px); margin: 0 auto; background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); padding: 22px; }
+  .modal-box h2 { margin: 0 0 12px; }
+  .modal-close { float: right; cursor: pointer; font-size: 22px; color: var(--muted); background: none; border: 0; }
+  .kv { font-size: 13.5px; display: grid; grid-template-columns: 130px 1fr; gap: 4px 12px; margin: 2px 0; }
+  .kv .k { color: var(--muted); }
+  .token-box { font-family: ui-monospace, monospace; background: var(--surface-3); padding: 8px 10px; border-radius: 8px; word-break: break-all; font-size: 12.5px; }
+</style>
+</head>
+<body class="biz-page">
+
+<header class="biz-topbar">
+  <a class="biz-brand" href="/"><img src="/LOGO.svg" alt="" /><b>Acqua<span>Map</span> Business · Admin</b></a>
+  <div class="spacer"></div>
+  <span class="biz-link" id="logout" style="display:none;cursor:pointer">Esci</span>
+</header>
+
+<div class="biz-wrap wide" id="admin-root"><div class="biz-loading">Caricamento…</div></div>
+
+<div class="modal-bg" id="modal"><div class="modal-box" id="modal-box"></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/business/supabase-config.js"></script>
+<script src="/business/business.js"></script>
+<script>
+let CFG = null;
+let appFilter = "pending";
+
+// apiFetch allega da solo il bearer JWT: qui serve solo il content-type.
+function aHeaders(extra) { return Object.assign({ "Content-Type": "application/json" }, extra || {}); }
+
+function loginForm(msg) {
+  $("admin-root").innerHTML = `
+    <section class="biz-hero"><h1>Pannello Admin</h1><p>Accedi con il tuo account amministratore Supabase.</p></section>
+    <div class="biz-wrap narrow"><div class="biz-card">
+      ${msg ? `<div class="biz-note warn" style="margin-bottom:14px">${escapeHtml(msg)}</div>` : ""}
+      <div class="biz-field"><label>Email</label><input id="login-email" type="email" autocomplete="username" /></div>
+      <div class="biz-field"><label>Password</label><input id="login-pass" type="password" autocomplete="current-password" /></div>
+      <div class="biz-actions"><button class="biz-btn biz-btn-primary" id="login-go">Accedi</button></div>
+      <p class="sub" style="margin-top:12px">Gli account admin si creano dal dashboard Supabase (Authentication → Users) e l'email va aggiunta a <code>BUSINESS_ADMIN_EMAILS</code>.</p>
+    </div></div>`;
+  $("login-go").addEventListener("click", async () => {
+    const email = $("login-email").value.trim(), pass = $("login-pass").value;
+    if (!email || !pass) return;
+    $("login-go").disabled = true; $("login-go").textContent = "Accesso…";
+    try { await signIn(email, pass); boot(); }
+    catch (e) { loginForm(e.message || "Credenziali non valide."); }
+  });
+}
+
+const stClass = (s) => `biz-status st-${s}`;
+const openModal = (html) => { $("modal-box").innerHTML = html; $("modal").classList.add("open"); };
+const closeModal = () => $("modal").classList.remove("open");
+$("modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
+
+// ================= APPLICATIONS =================
+async function viewApplications() {
+  const data = await apiFetch(`/api/admin/business/applications${appFilter ? "?status=" + appFilter : ""}`, { headers: aHeaders() });
+  const rows = (data.items || []).map(a => `
+    <tr data-app="${a.id}" style="cursor:pointer">
+      <td><b>${escapeHtml(a.business_name)}</b></td>
+      <td>${escapeHtml(catLabel(a.category))}</td>
+      <td>${escapeHtml(a.city || "—")}</td>
+      <td>${escapeHtml(a.contact_email)}</td>
+      <td>${a.wants_expand_program ? "★" : ""}</td>
+      <td><span class="${stClass(a.status)}">${escapeHtml(a.status)}</span></td>
+      <td>${escapeHtml((a.created_at || "").slice(0, 10))}</td>
+    </tr>`).join("");
+  $("admin-body").innerHTML = `
+    <div class="admin-tabs">
+      ${["pending","approved","rejected",""].map(s =>
+        `<span class="admin-tab ${appFilter === s ? "active" : ""}" data-filter="${s}">${s ? escapeHtml(s) : "tutte"}</span>`).join("")}
+    </div>
+    ${rows ? `<div class="biz-table-wrap"><table class="biz-table">
+      <thead><tr><th>Attività</th><th>Categoria</th><th>Città</th><th>Email</th><th>Expand</th><th>Stato</th><th>Data</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`
+      : `<div class="biz-empty"><span class="ico">📭</span><p>Nessuna richiesta${appFilter ? " '" + appFilter + "'" : ""}.</p></div>`}`;
+
+  $("admin-body").querySelectorAll("[data-filter]").forEach(el =>
+    el.addEventListener("click", () => { appFilter = el.dataset.filter; viewApplications(); }));
+  $("admin-body").querySelectorAll("[data-app]").forEach(tr =>
+    tr.addEventListener("click", () => appDetail(tr.dataset.app)));
+}
+
+async function appDetail(id) {
+  const a = await apiFetch(`/api/admin/business/applications/${id}`, { headers: aHeaders() });
+  const kv = (k, v) => `<div class="kv"><span class="k">${k}</span><span>${escapeHtml(v || "—")}</span></div>`;
+  openModal(`
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <h2>${escapeHtml(a.business_name)}</h2>
+    <span class="${stClass(a.status)}">${escapeHtml(a.status)}</span>
+    <div style="margin-top:14px">
+      ${kv("Categoria", catLabel(a.category))}
+      ${kv("Referente", a.contact_name)}
+      ${kv("Email", a.contact_email)}
+      ${kv("Telefono", a.contact_phone)}
+      ${kv("Indirizzo", [a.address, a.city, a.province, a.region].filter(Boolean).join(", "))}
+      ${kv("Sito", a.website)}
+      ${kv("Instagram", a.instagram ? "@" + a.instagram : "")}
+      ${kv("Expand Program", a.wants_expand_program ? "Sì ★" : "No")}
+      ${kv("Messaggio", a.message)}
+    </div>
+    <div class="biz-field" style="margin-top:14px"><label>Note admin</label>
+      <textarea id="adm-notes" maxlength="2000">${escapeHtml(a.admin_notes || "")}</textarea></div>
+    ${a.profile_id ? `<div class="biz-note success">Profilo già creato: <a href="#" onclick="closeModal();switchTab('profiles');return false;">vedi profili</a></div>` : ""}
+    <div class="biz-actions" style="margin-top:14px">
+      ${a.status !== "approved" ? `<button class="biz-btn biz-btn-primary" id="approve">✓ Approva &amp; crea profilo</button>` : ""}
+      ${a.status !== "rejected" ? `<button class="biz-btn biz-btn-danger" id="reject">✕ Rifiuta</button>` : ""}
+      <button class="biz-btn biz-btn-ghost" onclick="closeModal()">Chiudi</button>
+    </div>`);
+
+  const notes = () => $("adm-notes").value;
+  $("approve")?.addEventListener("click", async () => {
+    try {
+      await apiFetch(`/api/admin/business/applications/${id}`, { method: "PATCH", headers: aHeaders({ "Content-Type": "application/json" }), body: JSON.stringify({ admin_notes: notes() }) });
+      const res = await apiFetch(`/api/admin/business/applications/${id}/approve`, { method: "POST", headers: aHeaders({ "Content-Type": "application/json" }), body: "{}" });
+      toast("Approvata. Profilo creato (bozza).", "ok");
+      closeModal(); switchTab("profiles");
+      setTimeout(() => profileDetail(res.profile.id), 250);
+    } catch (e) { toast(e.message, "err"); }
+  });
+  $("reject")?.addEventListener("click", async () => {
+    try {
+      await apiFetch(`/api/admin/business/applications/${id}/reject`, { method: "POST", headers: aHeaders({ "Content-Type": "application/json" }), body: JSON.stringify({ admin_notes: notes() }) });
+      toast("Richiesta rifiutata.", "ok"); closeModal(); viewApplications();
+    } catch (e) { toast(e.message, "err"); }
+  });
+}
+
+// ================= PROFILES =================
+async function viewProfiles() {
+  const data = await apiFetch("/api/admin/business/profiles", { headers: aHeaders() });
+  const rows = (data.items || []).map(p => `
+    <tr data-prof="${p.id}" style="cursor:pointer">
+      <td><b>${escapeHtml(p.business_name)}</b><br/><small style="color:var(--muted)">/${escapeHtml(p.slug)}</small></td>
+      <td>${escapeHtml(catLabel(p.category))}</td>
+      <td>${escapeHtml(p.city || "—")}</td>
+      <td><span class="${stClass(p.status)}">${escapeHtml(p.status)}</span></td>
+      <td>${p.verification_status === "not_verified" ? "—" : "✓"}</td>
+      <td>${p.is_expand_program ? "★" : ""}</td>
+      <td>${(p.latitude != null && p.longitude != null) ? "📍" : "<span style='color:var(--bad)'>no geo</span>"}</td>
+    </tr>`).join("");
+  $("admin-body").innerHTML = `
+    <div class="biz-actions" style="margin-bottom:12px"><button class="biz-btn biz-btn-primary biz-btn-sm" id="new-prof">+ Nuovo profilo</button></div>
+    ${rows ? `<div class="biz-table-wrap"><table class="biz-table">
+      <thead><tr><th>Attività</th><th>Categoria</th><th>Città</th><th>Stato</th><th>Verif.</th><th>Exp.</th><th>Geo</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`
+      : `<div class="biz-empty"><span class="ico">🏪</span><p>Nessun profilo. Approva una richiesta o creane uno.</p></div>`}`;
+  $("new-prof").addEventListener("click", () => profileDetail(null));
+  $("admin-body").querySelectorAll("[data-prof]").forEach(tr =>
+    tr.addEventListener("click", () => profileDetail(tr.dataset.prof)));
+}
+
+function field(label, name, value, opts = {}) {
+  const v = value ?? "";
+  if (opts.type === "textarea") return `<div class="biz-field"><label>${label}</label><textarea name="${name}" maxlength="2000">${escapeHtml(v)}</textarea></div>`;
+  if (opts.select) return `<div class="biz-field"><label>${label}</label><select name="${name}">${opts.select.map(o => `<option value="${o.v}" ${o.v === v ? "selected" : ""}>${escapeHtml(o.l)}</option>`).join("")}</select></div>`;
+  return `<div class="biz-field"><label>${label}</label><input name="${name}" value="${escapeHtml(String(v))}" ${opts.attrs || ""}/></div>`;
+}
+
+async function profileDetail(id) {
+  const p = id ? await apiFetch(`/api/admin/business/profiles/${id}`, { headers: aHeaders() }) : {
+    business_name: "", category: "altro", status: "draft", verification_status: "not_verified",
+    is_expand_program: false, is_premium: false, country: "Italia", water_info: {},
+  };
+  const wi = p.water_info || {};
+  const catOpts = (CFG.categories || []).map(c => ({ v: c, l: catLabel(c) }));
+  const waterChips = (CFG.water_types || []).map(t => {
+    const on = (wi.water_type || []).includes(t);
+    return `<label class="biz-chip ${on ? "checked" : ""}"><input type="checkbox" value="${t}" ${on ? "checked" : ""}/> ${escapeHtml(WATER_TYPE_LABELS[t] || t)}</label>`;
+  }).join("");
+  const params = Object.keys(WATER_PARAM_LABELS).map(k =>
+    `<div class="biz-field"><label>${escapeHtml(WATER_PARAM_LABELS[k])}</label><input data-param="${k}" value="${wi[k] ?? ""}" inputmode="decimal"/></div>`).join("");
+
+  openModal(`
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <h2>${id ? "Modifica profilo" : "Nuovo profilo"}</h2>
+    ${id ? `<div style="margin-bottom:10px">
+      ${p.status === "published" ? `<a class="biz-link" href="/acquamap/business/${escapeHtml(p.slug)}" target="_blank">Apri profilo pubblico ↗</a>` : `<span style="color:var(--muted);font-size:13px">Non pubblicato</span>`}
+      <div class="biz-divider-lbl">Accesso titolare (Supabase Auth)</div>
+      <div class="token-box">Email titolare: ${escapeHtml(p.owner_email || "—")} ${p.owner_id ? "· account collegato ✓" : "· non ancora registrato"}</div>
+      <small style="color:var(--muted)">Il titolare accede da /acquamap/business/dashboard registrandosi con questa email.</small>
+    </div>` : ""}
+    <form id="prof-form" class="biz-form">
+      <div class="biz-grid-2">
+        ${field("Nome attività", "business_name", p.business_name)}
+        ${field("Slug", "slug", p.slug, { attrs: id ? "" : 'placeholder="auto"' })}
+      </div>
+      <div class="biz-grid-2">
+        ${field("Categoria", "category", p.category, { select: catOpts })}
+        ${field("Telefono", "phone", p.phone)}
+      </div>
+      ${field("Descrizione", "description", p.description, { type: "textarea" })}
+      ${field("Indirizzo", "address", p.address)}
+      <div class="biz-grid-2">
+        ${field("Città", "city", p.city)}
+        ${field("Provincia", "province", p.province)}
+      </div>
+      <div class="biz-grid-2">
+        ${field("Regione", "region", p.region)}
+        ${field("Paese", "country", p.country)}
+      </div>
+      <div class="biz-grid-2">
+        ${field("Latitudine", "latitude", p.latitude, { attrs: 'inputmode="decimal" placeholder="41.90"' })}
+        ${field("Longitudine", "longitude", p.longitude, { attrs: 'inputmode="decimal" placeholder="12.49"' })}
+      </div>
+      <div class="biz-grid-2">
+        ${field("Email pubblica", "public_email", p.public_email)}
+        ${field("Email referente (privata)", "contact_email", p.contact_email)}
+      </div>
+      ${field("Email titolare account (claim Supabase Auth)", "owner_email", p.owner_email, { attrs: 'placeholder="email con cui il titolare accede"' })}
+      <div class="biz-grid-2">
+        ${field("Sito web", "website", p.website)}
+        ${field("Instagram", "instagram", p.instagram)}
+      </div>
+      ${field("Logo URL", "logo_url", p.logo_url)}
+
+      <div class="biz-divider-lbl">Stato &amp; verifica</div>
+      <div class="biz-grid-2">
+        ${field("Stato pubblicazione", "status", p.status, { select: [
+          { v: "draft", l: "Bozza" }, { v: "published", l: "Pubblicato" }, { v: "hidden", l: "Nascosto" }, { v: "suspended", l: "Sospeso" }] })}
+        ${field("Verifica", "verification_status", p.verification_status, { select: [
+          { v: "not_verified", l: "Non verificato" }, { v: "verified", l: "Verificato" }, { v: "business_verified", l: "Business Verified" }] })}
+      </div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap">
+        <label class="biz-check"><input type="checkbox" id="f-expand" ${p.is_expand_program ? "checked" : ""}/> <span>Expand Program</span></label>
+        <label class="biz-check"><input type="checkbox" id="f-premium" ${p.is_premium ? "checked" : ""}/> <span>Premium</span></label>
+      </div>
+
+      <div class="biz-divider-lbl">💧 Acqua</div>
+      <div class="biz-field"><label>Tipo di acqua</label><div class="biz-chips" id="p-water-chips">${waterChips}</div></div>
+      <div class="biz-grid-2">
+        ${field("Filtrazione", "has_filter_system", wi.has_filter_system || "undeclared", { select: [
+          { v: "undeclared", l: "Non dichiarato" }, { v: "yes", l: "Sì" }, { v: "no", l: "No" }] })}
+        <div style="display:flex;gap:14px;align-items:center">
+          <label class="biz-check"><input type="checkbox" id="f-spark" ${wi.has_sparkling_water ? "checked" : ""}/> <span>Frizzante</span></label>
+          <label class="biz-check"><input type="checkbox" id="f-nat" ${wi.has_natural_water ? "checked" : ""}/> <span>Naturale</span></label>
+        </div>
+      </div>
+      ${field("Note acqua", "water_notes", wi.notes, { type: "textarea" })}
+      <div class="water-params">${params}</div>
+
+      <div class="biz-actions" style="margin-top:16px">
+        <button class="biz-btn biz-btn-primary" type="submit">${id ? "Salva modifiche" : "Crea profilo"}</button>
+        ${id ? `<button class="biz-btn biz-btn-danger" type="button" id="del-prof">Elimina</button>` : ""}
+        <button class="biz-btn biz-btn-ghost" type="button" onclick="closeModal()">Annulla</button>
+      </div>
+    </form>`);
+
+  $("p-water-chips").querySelectorAll("input").forEach(cb =>
+    cb.addEventListener("change", () => cb.closest(".biz-chip").classList.toggle("checked", cb.checked)));
+
+  $("prof-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const f = ev.target;
+    const payload = Object.fromEntries(new FormData(f).entries());
+    payload.is_expand_program = $("f-expand").checked;
+    payload.is_premium = $("f-premium").checked;
+    payload.has_sparkling_water = $("f-spark").checked;
+    payload.has_natural_water = $("f-nat").checked;
+    payload.water_type = [...$("p-water-chips").querySelectorAll("input:checked")].map(c => c.value);
+    f.querySelectorAll("[data-param]").forEach(inp => { payload[inp.dataset.param] = inp.value; });
+    if (!payload.slug) delete payload.slug;
+    try {
+      if (id) await apiFetch(`/api/admin/business/profiles/${id}`, { method: "PATCH", headers: aHeaders({ "Content-Type": "application/json" }), body: JSON.stringify(payload) });
+      else await apiFetch("/api/admin/business/profiles", { method: "POST", headers: aHeaders({ "Content-Type": "application/json" }), body: JSON.stringify(payload) });
+      toast("Profilo salvato ✓", "ok"); closeModal(); viewProfiles();
+    } catch (e) { toast(e.message, "err"); }
+  });
+  $("del-prof")?.addEventListener("click", async () => {
+    if (!confirm("Eliminare definitivamente questo profilo?")) return;
+    try {
+      await apiFetch(`/api/admin/business/profiles/${id}`, { method: "DELETE", headers: aHeaders() });
+      toast("Profilo eliminato.", "ok"); closeModal(); viewProfiles();
+    } catch (e) { toast(e.message, "err"); }
+  });
+}
+
+// ================= shell =================
+let currentTab = "applications";
+function switchTab(t) {
+  currentTab = t;
+  document.querySelectorAll("[data-tab]").forEach(el => el.classList.toggle("active", el.dataset.tab === t));
+  if (t === "applications") viewApplications(); else viewProfiles();
+}
+
+async function boot() {
+  $("admin-root").innerHTML = `
+    <section class="biz-hero" style="padding-bottom:8px"><h1>Pannello Admin Business</h1></section>
+    <div class="admin-tabs">
+      <span class="admin-tab active" data-tab="applications">Richieste</span>
+      <span class="admin-tab" data-tab="profiles">Profili</span>
+    </div>
+    <div id="admin-body"><div class="biz-loading">Caricamento…</div></div>`;
+  document.querySelectorAll("[data-tab]").forEach(el => el.addEventListener("click", () => switchTab(el.dataset.tab)));
+  try {
+    CFG = await apiFetch("/api/business/config");
+    // Verifica i permessi con una chiamata admin reale (il bearer è auto-allegato).
+    await apiFetch("/api/admin/business/applications?status=pending");
+    $("logout").style.display = "inline";
+    switchTab("applications");
+  } catch (e) {
+    if (e.status === 403) { await signOut(); loginForm("Questo account non ha permessi admin. Chiedi di aggiungere la tua email a BUSINESS_ADMIN_EMAILS."); }
+    else if (e.status === 401) loginForm("Sessione scaduta: accedi di nuovo.");
+    else if (e.status === 503) loginForm("Supabase Auth non configurato sul server (SUPABASE_JWKS_URL).");
+    else loginForm(e.message || "Errore.");
+  }
+}
+
+$("logout").addEventListener("click", async () => { await signOut(); $("logout").style.display = "none"; loginForm(); });
+
+getUser().then(u => u ? boot() : loginForm());
+</script>
+</body>
+</html>

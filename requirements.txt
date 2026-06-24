@@ -6,3 +6,6 @@ shapely>=2.0
 python-dotenv>=1.0
 google-generativeai>=0.8
 gunicorn>=21.2
+# AcquaMap Business — Supabase Postgres + Auth
+supabase>=2.4
+PyJWT[crypto]>=2.8

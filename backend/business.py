@@ -1,0 +1,881 @@
+"""
+AcquaMap Business — profili verificati di attività + "Expand Program".
+
+Storage: Supabase Postgres quando configurato (SUPABASE_URL + SUPABASE_SECRET_KEY),
+altrimenti ripiego su uno store JSON locale per lo sviluppo. La selezione è
+trasparente: le rotte chiamano funzioni di modulo che delegano al repository attivo.
+
+Auth: Supabase Auth (JWT verificati via JWKS, vedi supa_auth.py).
+  - Admin  -> email del token in BUSINESS_ADMIN_EMAILS.
+  - Titolare business -> profilo con owner_id == auth uid (claim-by-email al 1° login).
+  - Pubblico/apply -> nessuna auth.
+
+Sicurezza: validazione+sanitizzazione di ogni input; output pubblico ripulito da
+campi privati (email referente, owner, application_id); slug unici; whitelist dei
+campi modificabili dal business (no escalation di stato/verifica/premium).
+"""
+from __future__ import annotations
+
+import json
+import re
+import threading
+import unicodedata
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+from flask import abort, jsonify, request
+
+import supa_auth
+from supabase_client import SUPABASE_ENABLED, get_client
+from supabase_client import status as supabase_status
+
+DATA_DIR = Path(__file__).parent / "data"
+STORE_FILE = DATA_DIR / "business.json"
+
+_LOCK = threading.RLock()
+
+# ---------- enum / vocabolari ----------
+CATEGORIES = ["bar", "ristorante", "hotel", "palestra", "centro_sportivo", "ufficio", "altro"]
+WATER_TYPES = ["rete", "filtrata", "microfiltrata", "frizzante", "naturale", "altro"]
+FILTER_STATES = ["yes", "no", "undeclared"]
+PROFILE_STATUSES = ["draft", "published", "hidden", "suspended"]
+VERIFICATION_STATES = ["not_verified", "verified", "business_verified"]
+APPLICATION_STATUSES = ["pending", "approved", "rejected"]
+WATER_PARAMS = ["ph", "hardness", "residue_fixed", "conductivity",
+                "chlorine", "nitrates", "sodium", "calcium", "magnesium"]
+
+MAX_TEXT = 2000
+MAX_SHORT = 200
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_SLUG_STRIP_RE = re.compile(r"[^a-z0-9]+")
+
+# Nomi tabelle Supabase
+T_APP = "business_applications"
+T_PROF = "business_profiles"
+T_WATER = "business_water_info"
+_PROFILE_SELECT = "*, business_water_info(*)"
+
+
+# ============================================================
+# Utility / sanitizzazione
+# ============================================================
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _clean_str(value, maxlen: int = MAX_SHORT) -> str:
+    if value is None:
+        return ""
+    s = str(value)
+    s = "".join(ch for ch in s if ch in ("\n", "\t") or ord(ch) >= 32)
+    return s.strip()[:maxlen]
+
+
+def _clean_email(value) -> str:
+    s = _clean_str(value, 254).lower()
+    return s if _EMAIL_RE.match(s) else ""
+
+
+def _clean_url(value) -> str:
+    s = _clean_str(value, 500)
+    if not s:
+        return ""
+    if not re.match(r"^https?://", s, re.I):
+        s = "https://" + s
+    return s if re.match(r"^https?://", s, re.I) else ""
+
+
+def _clean_instagram(value) -> str:
+    return _clean_str(value, 100).lstrip("@").strip()
+
+
+def _as_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "on", "si", "sì")
+
+
+def _as_float_or_none(value):
+    if value is None or value == "":
+        return None
+    try:
+        return float(str(value).replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+
+
+def _category(value) -> str:
+    v = _clean_str(value, 40).lower().replace(" ", "_")
+    return v if v in CATEGORIES else "altro"
+
+
+def slugify(name: str) -> str:
+    norm = unicodedata.normalize("NFKD", str(name or "")).encode("ascii", "ignore").decode("ascii")
+    slug = _SLUG_STRIP_RE.sub("-", norm.lower()).strip("-")
+    return slug or "attivita"
+
+
+def _gen_id(prefix: str) -> str:
+    return f"{prefix}_{uuid.uuid4().hex[:10]}"
+
+
+# ============================================================
+# Campi e validazione condivisi
+# ============================================================
+_BUSINESS_EDITABLE = ("description", "phone", "public_email", "website",
+                      "instagram", "logo_url", "cover_image_url")
+_ADMIN_EDITABLE = _BUSINESS_EDITABLE + (
+    "business_name", "category", "address", "city", "province", "region",
+    "country", "latitude", "longitude", "status", "verification_status",
+    "is_expand_program", "is_premium", "contact_email", "owner_email",
+)
+
+# Campi mai esposti su endpoint pubblici.
+_PRIVATE_PROFILE_FIELDS = ("contact_email", "owner_id", "owner_email", "application_id")
+
+
+def _default_water_info() -> dict:
+    wi = {"water_type": [], "has_filter_system": "undeclared",
+          "has_sparkling_water": False, "has_natural_water": False,
+          "notes": "", "last_updated_at": None}
+    for p in WATER_PARAMS:
+        wi[p] = None
+    return wi
+
+
+def _build_water_info(payload: dict, base: dict | None = None) -> dict:
+    wi = dict(base) if base else _default_water_info()
+    if "water_type" in payload:
+        raw = payload.get("water_type")
+        if isinstance(raw, str):
+            raw = [t for t in re.split(r"[,;]", raw) if t.strip()]
+        types = [_clean_str(t, 40).lower() for t in (raw or [])]
+        wi["water_type"] = [t for t in types if t in WATER_TYPES]
+    if "has_filter_system" in payload:
+        v = _clean_str(payload.get("has_filter_system"), 20).lower()
+        wi["has_filter_system"] = v if v in FILTER_STATES else "undeclared"
+    if "has_sparkling_water" in payload:
+        wi["has_sparkling_water"] = _as_bool(payload.get("has_sparkling_water"))
+    if "has_natural_water" in payload:
+        wi["has_natural_water"] = _as_bool(payload.get("has_natural_water"))
+    if "notes" in payload:
+        wi["notes"] = _clean_str(payload.get("notes"), MAX_TEXT)
+    for p in WATER_PARAMS:
+        if p in payload:
+            wi[p] = _as_float_or_none(payload.get(p))
+    wi["last_updated_at"] = _now()
+    return wi
+
+
+def _clean_profile_fields(patch: dict, allowed: tuple) -> dict:
+    """Ritorna un dict {colonna: valore pulito} per i soli campi ammessi presenti."""
+    out: dict = {}
+    for key in allowed:
+        if key not in patch:
+            continue
+        val = patch[key]
+        if key == "description":
+            out[key] = _clean_str(val, MAX_TEXT)
+        elif key in ("public_email", "contact_email", "owner_email"):
+            out[key] = _clean_email(val)
+        elif key in ("website", "logo_url", "cover_image_url"):
+            out[key] = _clean_url(val)
+        elif key == "instagram":
+            out[key] = _clean_instagram(val)
+        elif key == "category":
+            out[key] = _category(val)
+        elif key == "status":
+            v = _clean_str(val, 20).lower()
+            if v in PROFILE_STATUSES:
+                out[key] = v
+        elif key == "verification_status":
+            v = _clean_str(val, 30).lower()
+            if v in VERIFICATION_STATES:
+                out[key] = v
+        elif key in ("is_expand_program", "is_premium"):
+            out[key] = _as_bool(val)
+        elif key in ("latitude", "longitude"):
+            out[key] = _as_float_or_none(val)
+        else:
+            out[key] = _clean_str(val, MAX_SHORT)
+    return out
+
+
+def _initial_profile_columns(fields: dict, slug: str) -> dict:
+    name = _clean_str(fields.get("business_name")) or "Attività"
+    cols = {
+        "slug": slug,
+        "business_name": name,
+        "category": _category(fields.get("category")),
+        "description": _clean_str(fields.get("description"), MAX_TEXT),
+        "address": _clean_str(fields.get("address")),
+        "city": _clean_str(fields.get("city")),
+        "province": _clean_str(fields.get("province"), 60),
+        "region": _clean_str(fields.get("region"), 60),
+        "country": _clean_str(fields.get("country"), 60) or "Italia",
+        "latitude": _as_float_or_none(fields.get("latitude")),
+        "longitude": _as_float_or_none(fields.get("longitude")),
+        "phone": _clean_str(fields.get("phone"), 40),
+        "public_email": _clean_email(fields.get("public_email")),
+        "website": _clean_url(fields.get("website")),
+        "instagram": _clean_instagram(fields.get("instagram")),
+        "logo_url": _clean_url(fields.get("logo_url")),
+        "cover_image_url": _clean_url(fields.get("cover_image_url")),
+        "status": "draft",
+        "verification_status": "not_verified",
+        "is_expand_program": _as_bool(fields.get("is_expand_program")),
+        "is_premium": False,
+        "owner_email": _clean_email(fields.get("owner_email") or fields.get("contact_email")),
+        "contact_email": _clean_email(fields.get("contact_email")),
+        "application_id": fields.get("application_id"),
+    }
+    return cols
+
+
+def _validate_application(payload: dict) -> tuple[dict, dict]:
+    business_name = _clean_str(payload.get("business_name"))
+    contact_name = _clean_str(payload.get("contact_name"))
+    contact_email = _clean_email(payload.get("contact_email"))
+    privacy = _as_bool(payload.get("privacy_accepted"))
+    errors = {}
+    if not business_name:
+        errors["business_name"] = "Nome attività obbligatorio."
+    if not contact_name:
+        errors["contact_name"] = "Nome referente obbligatorio."
+    if not contact_email:
+        errors["contact_email"] = "Email referente non valida."
+    if not privacy:
+        errors["privacy_accepted"] = "È necessario accettare la privacy."
+    if errors:
+        return {}, errors
+    row = {
+        "business_name": business_name,
+        "category": _category(payload.get("category")),
+        "contact_name": contact_name,
+        "contact_email": contact_email,
+        "contact_phone": _clean_str(payload.get("contact_phone"), 40),
+        "address": _clean_str(payload.get("address")),
+        "city": _clean_str(payload.get("city")),
+        "province": _clean_str(payload.get("province"), 60),
+        "region": _clean_str(payload.get("region"), 60),
+        "website": _clean_url(payload.get("website")),
+        "instagram": _clean_instagram(payload.get("instagram")),
+        "message": _clean_str(payload.get("message"), MAX_TEXT),
+        "wants_expand_program": _as_bool(payload.get("wants_expand_program")),
+        "privacy_accepted": True,
+        "status": "pending",
+        "admin_notes": "",
+        "profile_id": None,
+    }
+    return row, {}
+
+
+# ============================================================
+# Serializzazione
+# ============================================================
+def _public_profile(p: dict) -> dict:
+    return {k: v for k, v in p.items() if k not in _PRIVATE_PROFILE_FIELDS}
+
+
+def _matches_filters(p: dict, f: dict) -> bool:
+    if f.get("category") and p.get("category") != f["category"]:
+        return False
+    if f.get("expand") and not p.get("is_expand_program"):
+        return False
+    if f.get("verified") and p.get("verification_status") == "not_verified":
+        return False
+    wi = p.get("water_info") or {}
+    if f.get("water_type") and f["water_type"] not in set(wi.get("water_type") or []):
+        return False
+    if f.get("filtered") and wi.get("has_filter_system") != "yes":
+        return False
+    if f.get("sparkling") and not wi.get("has_sparkling_water"):
+        return False
+    return True
+
+
+def _geojson(profiles: list[dict]) -> dict:
+    feats = []
+    for p in profiles:
+        lat, lng = p.get("latitude"), p.get("longitude")
+        if lat is None or lng is None:
+            continue
+        wi = p.get("water_info") or {}
+        feats.append({
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [lng, lat]},
+            "properties": {
+                "id": p.get("id"), "slug": p.get("slug"),
+                "business_name": p.get("business_name"), "category": p.get("category"),
+                "city": p.get("city"), "verification_status": p.get("verification_status"),
+                "is_expand_program": p.get("is_expand_program"), "is_premium": p.get("is_premium"),
+                "water_type": wi.get("water_type") or [], "has_filter_system": wi.get("has_filter_system"),
+            },
+        })
+    return {"type": "FeatureCollection", "features": feats}
+
+
+# ============================================================
+# Repository: JSON locale (fallback dev)
+# ============================================================
+class JsonRepo:
+    def _empty(self):
+        return {"version": 2, "applications": [], "profiles": []}
+
+    def _load(self):
+        if not STORE_FILE.exists():
+            return self._empty()
+        try:
+            d = json.loads(STORE_FILE.read_text(encoding="utf-8"))
+            d.setdefault("applications", [])
+            d.setdefault("profiles", [])
+            return d
+        except Exception:
+            return self._empty()
+
+    def _save(self, data):
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = STORE_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(STORE_FILE)
+
+    def _unique_slug(self, base, taken):
+        slug, i = base, 2
+        while slug in taken:
+            slug = f"{base}-{i}"
+            i += 1
+        return slug
+
+    # ----- applications -----
+    def create_application(self, row):
+        row = {"id": _gen_id("app"), **row, "created_at": _now(), "updated_at": _now()}
+        with _LOCK:
+            data = self._load()
+            data["applications"].append(row)
+            self._save(data)
+        return row
+
+    def list_applications(self, status=None):
+        with _LOCK:
+            apps = self._load()["applications"]
+        if status:
+            apps = [a for a in apps if a.get("status") == status]
+        return sorted(apps, key=lambda a: a.get("created_at", ""), reverse=True)
+
+    def get_application(self, app_id):
+        with _LOCK:
+            return next((a for a in self._load()["applications"] if a.get("id") == app_id), None)
+
+    def update_application(self, app_id, patch):
+        with _LOCK:
+            data = self._load()
+            a = next((x for x in data["applications"] if x.get("id") == app_id), None)
+            if not a:
+                return None
+            if "status" in patch:
+                v = _clean_str(patch["status"], 20).lower()
+                if v in APPLICATION_STATUSES:
+                    a["status"] = v
+            if "admin_notes" in patch:
+                a["admin_notes"] = _clean_str(patch["admin_notes"], MAX_TEXT)
+            if "profile_id" in patch:
+                a["profile_id"] = patch["profile_id"]
+            a["updated_at"] = _now()
+            self._save(data)
+            return a
+
+    # ----- profiles -----
+    def _new_profile(self, fields, taken):
+        slug = slugify(_clean_str(fields.get("slug"), 120)) if fields.get("slug") else slugify(fields.get("business_name") or "")
+        slug = self._unique_slug(slug, taken)
+        cols = _initial_profile_columns(fields, slug)
+        prof = {"id": _gen_id("biz"), **cols, "owner_id": None,
+                "water_info": _build_water_info(fields, _default_water_info())
+                if any(k in fields for k in (["water_type", "has_filter_system",
+                       "has_sparkling_water", "has_natural_water", "notes"] + WATER_PARAMS))
+                else _default_water_info(),
+                "created_at": _now(), "updated_at": _now()}
+        admin_patch = _clean_profile_fields(fields, _ADMIN_EDITABLE)
+        prof.update(admin_patch)
+        return prof
+
+    def list_profiles(self):
+        with _LOCK:
+            profs = self._load()["profiles"]
+        return sorted(profs, key=lambda p: p.get("created_at", ""), reverse=True)
+
+    def get_profile(self, profile_id):
+        with _LOCK:
+            return next((p for p in self._load()["profiles"] if p.get("id") == profile_id), None)
+
+    def create_profile(self, fields):
+        with _LOCK:
+            data = self._load()
+            taken = {p.get("slug") for p in data["profiles"]}
+            prof = self._new_profile(fields, taken)
+            data["profiles"].append(prof)
+            self._save(data)
+            return prof
+
+    def update_profile(self, profile_id, patch, allowed):
+        with _LOCK:
+            data = self._load()
+            p = next((x for x in data["profiles"] if x.get("id") == profile_id), None)
+            if not p:
+                return None
+            if "slug" in patch and allowed is _ADMIN_EDITABLE and patch["slug"]:
+                ns = slugify(patch["slug"])
+                taken = {q.get("slug") for q in data["profiles"] if q.get("id") != profile_id}
+                if ns not in taken:
+                    p["slug"] = ns
+            p.update(_clean_profile_fields(patch, allowed))
+            p["updated_at"] = _now()
+            self._save(data)
+            return p
+
+    def delete_profile(self, profile_id):
+        with _LOCK:
+            data = self._load()
+            before = len(data["profiles"])
+            data["profiles"] = [p for p in data["profiles"] if p.get("id") != profile_id]
+            if len(data["profiles"]) != before:
+                self._save(data)
+                return True
+        return False
+
+    def set_water_info(self, profile_id, payload):
+        with _LOCK:
+            data = self._load()
+            p = next((x for x in data["profiles"] if x.get("id") == profile_id), None)
+            if not p:
+                return None
+            p["water_info"] = _build_water_info(payload, p.get("water_info"))
+            p["updated_at"] = _now()
+            self._save(data)
+            return p
+
+    def find_owned(self, user_id, email):
+        with _LOCK:
+            data = self._load()
+            p = next((x for x in data["profiles"] if x.get("owner_id") == user_id), None)
+            if p:
+                return p
+            email = (email or "").lower()
+            p = next((x for x in data["profiles"]
+                      if not x.get("owner_id") and (x.get("owner_email") or "").lower() == email and email), None)
+            if p:
+                p["owner_id"] = user_id
+                self._save(data)
+            return p
+
+
+# ============================================================
+# Repository: Supabase Postgres
+# ============================================================
+class SupabaseRepo:
+    def _c(self):
+        return get_client()
+
+    def _flatten(self, row):
+        if not row:
+            return row
+        water = row.pop("business_water_info", None)
+        if isinstance(water, list):
+            water = water[0] if water else None
+        wi = _default_water_info()
+        if water:
+            for k in list(wi.keys()):
+                if k in water and water[k] is not None:
+                    wi[k] = water[k]
+            wi["water_type"] = water.get("water_type") or []
+        row["water_info"] = wi
+        return row
+
+    def _slug_exists(self, slug, exclude_id=None):
+        q = self._c().table(T_PROF).select("id").eq("slug", slug)
+        res = q.execute()
+        rows = res.data or []
+        if exclude_id:
+            rows = [r for r in rows if r.get("id") != exclude_id]
+        return bool(rows)
+
+    def _unique_slug(self, base):
+        slug, i = base, 2
+        while self._slug_exists(slug):
+            slug = f"{base}-{i}"
+            i += 1
+        return slug
+
+    # ----- applications -----
+    def create_application(self, row):
+        res = self._c().table(T_APP).insert(row).execute()
+        return (res.data or [None])[0]
+
+    def list_applications(self, status=None):
+        q = self._c().table(T_APP).select("*").order("created_at", desc=True)
+        if status:
+            q = q.eq("status", status)
+        return q.execute().data or []
+
+    def get_application(self, app_id):
+        res = self._c().table(T_APP).select("*").eq("id", app_id).execute()
+        return (res.data or [None])[0]
+
+    def update_application(self, app_id, patch):
+        upd = {}
+        if "status" in patch:
+            v = _clean_str(patch["status"], 20).lower()
+            if v in APPLICATION_STATUSES:
+                upd["status"] = v
+        if "admin_notes" in patch:
+            upd["admin_notes"] = _clean_str(patch["admin_notes"], MAX_TEXT)
+        if "profile_id" in patch:
+            upd["profile_id"] = patch["profile_id"]
+        if not upd:
+            return self.get_application(app_id)
+        res = self._c().table(T_APP).update(upd).eq("id", app_id).execute()
+        return (res.data or [None])[0]
+
+    # ----- profiles -----
+    def _insert_profile(self, fields):
+        base = slugify(_clean_str(fields.get("slug"), 120)) if fields.get("slug") else slugify(fields.get("business_name") or "")
+        slug = self._unique_slug(base)
+        cols = _initial_profile_columns(fields, slug)
+        cols.update(_clean_profile_fields(fields, _ADMIN_EDITABLE))
+        res = self._c().table(T_PROF).insert(cols).execute()
+        prof = (res.data or [None])[0]
+        if not prof:
+            return None
+        # crea la riga acqua collegata
+        wi = _build_water_info(fields, _default_water_info())
+        self._upsert_water(prof["id"], wi)
+        return self.get_profile(prof["id"])
+
+    def _upsert_water(self, profile_id, wi):
+        row = {"business_profile_id": profile_id}
+        for k in ["water_type", "has_filter_system", "has_sparkling_water",
+                  "has_natural_water", "notes", "last_updated_at"] + WATER_PARAMS:
+            row[k] = wi.get(k)
+        self._c().table(T_WATER).upsert(row, on_conflict="business_profile_id").execute()
+
+    def list_profiles(self):
+        res = self._c().table(T_PROF).select(_PROFILE_SELECT).order("created_at", desc=True).execute()
+        return [self._flatten(r) for r in (res.data or [])]
+
+    def get_profile(self, profile_id):
+        res = self._c().table(T_PROF).select(_PROFILE_SELECT).eq("id", profile_id).execute()
+        rows = res.data or []
+        return self._flatten(rows[0]) if rows else None
+
+    def create_profile(self, fields):
+        return self._insert_profile(fields)
+
+    def update_profile(self, profile_id, patch, allowed):
+        upd = _clean_profile_fields(patch, allowed)
+        if "slug" in patch and allowed is _ADMIN_EDITABLE and patch["slug"]:
+            ns = slugify(patch["slug"])
+            if not self._slug_exists(ns, exclude_id=profile_id):
+                upd["slug"] = ns
+        if upd:
+            self._c().table(T_PROF).update(upd).eq("id", profile_id).execute()
+        return self.get_profile(profile_id)
+
+    def delete_profile(self, profile_id):
+        self._c().table(T_PROF).delete().eq("id", profile_id).execute()
+        return True
+
+    def set_water_info(self, profile_id, payload):
+        wi = _build_water_info(payload, _default_water_info())
+        self._upsert_water(profile_id, wi)
+        return self.get_profile(profile_id)
+
+    def find_owned(self, user_id, email):
+        res = self._c().table(T_PROF).select(_PROFILE_SELECT).eq("owner_id", user_id).execute()
+        rows = res.data or []
+        if rows:
+            return self._flatten(rows[0])
+        email = (email or "").lower()
+        if not email:
+            return None
+        res = self._c().table(T_PROF).select(_PROFILE_SELECT).is_("owner_id", "null").ilike("owner_email", email).execute()
+        rows = res.data or []
+        if not rows:
+            return None
+        prof = rows[0]
+        self._c().table(T_PROF).update({"owner_id": user_id}).eq("id", prof["id"]).execute()
+        return self.get_profile(prof["id"])
+
+
+_repo = SupabaseRepo() if SUPABASE_ENABLED else JsonRepo()
+
+
+# ============================================================
+# API di modulo (usate dalle rotte) — delega al repository attivo
+# ============================================================
+def create_application(payload: dict) -> dict:
+    row, errors = _validate_application(payload)
+    if errors:
+        return {"ok": False, "errors": errors}
+    app_obj = _repo.create_application(row)
+    return {"ok": True, "application": app_obj}
+
+
+def list_applications(status=None):
+    return _repo.list_applications(status)
+
+
+def get_application(app_id):
+    return _repo.get_application(app_id)
+
+
+def update_application(app_id, patch):
+    return _repo.update_application(app_id, patch)
+
+
+def reject_application(app_id, notes=""):
+    return _repo.update_application(app_id, {"status": "rejected", "admin_notes": _clean_str(notes, MAX_TEXT)})
+
+
+def approve_application(app_id, extra=None):
+    extra = extra or {}
+    app_obj = _repo.get_application(app_id)
+    if not app_obj:
+        return {"ok": False, "error": "application_not_found"}
+    if app_obj.get("profile_id"):
+        existing = _repo.get_profile(app_obj["profile_id"])
+        if existing:
+            return {"ok": True, "profile": existing, "already": True}
+    fields = {
+        "business_name": app_obj.get("business_name"),
+        "category": app_obj.get("category"),
+        "address": app_obj.get("address"),
+        "city": app_obj.get("city"),
+        "province": app_obj.get("province"),
+        "region": app_obj.get("region"),
+        "website": app_obj.get("website"),
+        "instagram": app_obj.get("instagram"),
+        "phone": app_obj.get("contact_phone"),
+        "contact_email": app_obj.get("contact_email"),
+        "owner_email": app_obj.get("contact_email"),
+        "is_expand_program": app_obj.get("wants_expand_program"),
+        "application_id": app_obj.get("id"),
+        **extra,
+    }
+    profile = _repo.create_profile(fields)
+    _repo.update_application(app_id, {"status": "approved", "profile_id": profile["id"]})
+    return {"ok": True, "profile": profile}
+
+
+def list_profiles():
+    return _repo.list_profiles()
+
+
+def get_profile(profile_id):
+    return _repo.get_profile(profile_id)
+
+
+def create_profile(fields):
+    return _repo.create_profile(fields)
+
+
+def update_profile(profile_id, patch, admin=True):
+    return _repo.update_profile(profile_id, patch, _ADMIN_EDITABLE if admin else _BUSINESS_EDITABLE)
+
+
+def delete_profile(profile_id):
+    return _repo.delete_profile(profile_id)
+
+
+def set_water_info(profile_id, payload):
+    return _repo.set_water_info(profile_id, payload)
+
+
+def list_public_profiles(filters=None):
+    filters = filters or {}
+    profs = [p for p in _repo.list_profiles() if p.get("status") == "published"]
+    out = [_public_profile(p) for p in profs if _matches_filters(p, filters)]
+    return sorted(out, key=lambda p: (p.get("business_name") or "").lower())
+
+
+def get_public_profile_by_slug(slug):
+    slug = slugify(slug)
+    for p in _repo.list_profiles():
+        if p.get("slug") == slug and p.get("status") == "published":
+            return _public_profile(p)
+    return None
+
+
+def public_profiles_geojson(filters=None):
+    return _geojson(list_public_profiles(filters))
+
+
+def get_profile_for_user(user):
+    return _repo.find_owned(user["id"], user.get("email"))
+
+
+# ============================================================
+# Rotte Flask
+# ============================================================
+def _json_body() -> dict:
+    return request.get_json(force=True, silent=True) or {}
+
+
+def _strip_for_owner(p: dict) -> dict:
+    # Il titolare vede i propri dati (incl. contact_email); nascondiamo solo owner_id.
+    return {k: v for k, v in p.items() if k != "owner_id"}
+
+
+def register_business_routes(app) -> None:
+    # ---------- Pubblici ----------
+    @app.get("/api/business")
+    def api_business_list():
+        f = {
+            "category": (request.args.get("category") or "").strip().lower() or None,
+            "verified": request.args.get("verified") in ("1", "true"),
+            "expand": request.args.get("expand") in ("1", "true"),
+            "filtered": request.args.get("filtered") in ("1", "true"),
+            "sparkling": request.args.get("sparkling") in ("1", "true"),
+            "water_type": (request.args.get("water_type") or "").strip().lower() or None,
+        }
+        items = list_public_profiles(f)
+        return jsonify({"items": items, "count": len(items)})
+
+    @app.get("/api/business/map")
+    def api_business_map():
+        return jsonify(public_profiles_geojson())
+
+    @app.get("/api/business/<slug>")
+    def api_business_detail(slug):
+        p = get_public_profile_by_slug(slug)
+        if not p:
+            abort(404, description="Profilo business non trovato o non pubblicato.")
+        return jsonify(p)
+
+    @app.post("/api/business/apply")
+    def api_business_apply():
+        result = create_application(_json_body())
+        if not result.get("ok"):
+            return jsonify({"ok": False, "errors": result.get("errors", {})}), 400
+        return jsonify({
+            "ok": True,
+            "message": "Richiesta inviata. Ti contatteremo dopo la verifica.",
+            "application_id": result["application"]["id"],
+        }), 201
+
+    @app.get("/api/business/config")
+    def api_business_config():
+        return jsonify({
+            "categories": CATEGORIES, "water_types": WATER_TYPES,
+            "filter_states": FILTER_STATES, "verification_states": VERIFICATION_STATES,
+            "profile_statuses": PROFILE_STATUSES, "water_params": WATER_PARAMS,
+            "supabase": supabase_status(),
+            "auth_enabled": supa_auth.AUTH_ENABLED,
+        })
+
+    # ---------- Dashboard business (Supabase Auth) ----------
+    @app.get("/api/business/me")
+    def api_business_me():
+        user = supa_auth.require_user()
+        p = get_profile_for_user(user)
+        if not p:
+            abort(404, description="Nessuna attività associata a questo account.")
+        return jsonify(_strip_for_owner(p))
+
+    @app.patch("/api/business/me")
+    def api_business_me_update():
+        user = supa_auth.require_user()
+        p = get_profile_for_user(user)
+        if not p:
+            abort(404, description="Nessuna attività associata a questo account.")
+        updated = update_profile(p["id"], _json_body(), admin=False)
+        return jsonify(_strip_for_owner(updated or {}))
+
+    @app.patch("/api/business/me/water-info")
+    def api_business_me_water():
+        user = supa_auth.require_user()
+        p = get_profile_for_user(user)
+        if not p:
+            abort(404, description="Nessuna attività associata a questo account.")
+        updated = set_water_info(p["id"], _json_body())
+        return jsonify(_strip_for_owner(updated or {}))
+
+    # ---------- Admin (Supabase Auth + allowlist email) ----------
+    @app.get("/api/admin/business/applications")
+    def api_admin_apps():
+        supa_auth.require_admin()
+        status = (request.args.get("status") or "").strip().lower() or None
+        return jsonify({"items": list_applications(status)})
+
+    @app.get("/api/admin/business/applications/<app_id>")
+    def api_admin_app_detail(app_id):
+        supa_auth.require_admin()
+        a = get_application(app_id)
+        if not a:
+            abort(404)
+        return jsonify(a)
+
+    @app.patch("/api/admin/business/applications/<app_id>")
+    def api_admin_app_update(app_id):
+        supa_auth.require_admin()
+        a = update_application(app_id, _json_body())
+        if not a:
+            abort(404)
+        return jsonify(a)
+
+    @app.post("/api/admin/business/applications/<app_id>/approve")
+    def api_admin_app_approve(app_id):
+        supa_auth.require_admin()
+        result = approve_application(app_id, _json_body())
+        if not result.get("ok"):
+            abort(404, description=result.get("error", "errore"))
+        return jsonify(result)
+
+    @app.post("/api/admin/business/applications/<app_id>/reject")
+    def api_admin_app_reject(app_id):
+        supa_auth.require_admin()
+        a = reject_application(app_id, _json_body().get("admin_notes", ""))
+        if not a:
+            abort(404)
+        return jsonify(a)
+
+    @app.get("/api/admin/business/profiles")
+    def api_admin_profiles():
+        supa_auth.require_admin()
+        return jsonify({"items": list_profiles()})
+
+    @app.get("/api/admin/business/profiles/<profile_id>")
+    def api_admin_profile_detail(profile_id):
+        supa_auth.require_admin()
+        p = get_profile(profile_id)
+        if not p:
+            abort(404)
+        return jsonify(p)
+
+    @app.post("/api/admin/business/profiles")
+    def api_admin_profile_create():
+        supa_auth.require_admin()
+        return jsonify(create_profile(_json_body())), 201
+
+    @app.patch("/api/admin/business/profiles/<profile_id>")
+    def api_admin_profile_update(profile_id):
+        supa_auth.require_admin()
+        body = _json_body()
+        p = update_profile(profile_id, body, admin=True)
+        if not p:
+            abort(404)
+        if any(k in body for k in (["water_type", "has_filter_system", "has_sparkling_water",
+               "has_natural_water", "water_notes"] + WATER_PARAMS)):
+            wi_payload = dict(body)
+            if "water_notes" in body:
+                wi_payload["notes"] = body["water_notes"]
+            p = set_water_info(profile_id, wi_payload)
+        return jsonify(p)
+
+    @app.delete("/api/admin/business/profiles/<profile_id>")
+    def api_admin_profile_delete(profile_id):
+        supa_auth.require_admin()
+        if not delete_profile(profile_id):
+            abort(404)
+        return jsonify({"ok": True})

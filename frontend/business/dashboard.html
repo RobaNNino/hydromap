@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="it" class="biz">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#0c4a6e" />
+<meta name="robots" content="noindex" />
+<meta name="api-base" content="https://hydromap-api.onrender.com" />
+<title>Dashboard — AcquaMap Business</title>
+<link rel="icon" href="/LOGO.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
+<link rel="stylesheet" href="/style.css" />
+<link rel="stylesheet" href="/business/business.css" />
+</head>
+<body class="biz-page">
+
+<header class="biz-topbar">
+  <a class="biz-brand" href="/">
+    <img src="/LOGO.svg" alt="" /><b>Acqua<span>Map</span> Business</b>
+  </a>
+  <div class="spacer"></div>
+  <span class="biz-link" id="logout" style="display:none;cursor:pointer">Esci</span>
+</header>
+
+<div class="biz-wrap narrow" id="dash-root">
+  <div class="biz-loading">Caricamento…</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/business/supabase-config.js"></script>
+<script src="/business/business.js"></script>
+<script>
+// apiFetch allega da solo il bearer JWT: qui serve solo il content-type.
+function authHeaders(extra) { return Object.assign({ "Content-Type": "application/json" }, extra || {}); }
+
+function loginForm(msg, { kind = "warn" } = {}) {
+  $("dash-root").innerHTML = `
+    <section class="biz-hero"><h1>Dashboard attività</h1>
+      <p>Accedi con l'email indicata nella richiesta di iscrizione. Se è la prima volta, registrati con quella stessa email.</p></section>
+    <div class="biz-wrap narrow"><div class="biz-card">
+      ${msg ? `<div class="biz-note ${kind}" style="margin-bottom:14px">${escapeHtml(msg)}</div>` : ""}
+      <div class="biz-field"><label>Email</label><input id="login-email" type="email" autocomplete="username" /></div>
+      <div class="biz-field"><label>Password</label><input id="login-pass" type="password" autocomplete="current-password" /></div>
+      <div class="biz-actions">
+        <button class="biz-btn biz-btn-primary" id="login-go">Accedi</button>
+        <button class="biz-btn biz-btn-ghost" id="signup-go">Registrati</button>
+      </div>
+    </div></div>`;
+  const creds = () => ({ email: $("login-email").value.trim(), pass: $("login-pass").value });
+  $("login-go").addEventListener("click", async () => {
+    const { email, pass } = creds(); if (!email || !pass) return;
+    try { await signIn(email, pass); load(); }
+    catch (e) { loginForm(e.message || "Credenziali non valide."); }
+  });
+  $("signup-go").addEventListener("click", async () => {
+    const { email, pass } = creds(); if (!email || !pass) return;
+    try {
+      await signUp(email, pass);
+      loginForm("Registrazione avviata. Se richiesta, conferma l'email, poi accedi.", { kind: "success" });
+    } catch (e) { loginForm(e.message || "Errore in registrazione."); }
+  });
+}
+
+function render(p) {
+  $("logout").style.display = "inline";
+  const wi = p.water_info || {};
+  const statusLabel = { published: "Pubblicato", draft: "Bozza", hidden: "Nascosto", suspended: "Sospeso" }[p.status] || p.status;
+
+  const waterChips = ["rete","filtrata","microfiltrata","frizzante","naturale","altro"].map(t => {
+    const on = (wi.water_type || []).includes(t);
+    return `<label class="biz-chip ${on ? "checked" : ""}"><input type="checkbox" value="${t}" ${on ? "checked" : ""}/> ${escapeHtml(WATER_TYPE_LABELS[t])}</label>`;
+  }).join("");
+
+  const paramFields = Object.keys(WATER_PARAM_LABELS).map(k =>
+    `<div class="biz-field"><label>${escapeHtml(WATER_PARAM_LABELS[k])}</label>
+       <input data-param="${k}" type="text" inputmode="decimal" value="${wi[k] ?? ""}" /></div>`).join("");
+
+  $("dash-root").innerHTML = `
+    <section class="biz-hero" style="padding-bottom:8px">
+      <h1>${escapeHtml(p.business_name)}</h1>
+      <div class="biz-badges" style="justify-content:center;margin-top:8px">
+        ${verifyBadgeHtml(p)}${expandBadgeHtml(p)}${premiumBadgeHtml(p, { locked: true })}
+      </div>
+    </section>
+
+    <div class="biz-card">
+      <h2>Stato profilo</h2>
+      <div class="biz-meta-list">
+        <div class="row"><span class="k">Pubblicazione</span><span><b>${escapeHtml(statusLabel)}</b></span></div>
+        <div class="row"><span class="k">Verifica</span><span>${p.verification_status === "not_verified" ? "In attesa di verifica" : "Verificato ✓"}</span></div>
+        <div class="row"><span class="k">Expand</span><span>${p.is_expand_program ? "Membro ★" : "Non attivo"}</span></div>
+        <div class="row"><span class="k">URL pubblico</span><span>${p.status === "published" ? `<a href="/acquamap/business/${escapeHtml(p.slug)}" target="_blank">/acquamap/business/${escapeHtml(p.slug)}</a>` : "<i>disponibile dopo la pubblicazione</i>"}</span></div>
+      </div>
+      <div class="biz-note" style="margin-top:14px">🔒 <b>Funzionalità premium in arrivo</b>: statistiche visite, lead, QR code e analisi di laboratorio on-demand.</div>
+    </div>
+
+    <div class="biz-card">
+      <h2>Dati attività</h2>
+      <p class="sub">Modifica le informazioni mostrate sul profilo pubblico.</p>
+      <form id="info-form" class="biz-form">
+        <div class="biz-field"><label>Descrizione</label>
+          <textarea name="description" maxlength="2000">${escapeHtml(p.description || "")}</textarea></div>
+        <div class="biz-grid-2">
+          <div class="biz-field"><label>Telefono</label><input name="phone" value="${escapeHtml(p.phone || "")}" maxlength="40" /></div>
+          <div class="biz-field"><label>Email pubblica</label><input name="public_email" type="email" value="${escapeHtml(p.public_email || "")}" maxlength="254" /></div>
+        </div>
+        <div class="biz-grid-2">
+          <div class="biz-field"><label>Sito web</label><input name="website" value="${escapeHtml(p.website || "")}" placeholder="https://…" maxlength="500" /></div>
+          <div class="biz-field"><label>Instagram</label><input name="instagram" value="${escapeHtml(p.instagram || "")}" placeholder="@profilo" maxlength="100" /></div>
+        </div>
+        <div class="biz-field"><label>Logo (URL immagine)</label><input name="logo_url" value="${escapeHtml(p.logo_url || "")}" placeholder="https://…" maxlength="500" /></div>
+        <div class="biz-actions"><button class="biz-btn biz-btn-primary" type="submit">Salva dati attività</button></div>
+      </form>
+    </div>
+
+    <div class="biz-card">
+      <h2>💧 Informazioni acqua</h2>
+      <form id="water-form" class="biz-form">
+        <div class="biz-field"><label>Tipo di acqua disponibile</label>
+          <div class="biz-chips" id="water-chips">${waterChips}</div></div>
+        <div class="biz-grid-2">
+          <div class="biz-field"><label>Sistema di filtrazione</label>
+            <select name="has_filter_system">
+              <option value="undeclared" ${wi.has_filter_system === "undeclared" ? "selected" : ""}>Non dichiarato</option>
+              <option value="yes" ${wi.has_filter_system === "yes" ? "selected" : ""}>Sì</option>
+              <option value="no" ${wi.has_filter_system === "no" ? "selected" : ""}>No</option>
+            </select></div>
+          <div class="biz-field" style="justify-content:center;gap:10px">
+            <label class="biz-check"><input type="checkbox" id="wf-sparkling" ${wi.has_sparkling_water ? "checked" : ""}/> <span>Acqua frizzante</span></label>
+            <label class="biz-check"><input type="checkbox" id="wf-natural" ${wi.has_natural_water ? "checked" : ""}/> <span>Acqua naturale</span></label>
+          </div>
+        </div>
+        <div class="biz-field"><label>Note sulla qualità dell'acqua</label>
+          <textarea name="notes" maxlength="2000">${escapeHtml(wi.notes || "")}</textarea></div>
+        <div class="biz-divider-lbl">Parametri principali (opzionali)</div>
+        <div class="water-params">${paramFields}</div>
+        <div class="biz-actions"><button class="biz-btn biz-btn-primary" type="submit">Salva info acqua</button></div>
+      </form>
+    </div>`;
+
+  // chip toggle visuale
+  $("water-chips").querySelectorAll(".biz-chip input").forEach(cb => {
+    cb.addEventListener("change", () => cb.closest(".biz-chip").classList.toggle("checked", cb.checked));
+  });
+
+  $("info-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const fd = Object.fromEntries(new FormData(ev.target).entries());
+    try {
+      await apiFetch("/api/business/me", {
+        method: "PATCH", headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(fd),
+      });
+      toast("Dati salvati ✓", "ok");
+    } catch (e) { toast(e.message, "err"); }
+  });
+
+  $("water-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const water_type = [...$("water-chips").querySelectorAll("input:checked")].map(c => c.value);
+    const payload = {
+      water_type,
+      has_filter_system: ev.target.has_filter_system.value,
+      has_sparkling_water: $("wf-sparkling").checked,
+      has_natural_water: $("wf-natural").checked,
+      notes: ev.target.notes.value,
+    };
+    ev.target.querySelectorAll("[data-param]").forEach(inp => { payload[inp.dataset.param] = inp.value; });
+    try {
+      await apiFetch("/api/business/me/water-info", {
+        method: "PATCH", headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(payload),
+      });
+      toast("Info acqua salvate ✓", "ok");
+    } catch (e) { toast(e.message, "err"); }
+  });
+}
+
+async function load() {
+  const user = await getUser();
+  if (!user) { loginForm(); return; }
+  $("dash-root").innerHTML = `<div class="biz-loading">Caricamento…</div>`;
+  try {
+    const p = await apiFetch("/api/business/me");
+    render(p);
+  } catch (e) {
+    if (e.status === 404) {
+      loginForm(`Nessuna attività associata a "${user.email}". Verifica di aver usato l'email della richiesta, oppure contatta AcquaMap per il collegamento.`);
+    } else if (e.status === 401) {
+      loginForm("Sessione scaduta: accedi di nuovo.");
+    } else if (e.status === 503) {
+      loginForm("Supabase Auth non configurato sul server.");
+    } else {
+      loginForm(e.message || "Errore.");
+    }
+  }
+}
+
+$("logout").addEventListener("click", async () => {
+  await signOut(); $("logout").style.display = "none"; loginForm();
+});
+
+load();
+</script>
+</body>
+</html>

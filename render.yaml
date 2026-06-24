@@ -13,6 +13,17 @@ services:
     envVars:
       - key: GEMINI_API_KEY
         sync: false                     # da impostare manualmente nel dashboard Render
+      # --- AcquaMap Business (Supabase) ---
+      - key: SUPABASE_URL
+        value: https://bzzbgtxlpwecqfydbguy.supabase.co
+      - key: SUPABASE_JWKS_URL
+        value: https://bzzbgtxlpwecqfydbguy.supabase.co/auth/v1/.well-known/jwks.json
+      - key: SUPABASE_PUBLISHABLE_KEY
+        value: sb_publishable_rPLQi9Swf8d4vzzYSocSQA_3JxZQ25N
+      - key: SUPABASE_SECRET_KEY
+        sync: false                     # SECRET key (service_role) — impostare nel dashboard Render, mai committare
+      - key: BUSINESS_ADMIN_EMAILS
+        sync: false                     # email admin separate da virgola
       - key: GEMINI_MODEL
         value: gemini-2.5-flash
       - key: GEMINI_NEWS_MODEL
