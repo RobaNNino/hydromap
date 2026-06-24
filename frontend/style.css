@@ -675,6 +675,11 @@ a:hover { text-decoration: underline; }
 #menu-sheet .ms-item {
   font-size: 0;
 }
+/* Voci business (link <a>): usano l'emoji come icona, niente box SVG vuoto. */
+.ms-item[href] { text-decoration: none; color: var(--text); }
+#menu-sheet .ms-item[href] { font-size: 15px; }
+.ms-item[href]::before { display: none; }
+.ms-item-cta, .ms-item-cta > span { color: var(--primary-2); font-weight: 700; }
 .ms-section { margin-top: 8px; }
 .ms-section-lbl {
   font-size: 11px; font-weight: 700;
@@ -1295,6 +1300,7 @@ a:hover { text-decoration: underline; }
 }
 .biz-marker.verified { border-color: #16a34a; }
 .biz-marker-ico { font-size: 16px; line-height: 1; }
+.biz-marker-logo { width: 100%; height: 100%; object-fit: cover; border-radius: 50% 50% 50% 4px; }
 .biz-marker-check {
   position: absolute; top: -5px; right: -5px;
   width: 16px; height: 16px; border-radius: 50%;

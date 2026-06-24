@@ -2,6 +2,36 @@
 
 Guida operativa per mettere in funzione AcquaMap Business con Supabase.
 
+---
+
+## 🚀 Provalo SUBITO in locale (DEV MODE, senza Supabase)
+Finché `SUPABASE_SECRET_KEY` non è impostata, il sistema gira in **dev mode**:
+dati su store JSON locale e login semplificato. Zero chiavi da gestire.
+
+```bash
+pip install -r requirements.txt
+python backend/app.py        # http://127.0.0.1:5000
+```
+
+Poi, nel browser:
+1. **Iscrizione locale** → http://127.0.0.1:5000/acquamap/business/apply (compila e invia).
+2. **Admin** → http://127.0.0.1:5000/admin/acquamap/business → password dev: **`admin`**.
+   - Tab *Richieste* → apri la richiesta → **Approva** (crea il profilo in bozza).
+   - **🗺️ Mappa locali** → seleziona il locale → scrivi via+civico → **Geocodifica**
+     (o clicca/trascina sulla mappa) → carica un **logo** → Stato **published** → **Salva**.
+3. **Profilo pubblico** → http://127.0.0.1:5000/acquamap/business/&lt;slug&gt;
+   **Directory** → http://127.0.0.1:5000/acquamap/business
+   **Mappa principale** → http://127.0.0.1:5000/ → menu → *Livelli* → attiva
+   "Attività AcquaMap Business" (i marker mostrano il logo).
+4. **Dashboard del locale** → http://127.0.0.1:5000/acquamap/business/dashboard →
+   in dev entri con la **sola email** usata nella richiesta.
+
+> Dev mode è solo locale: appena imposti `SUPABASE_SECRET_KEY` passa automaticamente
+> a Supabase (Postgres + Auth) con login reali. Per forzare dev anche con Supabase:
+> `BUSINESS_DEV_MODE=1`. Password dev personalizzabile: `BUSINESS_DEV_ADMIN_PASSWORD`.
+
+---
+
 ## 0. ⚠️ Rigenera la SECRET key (una tantum, urgente)
 La vecchia `sb_secret_...` è stata esposta in chat: va revocata.
 Dashboard Supabase → **Project Settings → API Keys → Secret keys → Roll/Revoke**, poi copia la **nuova** secret key. Non incollarla mai in chat o in file committati.

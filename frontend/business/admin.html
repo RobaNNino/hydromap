@@ -230,7 +230,13 @@ async function profileDetail(id) {
         ${field("Sito web", "website", p.website)}
         ${field("Instagram", "instagram", p.instagram)}
       </div>
-      ${field("Logo URL", "logo_url", p.logo_url)}
+      <div class="biz-field"><label>Logo / icona locale (mostrata sulla mappa)</label>
+        <div style="display:flex;gap:12px;align-items:center">
+          <span id="logo-prev" class="biz-logo" style="width:48px;height:48px;font-size:22px;overflow:hidden">${p.logo_url ? `<img src="${escapeHtml(p.logo_url)}" style="width:100%;height:100%;object-fit:cover"/>` : catIcon(p.category)}</span>
+          <input type="file" id="logo-file" accept="image/*" style="flex:1" />
+        </div>
+        <input name="logo_url" id="logo-url" value="${escapeHtml(p.logo_url || "")}" placeholder="oppure incolla un URL https://… (l'upload lo ridimensiona a ~96px)" />
+      </div>
 
       <div class="biz-divider-lbl">Stato &amp; verifica</div>
       <div class="biz-grid-2">
@@ -266,6 +272,17 @@ async function profileDetail(id) {
 
   $("p-water-chips").querySelectorAll("input").forEach(cb =>
     cb.addEventListener("change", () => cb.closest(".biz-chip").classList.toggle("checked", cb.checked)));
+
+  // Upload logo → ridimensiona a ~96px e mette il data URL nel campo.
+  $("logo-file")?.addEventListener("change", async (ev) => {
+    const file = ev.target.files && ev.target.files[0]; if (!file) return;
+    try {
+      const dataUrl = await resizeImageToDataURL(file, 96);
+      $("logo-url").value = dataUrl;
+      $("logo-prev").innerHTML = `<img src="${dataUrl}" style="width:100%;height:100%;object-fit:cover"/>`;
+      toast("Logo caricato — ricorda di salvare.", "ok");
+    } catch (e) { toast(e.message || "Immagine non valida.", "err"); }
+  });
 
   $("prof-form").addEventListener("submit", async (ev) => {
     ev.preventDefault();
@@ -304,27 +321,46 @@ function switchTab(t) {
 async function boot() {
   $("admin-root").innerHTML = `
     <section class="biz-hero" style="padding-bottom:8px"><h1>Pannello Admin Business</h1></section>
-    <div class="admin-tabs">
-      <span class="admin-tab active" data-tab="applications">Richieste</span>
-      <span class="admin-tab" data-tab="profiles">Profili</span>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+      <div class="admin-tabs" style="margin:0">
+        <span class="admin-tab active" data-tab="applications">Richieste</span>
+        <span class="admin-tab" data-tab="profiles">Profili</span>
+      </div>
+      <a class="biz-btn biz-btn-ghost biz-btn-sm" href="/admin/acquamap/business/map">🗺️ Mappa locali</a>
     </div>
+    <div id="admin-stats" class="dash-summary" style="margin:14px 0"></div>
     <div id="admin-body"><div class="biz-loading">Caricamento…</div></div>`;
   document.querySelectorAll("[data-tab]").forEach(el => el.addEventListener("click", () => switchTab(el.dataset.tab)));
   try {
-    CFG = await apiFetch("/api/business/config");
-    // Verifica i permessi con una chiamata admin reale (il bearer è auto-allegato).
+    CFG = await bizConfig();
     await apiFetch("/api/admin/business/applications?status=pending");
     $("logout").style.display = "inline";
+    loadStats();
     switchTab("applications");
   } catch (e) {
-    if (e.status === 403) { await signOut(); loginForm("Questo account non ha permessi admin. Chiedi di aggiungere la tua email a BUSINESS_ADMIN_EMAILS."); }
+    if (e.status === 403) { await signOut(); loginForm("Questo account non ha permessi admin. Aggiungi la tua email a BUSINESS_ADMIN_EMAILS."); }
     else if (e.status === 401) loginForm("Sessione scaduta: accedi di nuovo.");
-    else if (e.status === 503) loginForm("Supabase Auth non configurato sul server (SUPABASE_JWKS_URL).");
+    else if (e.status === 503) loginForm("Supabase non configurato sul server.");
     else loginForm(e.message || "Errore.");
   }
 }
 
-$("logout").addEventListener("click", async () => { await signOut(); $("logout").style.display = "none"; loginForm(); });
+async function loadStats() {
+  try {
+    const apps = (await apiFetch("/api/admin/business/applications")).items || [];
+    const profs = (await apiFetch("/api/admin/business/profiles")).items || [];
+    const pending = apps.filter(a => a.status === "pending").length;
+    const published = profs.filter(p => p.status === "published").length;
+    const geoless = profs.filter(p => p.latitude == null || p.longitude == null).length;
+    const tile = (n, l) => `<div class="dash-kpi"><div class="kpi-n">${n}</div><div class="kpi-l">${l}</div></div>`;
+    const el = $("admin-stats");
+    if (el) el.innerHTML = tile(pending, "Richieste in attesa") + tile(profs.length, "Profili totali") + tile(published, "Pubblicati") + tile(geoless, "Senza posizione");
+  } catch (_) {}
+}
+
+$("logout").addEventListener("click", async () => {
+  await signOut(); $("logout").style.display = "none"; loginForm();
+});
 
 getUser().then(u => u ? boot() : loginForm());
 </script>

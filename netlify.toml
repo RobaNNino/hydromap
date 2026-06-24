@@ -17,8 +17,16 @@
   to = "/business/dashboard.html"
   status = 200
 [[redirects]]
+  from = "/admin/acquamap/business/map"
+  to = "/business/admin-map.html"
+  status = 200
+[[redirects]]
   from = "/admin/acquamap/business"
   to = "/business/admin.html"
+  status = 200
+[[redirects]]
+  from = "/acquamap/business"
+  to = "/business/directory.html"
   status = 200
 [[redirects]]
   from = "/acquamap/business/:slug"

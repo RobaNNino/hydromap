@@ -31,7 +31,6 @@ from supabase_client import SUPABASE_ENABLED, get_client
 from supabase_client import status as supabase_status
 
 DATA_DIR = Path(__file__).parent / "data"
-STORE_FILE = DATA_DIR / "business.json"
 
 _LOCK = threading.RLock()
 
@@ -89,6 +88,22 @@ def _clean_url(value) -> str:
 
 def _clean_instagram(value) -> str:
     return _clean_str(value, 100).lstrip("@").strip()
+
+
+MAX_IMG = 400_000  # cap data URL (~400KB) per loghi/immagini caricate
+
+
+def _clean_image_url(value) -> str:
+    """Accetta un URL http(s) oppure un data URL immagine (logo caricato e
+    ridimensionato lato client). Tutto il resto viene scartato."""
+    if value is None:
+        return ""
+    s = str(value).strip()
+    if not s:
+        return ""
+    if s.startswith("data:image/"):
+        return s[:MAX_IMG]
+    return _clean_url(s)
 
 
 def _as_bool(value) -> bool:
@@ -180,8 +195,10 @@ def _clean_profile_fields(patch: dict, allowed: tuple) -> dict:
             out[key] = _clean_str(val, MAX_TEXT)
         elif key in ("public_email", "contact_email", "owner_email"):
             out[key] = _clean_email(val)
-        elif key in ("website", "logo_url", "cover_image_url"):
+        elif key == "website":
             out[key] = _clean_url(val)
+        elif key in ("logo_url", "cover_image_url"):
+            out[key] = _clean_image_url(val)
         elif key == "instagram":
             out[key] = _clean_instagram(val)
         elif key == "category":
@@ -221,8 +238,8 @@ def _initial_profile_columns(fields: dict, slug: str) -> dict:
         "public_email": _clean_email(fields.get("public_email")),
         "website": _clean_url(fields.get("website")),
         "instagram": _clean_instagram(fields.get("instagram")),
-        "logo_url": _clean_url(fields.get("logo_url")),
-        "cover_image_url": _clean_url(fields.get("cover_image_url")),
+        "logo_url": _clean_image_url(fields.get("logo_url")),
+        "cover_image_url": _clean_image_url(fields.get("cover_image_url")),
         "status": "draft",
         "verification_status": "not_verified",
         "is_expand_program": _as_bool(fields.get("is_expand_program")),
@@ -309,166 +326,15 @@ def _geojson(profiles: list[dict]) -> dict:
             "properties": {
                 "id": p.get("id"), "slug": p.get("slug"),
                 "business_name": p.get("business_name"), "category": p.get("category"),
-                "city": p.get("city"), "verification_status": p.get("verification_status"),
+                "city": p.get("city"),
+                "address": p.get("address"),
+                "logo_url": p.get("logo_url") or "",
+                "verification_status": p.get("verification_status"),
                 "is_expand_program": p.get("is_expand_program"), "is_premium": p.get("is_premium"),
                 "water_type": wi.get("water_type") or [], "has_filter_system": wi.get("has_filter_system"),
             },
         })
     return {"type": "FeatureCollection", "features": feats}
-
-
-# ============================================================
-# Repository: JSON locale (fallback dev)
-# ============================================================
-class JsonRepo:
-    def _empty(self):
-        return {"version": 2, "applications": [], "profiles": []}
-
-    def _load(self):
-        if not STORE_FILE.exists():
-            return self._empty()
-        try:
-            d = json.loads(STORE_FILE.read_text(encoding="utf-8"))
-            d.setdefault("applications", [])
-            d.setdefault("profiles", [])
-            return d
-        except Exception:
-            return self._empty()
-
-    def _save(self, data):
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        tmp = STORE_FILE.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(STORE_FILE)
-
-    def _unique_slug(self, base, taken):
-        slug, i = base, 2
-        while slug in taken:
-            slug = f"{base}-{i}"
-            i += 1
-        return slug
-
-    # ----- applications -----
-    def create_application(self, row):
-        row = {"id": _gen_id("app"), **row, "created_at": _now(), "updated_at": _now()}
-        with _LOCK:
-            data = self._load()
-            data["applications"].append(row)
-            self._save(data)
-        return row
-
-    def list_applications(self, status=None):
-        with _LOCK:
-            apps = self._load()["applications"]
-        if status:
-            apps = [a for a in apps if a.get("status") == status]
-        return sorted(apps, key=lambda a: a.get("created_at", ""), reverse=True)
-
-    def get_application(self, app_id):
-        with _LOCK:
-            return next((a for a in self._load()["applications"] if a.get("id") == app_id), None)
-
-    def update_application(self, app_id, patch):
-        with _LOCK:
-            data = self._load()
-            a = next((x for x in data["applications"] if x.get("id") == app_id), None)
-            if not a:
-                return None
-            if "status" in patch:
-                v = _clean_str(patch["status"], 20).lower()
-                if v in APPLICATION_STATUSES:
-                    a["status"] = v
-            if "admin_notes" in patch:
-                a["admin_notes"] = _clean_str(patch["admin_notes"], MAX_TEXT)
-            if "profile_id" in patch:
-                a["profile_id"] = patch["profile_id"]
-            a["updated_at"] = _now()
-            self._save(data)
-            return a
-
-    # ----- profiles -----
-    def _new_profile(self, fields, taken):
-        slug = slugify(_clean_str(fields.get("slug"), 120)) if fields.get("slug") else slugify(fields.get("business_name") or "")
-        slug = self._unique_slug(slug, taken)
-        cols = _initial_profile_columns(fields, slug)
-        prof = {"id": _gen_id("biz"), **cols, "owner_id": None,
-                "water_info": _build_water_info(fields, _default_water_info())
-                if any(k in fields for k in (["water_type", "has_filter_system",
-                       "has_sparkling_water", "has_natural_water", "notes"] + WATER_PARAMS))
-                else _default_water_info(),
-                "created_at": _now(), "updated_at": _now()}
-        admin_patch = _clean_profile_fields(fields, _ADMIN_EDITABLE)
-        prof.update(admin_patch)
-        return prof
-
-    def list_profiles(self):
-        with _LOCK:
-            profs = self._load()["profiles"]
-        return sorted(profs, key=lambda p: p.get("created_at", ""), reverse=True)
-
-    def get_profile(self, profile_id):
-        with _LOCK:
-            return next((p for p in self._load()["profiles"] if p.get("id") == profile_id), None)
-
-    def create_profile(self, fields):
-        with _LOCK:
-            data = self._load()
-            taken = {p.get("slug") for p in data["profiles"]}
-            prof = self._new_profile(fields, taken)
-            data["profiles"].append(prof)
-            self._save(data)
-            return prof
-
-    def update_profile(self, profile_id, patch, allowed):
-        with _LOCK:
-            data = self._load()
-            p = next((x for x in data["profiles"] if x.get("id") == profile_id), None)
-            if not p:
-                return None
-            if "slug" in patch and allowed is _ADMIN_EDITABLE and patch["slug"]:
-                ns = slugify(patch["slug"])
-                taken = {q.get("slug") for q in data["profiles"] if q.get("id") != profile_id}
-                if ns not in taken:
-                    p["slug"] = ns
-            p.update(_clean_profile_fields(patch, allowed))
-            p["updated_at"] = _now()
-            self._save(data)
-            return p
-
-    def delete_profile(self, profile_id):
-        with _LOCK:
-            data = self._load()
-            before = len(data["profiles"])
-            data["profiles"] = [p for p in data["profiles"] if p.get("id") != profile_id]
-            if len(data["profiles"]) != before:
-                self._save(data)
-                return True
-        return False
-
-    def set_water_info(self, profile_id, payload):
-        with _LOCK:
-            data = self._load()
-            p = next((x for x in data["profiles"] if x.get("id") == profile_id), None)
-            if not p:
-                return None
-            p["water_info"] = _build_water_info(payload, p.get("water_info"))
-            p["updated_at"] = _now()
-            self._save(data)
-            return p
-
-    def find_owned(self, user_id, email):
-        with _LOCK:
-            data = self._load()
-            p = next((x for x in data["profiles"] if x.get("owner_id") == user_id), None)
-            if p:
-                return p
-            email = (email or "").lower()
-            p = next((x for x in data["profiles"]
-                      if not x.get("owner_id") and (x.get("owner_email") or "").lower() == email and email), None)
-            if p:
-                p["owner_id"] = user_id
-                self._save(data)
-            return p
 
 
 # ============================================================
@@ -608,7 +474,7 @@ class SupabaseRepo:
         return self.get_profile(prof["id"])
 
 
-_repo = SupabaseRepo() if SUPABASE_ENABLED else JsonRepo()
+_repo = SupabaseRepo()
 
 
 # ============================================================
@@ -716,6 +582,68 @@ def get_profile_for_user(user):
 
 
 # ============================================================
+# Geocoding (OSM/Nominatim) con cache su disco — usato dall'admin per
+# posizionare i locali per via e civico senza inserire coordinate a mano.
+# ============================================================
+_GEOCACHE_FILE = DATA_DIR / "business_geocache.json"
+_geocache_lock = threading.Lock()
+
+
+def _load_geocache() -> dict:
+    try:
+        return json.loads(_GEOCACHE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_geocache(d: dict) -> None:
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = _GEOCACHE_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(_GEOCACHE_FILE)
+    except Exception:
+        pass
+
+
+def geocode(q: str) -> list[dict]:
+    """Indirizzo (via, civico, città) -> lista di candidati {display_name, lat, lon}."""
+    key = " ".join(q.strip().lower().split())
+    with _geocache_lock:
+        cache = _load_geocache()
+        if key in cache:
+            return cache[key]
+    items: list[dict] = []
+    try:
+        import requests
+        r = requests.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={"format": "json", "q": q, "countrycodes": "it",
+                    "limit": 6, "addressdetails": 1},
+            headers={"User-Agent": "AcquaMap/1.0 (business geocoder)"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        for it in r.json():
+            try:
+                items.append({
+                    "display_name": it.get("display_name"),
+                    "lat": float(it["lat"]),
+                    "lon": float(it["lon"]),
+                    "type": it.get("type"),
+                })
+            except (KeyError, TypeError, ValueError):
+                continue
+    except Exception:
+        items = []
+    with _geocache_lock:
+        cache = _load_geocache()
+        cache[key] = items
+        _save_geocache(cache)
+    return items
+
+
+# ============================================================
 # Rotte Flask
 # ============================================================
 def _json_body() -> dict:
@@ -728,6 +656,17 @@ def _strip_for_owner(p: dict) -> dict:
 
 
 def register_business_routes(app) -> None:
+    # Guardia: gli endpoint business richiedono Supabase configurato.
+    # /api/business/config resta accessibile per diagnosticare la configurazione.
+    @app.before_request
+    def _guard_supabase():
+        p = request.path
+        if p == "/api/business/config":
+            return None
+        if (p.startswith("/api/business") or p.startswith("/api/admin/business")) and not SUPABASE_ENABLED:
+            return jsonify({"error": "Supabase non configurato sul server."}), 503
+        return None
+
     # ---------- Pubblici ----------
     @app.get("/api/business")
     def api_business_list():
@@ -771,8 +710,20 @@ def register_business_routes(app) -> None:
             "filter_states": FILTER_STATES, "verification_states": VERIFICATION_STATES,
             "profile_statuses": PROFILE_STATUSES, "water_params": WATER_PARAMS,
             "supabase": supabase_status(),
-            "auth_enabled": supa_auth.AUTH_ENABLED,
+            "auth": {
+                "jwt_enabled": supa_auth.AUTH_ENABLED,
+                "supabase_enabled": SUPABASE_ENABLED,
+            },
         })
+
+    # ---------- Geocoding (indirizzo -> coordinate) per il posizionamento admin ----------
+    @app.get("/api/business/geocode")
+    def api_business_geocode():
+        supa_auth.require_admin()
+        q = (request.args.get("q") or "").strip()
+        if len(q) < 3:
+            return jsonify({"items": []})
+        return jsonify({"items": geocode(q)})
 
     # ---------- Dashboard business (Supabase Auth) ----------
     @app.get("/api/business/me")

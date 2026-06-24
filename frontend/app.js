@@ -1092,10 +1092,13 @@ const BUSINESS_CAT_ICONS = {
 function _businessDivIcon(p) {
   const verified = p.verification_status && p.verification_status !== "not_verified";
   const ico = BUSINESS_CAT_ICONS[p.category] || "📍";
+  const inner = p.logo_url
+    ? `<img class="biz-marker-logo" src="${escapeHtml(p.logo_url)}" alt="" />`
+    : `<span class="biz-marker-ico">${ico}</span>`;
   return L.divIcon({
     className: "",
     html: `<div class="biz-marker ${verified ? "verified" : ""}">
-      <span class="biz-marker-ico">${ico}</span>
+      ${inner}
       ${verified ? '<span class="biz-marker-check">✓</span>' : ""}
     </div>`,
     iconSize: [34, 34],

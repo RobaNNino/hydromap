@@ -187,11 +187,11 @@ async function load() {
     render(p);
   } catch (e) {
     if (e.status === 404) {
-      loginForm(`Nessuna attività associata a "${user.email}". Verifica di aver usato l'email della richiesta, oppure contatta AcquaMap per il collegamento.`);
+      loginForm(`Nessuna attività associata a "${user.email}". Usa l'email della richiesta, oppure chiedi all'admin di collegare il profilo.`);
     } else if (e.status === 401) {
       loginForm("Sessione scaduta: accedi di nuovo.");
     } else if (e.status === 503) {
-      loginForm("Supabase Auth non configurato sul server.");
+      loginForm("Supabase non configurato sul server.");
     } else {
       loginForm(e.message || "Errore.");
     }

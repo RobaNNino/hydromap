@@ -721,7 +721,9 @@ register_business_routes(app)
 
 
 # ---------- Dati reali esterni: meteo ----------
-from realtime import get_meteo  # noqa: E402
+# NB: il modulo si chiama meteo.py (NON realtime.py) per non oscurare il pacchetto
+# pip `realtime`, dipendenza del SDK `supabase` (backend/ è in cima a sys.path).
+from meteo import get_meteo  # noqa: E402
 
 
 @app.get("/api/meteo")
@@ -766,6 +768,16 @@ def page_business_dashboard():
 @app.get("/admin/acquamap/business")
 def page_business_admin():
     return _serve_business_page("admin.html")
+
+
+@app.get("/admin/acquamap/business/map")
+def page_business_admin_map():
+    return _serve_business_page("admin-map.html")
+
+
+@app.get("/acquamap/business")
+def page_business_directory():
+    return _serve_business_page("directory.html")
 
 
 @app.get("/acquamap/business/<slug>")

@@ -64,6 +64,38 @@ async function signOut() {
   if (c) await c.auth.signOut();
 }
 
+// ---------- config / modalità auth ----------
+let _bizConfig = null;
+async function bizConfig() {
+  if (_bizConfig) return _bizConfig;
+  _bizConfig = await apiFetch("/api/business/config");
+  return _bizConfig;
+}
+
+// ---------- logo: ridimensiona un file immagine in un data URL piccolo ----------
+function resizeImageToDataURL(file, max = 96) {
+  return new Promise((resolve, reject) => {
+    if (!file || !/^image\//.test(file.type)) return reject(new Error("File non valido."));
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Lettura file fallita."));
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(max / img.width, max / img.height, 1);
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const cv = document.createElement("canvas");
+        cv.width = w; cv.height = h;
+        cv.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(cv.toDataURL("image/png"));
+      };
+      img.onerror = () => reject(new Error("Immagine non valida."));
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 // ---------- utils ----------
 const $ = (id) => document.getElementById(id);
 const escapeHtml = (s) => String(s ?? "")
@@ -156,7 +188,7 @@ function toast(msg, kind = "ok") {
 }
 
 // ---------- fetch helper ----------
-// Allega automaticamente il bearer JWT di Supabase Auth se disponibile.
+// Allega il bearer JWT di Supabase Auth quando disponibile.
 async function apiFetch(path, opts = {}) {
   const headers = Object.assign({}, opts.headers || {});
   if (!headers.Authorization) {

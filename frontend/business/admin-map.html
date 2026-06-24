@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="it" class="biz">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#0c4a6e" />
+<meta name="robots" content="noindex" />
+<meta name="api-base" content="https://hydromap-api.onrender.com" />
+<title>Mappa locali — Admin AcquaMap Business</title>
+<link rel="icon" href="/LOGO.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="/style.css" />
+<link rel="stylesheet" href="/business/business.css" />
+<style>
+  html.biz, html.biz body { height: 100%; overflow: hidden; }
+  body.biz-page { padding: 0; }
+  .map-tool { display: grid; grid-template-columns: 360px 1fr; height: calc(100vh - 58px); }
+  @media (max-width: 760px) { .map-tool { grid-template-columns: 1fr; } .map-tool #am-map { display: none; } .map-tool.show-map #am-side { display: none; } .map-tool.show-map #am-map { display: block; } }
+  #am-side { overflow-y: auto; border-right: 1px solid var(--border); padding: 14px; background: var(--surface); }
+  #am-map { height: 100%; }
+  .am-list-item { display: flex; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; }
+  .am-list-item:hover { background: var(--surface-2); }
+  .am-list-item.active { background: var(--brand-gradient-soft); border-color: var(--primary-2); }
+  .am-list-item .ico { width: 30px; height: 30px; border-radius: 8px; overflow: hidden; display: grid; place-items: center; background: var(--surface-3); flex: none; }
+  .am-list-item .ico img { width: 100%; height: 100%; object-fit: cover; }
+  .am-list-item .nm { font-weight: 700; font-size: 13.5px; }
+  .am-list-item .ad { font-size: 11.5px; color: var(--muted); }
+  .am-geores { border: 1px solid var(--border); border-radius: 10px; margin-top: 6px; max-height: 160px; overflow-y: auto; }
+  .am-geores div { padding: 8px 10px; font-size: 12.5px; cursor: pointer; border-bottom: 1px solid var(--border); }
+  .am-geores div:hover { background: var(--surface-2); }
+  .biz-pin { width: 34px; height: 34px; border-radius: 50% 50% 50% 4px; background: #fff; border: 2px solid #0f766e; box-shadow: 0 2px 6px rgba(0,0,0,.3); display: grid; place-items: center; overflow: hidden; }
+  .biz-pin.ver { border-color: #16a34a; }
+  .biz-pin.sel { border-color: var(--primary-2); box-shadow: 0 0 0 4px var(--brand-ring); }
+  .biz-pin img { width: 100%; height: 100%; object-fit: cover; }
+  .biz-pin span { font-size: 16px; }
+</style>
+</head>
+<body class="biz-page">
+
+<header class="biz-topbar">
+  <a class="biz-brand" href="/admin/acquamap/business"><img src="/LOGO.svg" alt="" /><b>Acqua<span>Map</span> · Mappa locali</b></a>
+  <div class="spacer"></div>
+  <a class="biz-link" href="/admin/acquamap/business">← Pannello</a>
+  <span class="biz-link" id="toggle-view" style="cursor:pointer;margin-left:12px">🗺️/📋</span>
+</header>
+
+<div id="gate" class="biz-wrap narrow"></div>
+<div id="tool" class="map-tool" hidden>
+  <aside id="am-side">
+    <div class="biz-field"><input id="am-search" placeholder="🔎 Filtra locali…" /></div>
+    <div id="am-list"></div>
+    <hr class="biz-hr" />
+    <div id="am-editor"><p class="sub">Seleziona un locale per posizionarlo sulla mappa.</p></div>
+  </aside>
+  <div id="am-map"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/business/supabase-config.js"></script>
+<script src="/business/business.js"></script>
+<script>
+let map, markersLayer, profiles = [], selectedId = null, tempMarker = null, tempLatLng = null;
+
+function pinIcon(p, selected) {
+  const inner = p.logo_url ? `<img src="${escapeHtml(p.logo_url)}"/>` : `<span>${catIcon(p.category)}</span>`;
+  const ver = p.verification_status && p.verification_status !== "not_verified" ? "ver" : "";
+  return L.divIcon({ className: "", html: `<div class="biz-pin ${ver} ${selected ? "sel" : ""}">${inner}</div>`, iconSize: [34, 34], iconAnchor: [17, 17] });
+}
+
+function renderMarkers() {
+  markersLayer.clearLayers();
+  profiles.forEach(p => {
+    if (p.latitude == null || p.longitude == null) return;
+    const m = L.marker([p.latitude, p.longitude], { icon: pinIcon(p, p.id === selectedId) });
+    m.on("click", () => selectProfile(p.id));
+    markersLayer.addLayer(m);
+  });
+}
+
+function renderList(filter = "") {
+  const f = filter.toLowerCase();
+  const items = profiles.filter(p => !f || (p.business_name || "").toLowerCase().includes(f) || (p.city || "").toLowerCase().includes(f));
+  $("am-list").innerHTML = items.map(p => `
+    <div class="am-list-item ${p.id === selectedId ? "active" : ""}" data-id="${p.id}">
+      <span class="ico">${p.logo_url ? `<img src="${escapeHtml(p.logo_url)}"/>` : catIcon(p.category)}</span>
+      <div style="min-width:0">
+        <div class="nm">${escapeHtml(p.business_name)}</div>
+        <div class="ad">${escapeHtml([p.address, p.city].filter(Boolean).join(", ") || "— senza indirizzo")} ${(p.latitude != null) ? "📍" : "⚠️"}</div>
+      </div>
+    </div>`).join("") || `<p class="sub">Nessun locale.</p>`;
+  $("am-list").querySelectorAll("[data-id]").forEach(el => el.addEventListener("click", () => selectProfile(el.dataset.id)));
+}
+
+function setTempMarker(lat, lng) {
+  tempLatLng = { lat, lng };
+  if (tempMarker) { tempMarker.setLatLng([lat, lng]); }
+  else {
+    tempMarker = L.marker([lat, lng], { draggable: true, opacity: 0.9 }).addTo(map);
+    tempMarker.on("dragend", () => { const ll = tempMarker.getLatLng(); tempLatLng = { lat: ll.lat, lng: ll.lng }; syncCoordsInputs(); });
+  }
+  syncCoordsInputs();
+}
+
+function syncCoordsInputs() {
+  if (!tempLatLng) return;
+  const la = $("am-lat"), lo = $("am-lng");
+  if (la) la.value = tempLatLng.lat.toFixed(6);
+  if (lo) lo.value = tempLatLng.lng.toFixed(6);
+}
+
+function selectProfile(id) {
+  selectedId = id;
+  const p = profiles.find(x => x.id === id);
+  if (!p) return;
+  if (tempMarker) { map.removeLayer(tempMarker); tempMarker = null; }
+  tempLatLng = (p.latitude != null && p.longitude != null) ? { lat: p.latitude, lng: p.longitude } : null;
+  renderList($("am-search").value);
+  renderMarkers();
+  $("am-editor").innerHTML = `
+    <h3 style="margin:0 0 4px">${escapeHtml(p.business_name)}</h3>
+    <div class="sub">${escapeHtml(catLabel(p.category))} · <span class="biz-status st-${p.status}">${escapeHtml(p.status)}</span></div>
+
+    <div class="biz-divider-lbl">Trova per indirizzo</div>
+    <div class="biz-grid-2">
+      <div class="biz-field"><label>Indirizzo + civico</label><input id="am-addr" value="${escapeHtml(p.address || "")}" placeholder="Via Roma 1" /></div>
+      <div class="biz-field"><label>Città</label><input id="am-city" value="${escapeHtml(p.city || "")}" /></div>
+    </div>
+    <div class="biz-actions"><button class="biz-btn biz-btn-ghost biz-btn-sm" id="am-geo">📍 Geocodifica</button>
+      <span class="sub" style="align-self:center">o clicca/trascina sulla mappa</span></div>
+    <div id="am-geores" class="am-geores" hidden></div>
+
+    <div class="biz-divider-lbl">Posizione</div>
+    <div class="biz-grid-2">
+      <div class="biz-field"><label>Lat</label><input id="am-lat" value="${p.latitude ?? ""}" inputmode="decimal" /></div>
+      <div class="biz-field"><label>Lng</label><input id="am-lng" value="${p.longitude ?? ""}" inputmode="decimal" /></div>
+    </div>
+
+    <div class="biz-divider-lbl">Icona / logo</div>
+    <div style="display:flex;gap:12px;align-items:center">
+      <span id="am-logoprev" class="biz-logo" style="width:46px;height:46px;font-size:20px;overflow:hidden">${p.logo_url ? `<img src="${escapeHtml(p.logo_url)}" style="width:100%;height:100%;object-fit:cover"/>` : catIcon(p.category)}</span>
+      <input type="file" id="am-logo" accept="image/*" style="flex:1" />
+    </div>
+
+    <div class="biz-field" style="margin-top:12px"><label>Stato</label>
+      <select id="am-status">
+        ${["draft","published","hidden","suspended"].map(s => `<option value="${s}" ${p.status===s?"selected":""}>${s}</option>`).join("")}
+      </select></div>
+
+    <div class="biz-actions" style="margin-top:14px">
+      <button class="biz-btn biz-btn-primary" id="am-save">Salva posizione</button>
+      ${p.status === "published" ? `<a class="biz-btn biz-btn-ghost biz-btn-sm" href="/acquamap/business/${escapeHtml(p.slug)}" target="_blank">Profilo ↗</a>` : ""}
+    </div>`;
+
+  if (tempLatLng) { setTempMarker(tempLatLng.lat, tempLatLng.lng); map.setView([tempLatLng.lat, tempLatLng.lng], 16); }
+
+  let logoData = null;
+  $("am-geo").addEventListener("click", async () => {
+    const q = [$("am-addr").value, $("am-city").value, "Italia"].filter(Boolean).join(", ");
+    $("am-geo").disabled = true; $("am-geo").textContent = "Cerco…";
+    try {
+      const r = await apiFetch("/api/business/geocode?q=" + encodeURIComponent(q));
+      const box = $("am-geores");
+      box.hidden = false;
+      box.innerHTML = (r.items || []).map((it, i) => `<div data-i="${i}">${escapeHtml(it.display_name)}</div>`).join("") || "<div>Nessun risultato.</div>";
+      box.querySelectorAll("[data-i]").forEach(el => el.addEventListener("click", () => {
+        const it = r.items[+el.dataset.i]; setTempMarker(it.lat, it.lon); map.setView([it.lat, it.lon], 17); box.hidden = true;
+      }));
+    } catch (e) { toast(e.message, "err"); }
+    finally { $("am-geo").disabled = false; $("am-geo").textContent = "📍 Geocodifica"; }
+  });
+  $("am-lat").addEventListener("change", () => { const la = parseFloat($("am-lat").value), lo = parseFloat($("am-lng").value); if (isFinite(la) && isFinite(lo)) setTempMarker(la, lo); });
+  $("am-lng").addEventListener("change", () => { const la = parseFloat($("am-lat").value), lo = parseFloat($("am-lng").value); if (isFinite(la) && isFinite(lo)) setTempMarker(la, lo); });
+  $("am-logo").addEventListener("change", async (ev) => {
+    const file = ev.target.files && ev.target.files[0]; if (!file) return;
+    try { logoData = await resizeImageToDataURL(file, 96); $("am-logoprev").innerHTML = `<img src="${logoData}" style="width:100%;height:100%;object-fit:cover"/>`; toast("Logo pronto — salva per applicarlo.", "ok"); }
+    catch (e) { toast(e.message, "err"); }
+  });
+  $("am-save").addEventListener("click", async () => {
+    const payload = { status: $("am-status").value };
+    if (tempLatLng) { payload.latitude = tempLatLng.lat; payload.longitude = tempLatLng.lng; }
+    payload.address = $("am-addr").value; payload.city = $("am-city").value;
+    if (logoData) payload.logo_url = logoData;
+    try {
+      await apiFetch(`/api/admin/business/profiles/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      toast("Salvato ✓", "ok");
+      await loadProfiles(); selectProfile(id);
+    } catch (e) { toast(e.message, "err"); }
+  });
+}
+
+async function loadProfiles() {
+  profiles = (await apiFetch("/api/admin/business/profiles")).items || [];
+  renderList($("am-search") ? $("am-search").value : "");
+  renderMarkers();
+}
+
+function initMap() {
+  map = L.map("am-map", { zoomControl: true }).setView([41.9, 12.5], 6);
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png", { attribution: "© OSM © CARTO", maxZoom: 19 }).addTo(map);
+  markersLayer = L.layerGroup().addTo(map);
+  map.on("click", (e) => { if (selectedId) setTempMarker(e.latlng.lat, e.latlng.lng); });
+}
+
+function gateLogin(msg) {
+  $("gate").innerHTML = `
+    <section class="biz-hero"><h1>Accesso admin</h1></section>
+    <div class="biz-wrap narrow"><div class="biz-card">
+      ${msg ? `<div class="biz-note warn" style="margin-bottom:14px">${escapeHtml(msg)}</div>` : ""}
+      <div class="biz-field"><label>Email</label><input id="g-email" type="email"/></div>
+      <div class="biz-field"><label>Password</label><input id="g-pass" type="password"/></div>
+      <div class="biz-actions"><button class="biz-btn biz-btn-primary" id="g-go">Accedi</button></div>
+    </div></div>`;
+  $("g-go").addEventListener("click", async () => {
+    try { await signIn($("g-email").value.trim(), $("g-pass").value); start(); }
+    catch (e) { gateLogin(e.message || "Errore."); }
+  });
+}
+
+$("toggle-view").addEventListener("click", () => { $("tool").classList.toggle("show-map"); setTimeout(() => map && map.invalidateSize(), 80); });
+
+async function start() {
+  try {
+    await apiFetch("/api/admin/business/profiles");   // verifica permessi admin
+  } catch (e) {
+    if (e.status === 401 || e.status === 403) { $("tool").hidden = true; gateLogin(e.status === 403 ? "Questo account non è admin." : "Accedi con un account admin."); return; }
+    if (e.status === 503) { $("tool").hidden = true; $("gate").innerHTML = '<div class="biz-card"><div class="biz-note warn">Supabase non configurato sul server.</div></div>'; return; }
+  }
+  $("gate").innerHTML = ""; $("tool").hidden = false;
+  if (!map) initMap();
+  $("am-search").addEventListener("input", () => renderList($("am-search").value));
+  await loadProfiles();
+  setTimeout(() => map.invalidateSize(), 80);
+}
+
+start();
+</script>
+</body>
+</html>

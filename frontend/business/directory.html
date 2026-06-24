@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="it" class="biz">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#0c4a6e" />
+<meta name="description" content="Locali e attività su AcquaMap: scopri dove bere acqua buona, filtrata o frizzante." />
+<meta name="api-base" content="https://hydromap-api.onrender.com" />
+<title>Attività — AcquaMap Business</title>
+<link rel="icon" href="/LOGO.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
+<link rel="stylesheet" href="/style.css" />
+<link rel="stylesheet" href="/business/business.css" />
+</head>
+<body class="biz-page">
+
+<header class="biz-topbar">
+  <a class="biz-brand" href="/"><img src="/LOGO.svg" alt="" /><b>Acqua<span>Map</span> Business</b></a>
+  <div class="spacer"></div>
+  <a class="biz-link" href="/acquamap/business/apply">Iscrivi la tua attività →</a>
+</header>
+
+<div class="biz-wrap wide">
+  <section class="biz-hero">
+    <span class="biz-kicker">Directory</span>
+    <h1>Locali su AcquaMap</h1>
+    <p>Bar, ristoranti, hotel e strutture che dichiarano e mostrano la qualità dell'acqua che servono.</p>
+  </section>
+
+  <div class="biz-card" style="padding:14px">
+    <div class="biz-field"><input id="q" placeholder="🔎 Cerca per nome o città…" /></div>
+    <div class="biz-chips" id="filters" style="margin-top:10px"></div>
+  </div>
+
+  <div id="list" class="biz-list" style="margin-top:16px"><div class="biz-loading">Caricamento…</div></div>
+</div>
+
+<script src="/business/business.js"></script>
+<script>
+let ALL = [];
+const FILTERS = [
+  { key: "verified", label: "✓ Verificati" },
+  { key: "expand", label: "★ Expand Program" },
+  { key: "filtered", label: "💧 Acqua filtrata" },
+  { key: "sparkling", label: "🫧 Frizzante" },
+];
+const active = new Set();
+
+function card(p) {
+  const addr = [p.address, p.city].filter(Boolean).join(", ");
+  const badges = `${verifyBadgeHtml(p)}${expandBadgeHtml(p)}`;
+  const types = (p.water_info?.water_type || []).slice(0, 3)
+    .map(t => `<span class="water-pill" style="font-size:11px;padding:3px 8px">${escapeHtml(WATER_TYPE_LABELS[t] || t)}</span>`).join("");
+  return `<a class="biz-list-card" href="/acquamap/business/${encodeURIComponent(p.slug)}">
+    <div class="lc-head">
+      <span class="lc-logo">${p.logo_url ? `<img src="${escapeHtml(p.logo_url)}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit"/>` : catIcon(p.category)}</span>
+      <div style="min-width:0"><div class="lc-name">${escapeHtml(p.business_name)}</div>
+        <div class="lc-sub">${escapeHtml(catLabel(p.category))}${addr ? " · " + escapeHtml(addr) : ""}</div></div>
+    </div>
+    <div class="biz-badges" style="margin:6px 0">${badges}</div>
+    ${types ? `<div class="water-types">${types}</div>` : ""}
+  </a>`;
+}
+
+function apply() {
+  const q = ($("q").value || "").toLowerCase();
+  let items = ALL.filter(p => !q || (p.business_name || "").toLowerCase().includes(q) || (p.city || "").toLowerCase().includes(q));
+  if (active.has("verified")) items = items.filter(p => p.verification_status !== "not_verified");
+  if (active.has("expand")) items = items.filter(p => p.is_expand_program);
+  if (active.has("filtered")) items = items.filter(p => (p.water_info?.has_filter_system) === "yes");
+  if (active.has("sparkling")) items = items.filter(p => p.water_info?.has_sparkling_water);
+  $("list").innerHTML = items.length
+    ? items.map(card).join("")
+    : `<div class="biz-empty"><span class="ico">🫧</span><h2>Nessun locale</h2><p>Presto qui troverai le attività verificate. <a href="/acquamap/business/apply">Iscrivi la tua →</a></p></div>`;
+}
+
+$("filters").innerHTML = FILTERS.map(f => `<label class="biz-chip" data-k="${f.key}">${f.label}</label>`).join("");
+$("filters").querySelectorAll("[data-k]").forEach(el => el.addEventListener("click", () => {
+  const k = el.dataset.k;
+  if (active.has(k)) { active.delete(k); el.classList.remove("checked"); } else { active.add(k); el.classList.add("checked"); }
+  apply();
+}));
+$("q").addEventListener("input", apply);
+
+(async function () {
+  try {
+    ALL = (await apiFetch("/api/business")).items || [];
+    apply();
+  } catch (e) {
+    $("list").innerHTML = `<div class="biz-empty"><span class="ico">⚠️</span><p>${escapeHtml(e.message || "Errore di caricamento.")}</p></div>`;
+  }
+})();
+</script>
+</body>
+</html>
