@@ -24,6 +24,23 @@ services:
         sync: false                     # SECRET key (service_role) — impostare nel dashboard Render, mai committare
       - key: BUSINESS_ADMIN_EMAILS
         sync: false                     # email admin separate da virgola
+      - key: APP_PUBLIC_BASE
+        value: https://hydromap.netlify.app
+      # --- SMTP Aruba (email transazionali) ---
+      - key: SMTP_HOST
+        value: smtps.aruba.it
+      - key: SMTP_PORT
+        value: "465"
+      - key: SMTP_SECURE
+        value: "true"
+      - key: SMTP_USER
+        value: acquamap@hydroroma.com
+      - key: SMTP_FROM_NAME
+        value: AcquaMap Business
+      - key: SMTP_FROM_EMAIL
+        value: acquamap@hydroroma.com
+      - key: SMTP_PASS
+        sync: false                     # password casella — impostare nel dashboard Render, mai committare
       - key: GEMINI_MODEL
         value: gemini-2.5-flash
       - key: GEMINI_NEWS_MODEL

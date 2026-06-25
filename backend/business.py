@@ -18,13 +18,15 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 import threading
 import unicodedata
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from flask import abort, jsonify, request
+from werkzeug.security import check_password_hash, generate_password_hash
 
 import supa_auth
 from supabase_client import SUPABASE_ENABLED, get_client
@@ -35,12 +37,22 @@ DATA_DIR = Path(__file__).parent / "data"
 _LOCK = threading.RLock()
 
 # ---------- enum / vocabolari ----------
-CATEGORIES = ["bar", "ristorante", "hotel", "palestra", "centro_sportivo", "ufficio", "altro"]
+CATEGORIES = ["bar", "ristorante", "hotel", "palestra", "centro_sportivo",
+              "coworking", "ufficio", "scuola", "negozio", "altro"]
 WATER_TYPES = ["rete", "filtrata", "microfiltrata", "frizzante", "naturale", "altro"]
 FILTER_STATES = ["yes", "no", "undeclared"]
-PROFILE_STATUSES = ["draft", "published", "hidden", "suspended"]
+# Stati estesi (pipeline V1).
+PROFILE_STATUSES = ["draft", "in_review", "changes_requested", "approved",
+                    "published", "hidden", "suspended", "archived"]
 VERIFICATION_STATES = ["not_verified", "verified", "business_verified"]
-APPLICATION_STATUSES = ["pending", "approved", "rejected"]
+APPLICATION_STATUSES = ["pending", "accepted", "approved", "rejected"]
+BADGE_KEYS = ["verified", "water_experience", "lab_quality", "business_premium"]
+# Colonne "core" dell'applicazione: tutto il resto del payload finisce in `extra`.
+_KNOWN_APP_FIELDS = {
+    "business_name", "category", "contact_name", "contact_email", "contact_phone",
+    "address", "city", "province", "region", "website", "instagram", "message",
+    "wants_expand_program", "privacy_accepted", "status", "admin_notes", "profile_id", "extra",
+}
 WATER_PARAMS = ["ph", "hardness", "residue_fixed", "conductivity",
                 "chlorine", "nitrates", "sodium", "calcium", "magnesium"]
 
@@ -144,11 +156,21 @@ _BUSINESS_EDITABLE = ("description", "phone", "public_email", "website",
 _ADMIN_EDITABLE = _BUSINESS_EDITABLE + (
     "business_name", "category", "address", "city", "province", "region",
     "country", "latitude", "longitude", "status", "verification_status",
-    "is_expand_program", "is_premium", "contact_email", "owner_email",
+    "is_expand_program", "is_premium", "contact_email", "owner_email", "badges",
+)
+# Campi che il titolare può modificare in onboarding (creazione profilo completo).
+_ONBOARDING_EDITABLE = (
+    "business_name", "category", "description", "address", "city", "province",
+    "region", "country", "latitude", "longitude", "phone", "public_email",
+    "website", "instagram", "logo_url", "cover_image_url",
 )
 
 # Campi mai esposti su endpoint pubblici.
-_PRIVATE_PROFILE_FIELDS = ("contact_email", "owner_id", "owner_email", "application_id")
+_PRIVATE_PROFILE_FIELDS = (
+    "contact_email", "owner_id", "owner_email", "application_id",
+    "pin_hash", "onboarding_token", "account_token",
+    "onboarding_expires", "account_expires",
+)
 
 
 def _default_water_info() -> dict:
@@ -215,9 +237,30 @@ def _clean_profile_fields(patch: dict, allowed: tuple) -> dict:
             out[key] = _as_bool(val)
         elif key in ("latitude", "longitude"):
             out[key] = _as_float_or_none(val)
+        elif key == "badges":
+            vals = val if isinstance(val, list) else []
+            out[key] = [b for b in (_clean_str(x, 40) for x in vals) if b in BADGE_KEYS]
         else:
             out[key] = _clean_str(val, MAX_SHORT)
     return out
+
+
+def _clean_extra(extra: dict) -> dict:
+    """Sanitizza ricorsivamente il blob `extra` (jsonb): stringhe ripulite,
+    bool/numeri/liste preservati, profondità limitata."""
+    def clean(v, depth=0):
+        if depth > 4:
+            return None
+        if isinstance(v, str):
+            return _clean_str(v, MAX_TEXT)
+        if isinstance(v, bool) or v is None or isinstance(v, (int, float)):
+            return v
+        if isinstance(v, list):
+            return [clean(x, depth + 1) for x in v[:60]]
+        if isinstance(v, dict):
+            return {str(k)[:60]: clean(val, depth + 1) for k, val in list(v.items())[:80]}
+        return None
+    return clean(extra or {}, 0) or {}
 
 
 def _initial_profile_columns(fields: dict, slug: str) -> dict:
@@ -279,13 +322,16 @@ def _validate_application(payload: dict) -> tuple[dict, dict]:
         "region": _clean_str(payload.get("region"), 60),
         "website": _clean_url(payload.get("website")),
         "instagram": _clean_instagram(payload.get("instagram")),
-        "message": _clean_str(payload.get("message"), MAX_TEXT),
+        "message": _clean_str(payload.get("message") or payload.get("goal_why"), MAX_TEXT),
         "wants_expand_program": _as_bool(payload.get("wants_expand_program")),
         "privacy_accepted": True,
         "status": "pending",
         "admin_notes": "",
         "profile_id": None,
     }
+    # Tutti i campi non-core della candidatura avanzata finiscono in extra (jsonb).
+    extra = {k: v for k, v in (payload or {}).items() if k not in _KNOWN_APP_FIELDS}
+    row["extra"] = _clean_extra(extra)
     return row, {}
 
 
@@ -473,6 +519,52 @@ class SupabaseRepo:
         self._c().table(T_PROF).update({"owner_id": user_id}).eq("id", prof["id"]).execute()
         return self.get_profile(prof["id"])
 
+    # ----- V1: token onboarding / account, PIN, extra -----
+    def _get_by_token(self, column, token):
+        if not token:
+            return None
+        res = self._c().table(T_PROF).select(_PROFILE_SELECT).eq(column, token).execute()
+        rows = res.data or []
+        return self._flatten(rows[0]) if rows else None
+
+    def set_token(self, profile_id, column, token, expires_iso):
+        self._c().table(T_PROF).update({
+            column: token, column.replace("_token", "_expires"): expires_iso,
+        }).eq("id", profile_id).execute()
+
+    def get_by_onboarding_token(self, token):
+        return self._get_by_token("onboarding_token", token)
+
+    def get_by_account_token(self, token):
+        return self._get_by_token("account_token", token)
+
+    def update_onboarding(self, profile_id, fields, extra):
+        upd = _clean_profile_fields(fields, _ONBOARDING_EDITABLE)
+        if extra is not None:
+            cur = self.get_profile(profile_id) or {}
+            merged = {**(cur.get("extra") or {}), **_clean_extra(extra)}
+            upd["extra"] = merged
+        if "water_type" in (extra or {}) or "water" in (extra or {}):
+            pass  # le info acqua avanzate restano in extra per la V1
+        if upd:
+            self._c().table(T_PROF).update(upd).eq("id", profile_id).execute()
+        return self.get_profile(profile_id)
+
+    def submit_onboarding(self, profile_id):
+        self._c().table(T_PROF).update({"status": "in_review", "submitted_at": _now()}).eq("id", profile_id).execute()
+        return self.get_profile(profile_id)
+
+    def complete_account(self, profile_id, user_id, pin_hash):
+        self._c().table(T_PROF).update({
+            "owner_id": user_id, "account_created": True, "pin_hash": pin_hash,
+            "account_token": None,
+        }).eq("id", profile_id).execute()
+        return self.get_profile(profile_id)
+
+    def set_pin(self, profile_id, pin_hash):
+        self._c().table(T_PROF).update({"pin_hash": pin_hash}).eq("id", profile_id).execute()
+        return self.get_profile(profile_id)
+
 
 _repo = SupabaseRepo()
 
@@ -485,6 +577,11 @@ def create_application(payload: dict) -> dict:
     if errors:
         return {"ok": False, "errors": errors}
     app_obj = _repo.create_application(row)
+    try:
+        from mailer import send_apply_received
+        send_apply_received(app_obj)
+    except Exception:
+        pass
     return {"ok": True, "application": app_obj}
 
 
@@ -579,6 +676,111 @@ def public_profiles_geojson(filters=None):
 
 def get_profile_for_user(user):
     return _repo.find_owned(user["id"], user.get("email"))
+
+
+# ============================================================
+# V1: token onboarding/account, PIN, badge
+# ============================================================
+def _new_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def _expiry(days: int) -> str:
+    return (datetime.now(timezone.utc) + timedelta(days=days)).isoformat(timespec="seconds")
+
+
+def _token_valid(profile: dict, kind: str) -> bool:
+    exp = profile.get(f"{kind}_expires")
+    if not exp:
+        return True
+    try:
+        return datetime.fromisoformat(exp) >= datetime.now(timezone.utc)
+    except Exception:
+        return True
+
+
+def generate_onboarding_link(profile_id: str) -> dict | None:
+    if not _repo.get_profile(profile_id):
+        return None
+    token = _new_token()
+    _repo.set_token(profile_id, "onboarding_token", token, _expiry(30))
+    return {"token": token}
+
+
+def generate_account_link(profile_id: str) -> dict | None:
+    if not _repo.get_profile(profile_id):
+        return None
+    token = _new_token()
+    _repo.set_token(profile_id, "account_token", token, _expiry(14))
+    return {"token": token}
+
+
+def get_onboarding_profile(token: str) -> dict | None:
+    p = _repo.get_by_onboarding_token(token)
+    if not p or not _token_valid(p, "onboarding"):
+        return None
+    return _strip_tokens(p)
+
+
+def update_onboarding_profile(token: str, payload: dict) -> dict | None:
+    p = _repo.get_by_onboarding_token(token)
+    if not p or not _token_valid(p, "onboarding"):
+        return None
+    extra = payload.get("extra") if isinstance(payload.get("extra"), dict) else {}
+    updated = _repo.update_onboarding(p["id"], payload, extra)
+    return _strip_tokens(updated or {})
+
+
+def submit_onboarding_profile(token: str) -> dict | None:
+    p = _repo.get_by_onboarding_token(token)
+    if not p or not _token_valid(p, "onboarding"):
+        return None
+    updated = _repo.submit_onboarding(p["id"])
+    try:
+        from mailer import send_profile_received
+        send_profile_received(updated or p)
+    except Exception:
+        pass
+    return _strip_tokens(updated or {})
+
+
+def get_account_context(token: str) -> dict | None:
+    p = _repo.get_by_account_token(token)
+    if not p or not _token_valid(p, "account"):
+        return None
+    return {"business_name": p.get("business_name"), "owner_email": p.get("owner_email")}
+
+
+def complete_account(token: str, user: dict, pin: str) -> dict:
+    p = _repo.get_by_account_token(token)
+    if not p or not _token_valid(p, "account"):
+        return {"ok": False, "error": "token_non_valido"}
+    if (p.get("owner_email") or "").lower() != (user.get("email") or "").lower():
+        return {"ok": False, "error": "email_non_corrisponde"}
+    if not re.fullmatch(r"\d{4,6}", pin or ""):
+        return {"ok": False, "error": "pin_non_valido"}
+    _repo.complete_account(p["id"], user["id"], generate_password_hash(pin))
+    return {"ok": True}
+
+
+def set_owner_pin(user: dict, pin: str) -> dict:
+    if not re.fullmatch(r"\d{4,6}", pin or ""):
+        return {"ok": False, "error": "pin_non_valido"}
+    p = get_profile_for_user(user)
+    if not p:
+        return {"ok": False, "error": "nessun_profilo"}
+    _repo.set_pin(p["id"], generate_password_hash(pin))
+    return {"ok": True}
+
+
+def verify_owner_pin(user: dict, pin: str) -> bool:
+    p = get_profile_for_user(user)
+    return bool(p and p.get("pin_hash") and check_password_hash(p["pin_hash"], pin or ""))
+
+
+def _strip_tokens(p: dict) -> dict:
+    return {k: v for k, v in (p or {}).items()
+            if k not in ("pin_hash", "onboarding_token", "account_token")}
 
 
 # ============================================================
@@ -725,6 +927,44 @@ def register_business_routes(app) -> None:
             return jsonify({"items": []})
         return jsonify({"items": geocode(q)})
 
+    # ---------- Onboarding profilo (token-based, pubblico) ----------
+    @app.get("/api/business/onboarding/<token>")
+    def api_onboarding_get(token):
+        p = get_onboarding_profile(token)
+        if not p:
+            abort(404, description="Link onboarding non valido o scaduto.")
+        return jsonify(p)
+
+    @app.patch("/api/business/onboarding/<token>")
+    def api_onboarding_patch(token):
+        p = update_onboarding_profile(token, _json_body())
+        if not p:
+            abort(404, description="Link onboarding non valido o scaduto.")
+        return jsonify(p)
+
+    @app.post("/api/business/onboarding/<token>/submit")
+    def api_onboarding_submit(token):
+        p = submit_onboarding_profile(token)
+        if not p:
+            abort(404, description="Link onboarding non valido o scaduto.")
+        return jsonify({"ok": True, "profile": p})
+
+    # ---------- Creazione account (token-based) ----------
+    @app.get("/api/business/account/<token>")
+    def api_account_get(token):
+        ctx = get_account_context(token)
+        if not ctx:
+            abort(404, description="Link non valido o scaduto.")
+        return jsonify(ctx)
+
+    @app.post("/api/business/account/<token>/complete")
+    def api_account_complete(token):
+        user = supa_auth.require_user()
+        res = complete_account(token, user, _json_body().get("pin", ""))
+        if not res.get("ok"):
+            abort(400, description=res.get("error", "errore"))
+        return jsonify({"ok": True})
+
     # ---------- Dashboard business (Supabase Auth) ----------
     @app.get("/api/business/me")
     def api_business_me():
@@ -733,6 +973,14 @@ def register_business_routes(app) -> None:
         if not p:
             abort(404, description="Nessuna attività associata a questo account.")
         return jsonify(_strip_for_owner(p))
+
+    @app.post("/api/business/me/pin")
+    def api_business_me_pin():
+        user = supa_auth.require_user()
+        res = set_owner_pin(user, _json_body().get("pin", ""))
+        if not res.get("ok"):
+            abort(400, description=res.get("error", "errore"))
+        return jsonify({"ok": True})
 
     @app.patch("/api/business/me")
     def api_business_me_update():
@@ -822,6 +1070,12 @@ def register_business_routes(app) -> None:
             if "water_notes" in body:
                 wi_payload["notes"] = body["water_notes"]
             p = set_water_info(profile_id, wi_payload)
+        if body.get("status") == "published":
+            try:
+                from mailer import send_published
+                send_published(p)
+            except Exception:
+                pass
         return jsonify(p)
 
     @app.delete("/api/admin/business/profiles/<profile_id>")
@@ -830,3 +1084,31 @@ def register_business_routes(app) -> None:
         if not delete_profile(profile_id):
             abort(404)
         return jsonify({"ok": True})
+
+    @app.post("/api/admin/business/profiles/<profile_id>/onboarding-link")
+    def api_admin_onboarding_link(profile_id):
+        supa_auth.require_admin()
+        res = generate_onboarding_link(profile_id)
+        if not res:
+            abort(404)
+        try:
+            from mailer import send_onboarding_link
+            p = get_profile(profile_id)
+            send_onboarding_link(p, res["token"])
+        except Exception:
+            pass
+        return jsonify(res)
+
+    @app.post("/api/admin/business/profiles/<profile_id>/account-link")
+    def api_admin_account_link(profile_id):
+        supa_auth.require_admin()
+        res = generate_account_link(profile_id)
+        if not res:
+            abort(404)
+        try:
+            from mailer import send_account_link
+            p = get_profile(profile_id)
+            send_account_link(p, res["token"])
+        except Exception:
+            pass
+        return jsonify(res)

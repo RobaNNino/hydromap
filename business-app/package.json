@@ -1,0 +1,36 @@
+{
+  "name": "acquamap-business-app",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "AcquaMap Business — SaaS console (React + MUI)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.13.3",
+    "@emotion/styled": "^11.13.0",
+    "@hookform/resolvers": "^3.9.0",
+    "@mui/icons-material": "^6.1.6",
+    "@mui/material": "^6.1.6",
+    "@mui/x-charts": "^7.22.1",
+    "@supabase/supabase-js": "^2.45.4",
+    "@tanstack/react-query": "^5.59.16",
+    "date-fns": "^3.6.0",
+    "framer-motion": "^11.11.9",
+    "react": "^18.3.1",
+    "react-cropper": "^2.3.3",
+    "react-dom": "^18.3.1",
+    "react-hook-form": "^7.53.1",
+    "react-router-dom": "^6.27.0",
+    "sonner": "^1.5.0",
+    "uuid": "^10.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.3",
+    "vite": "^5.4.10"
+  }
+}

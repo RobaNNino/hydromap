@@ -12,6 +12,9 @@ backend/data/business.json
 backend/data/business.json.tmp
 backend/data/business_geocache.json
 backend/data/business_geocache.json.tmp
+# Console React (business-app): build artifact (lo costruisce Netlify) + deps
+frontend/business-app/
+business-app/dist/
 # File di debug
 _dbg.py
 news_out.json

@@ -3,8 +3,19 @@
 
 [build]
   publish = "frontend"
-  # nessun build step: il frontend è HTML + JS vanilla, già pronto
-  command = ""
+  # Build della console React (business-app) -> frontend/business-app/.
+  # Il resto del frontend (mappa) resta HTML/JS vanilla statico.
+  command = "npm --prefix business-app ci && npm --prefix business-app run build"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Console React (SPA): le rotte client di /business-app/* tornano all'index
+# (gli asset reali esistono come file e vengono serviti prima del redirect).
+[[redirects]]
+  from = "/business-app/*"
+  to = "/business-app/index.html"
+  status = 200
 
 # AcquaMap Business — URL amichevoli verso le pagine statiche (rewrite 200).
 # Devono precedere il fallback SPA "/*" (Netlify: prima regola che matcha vince).
