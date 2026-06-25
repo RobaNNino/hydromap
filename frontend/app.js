@@ -1083,6 +1083,21 @@ async function loadAqueducts() {
 }
 
 // ---------- ACQUAMAP BUSINESS ----------
+// Analytics V2: traccia eventi (best-effort, throttle lato server).
+function _amSession() {
+  let s = sessionStorage.getItem("am_sess");
+  if (!s) { s = Math.random().toString(36).slice(2) + Date.now().toString(36); sessionStorage.setItem("am_sess", s); }
+  return s;
+}
+function _trackBusiness(slug, event) {
+  if (!slug) return;
+  try {
+    fetch(API("/api/business/track"), {
+      method: "POST", headers: { "Content-Type": "application/json" }, keepalive: true,
+      body: JSON.stringify({ slug, event, session_id: _amSession(), device: window.innerWidth < 768 ? "mobile" : "desktop" }),
+    }).catch(() => {});
+  } catch (_) {}
+}
 // Layer additivo: attività verificate (bar, ristoranti, hotel…) come marker.
 // Cliccando un marker si apre una scheda rapida con link al profilo completo.
 const BUSINESS_CAT_ICONS = {
@@ -1132,6 +1147,8 @@ async function loadBusiness() {
         <div class="summary">${escapeHtml(p.city || "")}</div>
         <a class="news-popup-link" href="/acquamap/business/${encodeURIComponent(p.slug)}" target="_blank" rel="noopener">Apri profilo →</a>
       </div>`);
+      // Analytics V2: traccia "aperture dalla mappa".
+      m.on("popupopen", () => _trackBusiness(p.slug, "open_map"));
       grp.addLayer(m);
     });
     state.businessLayer = grp;

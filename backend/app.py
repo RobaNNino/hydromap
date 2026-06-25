@@ -716,8 +716,10 @@ def api_sources():
 
 # ---------- AcquaMap Business (profili attività + Expand Program) ----------
 from business import register_business_routes  # noqa: E402
+from business_v2 import register_v2_routes  # noqa: E402
 
 register_business_routes(app)
+register_v2_routes(app)
 
 
 # ---------- Dati reali esterni: meteo ----------

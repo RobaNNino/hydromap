@@ -30,6 +30,21 @@
 
 <script src="/business/business.js"></script>
 <script>
+// --- Analytics (V2): traccia view + click CTA (throttle lato server) ---
+function _sessionId() {
+  let s = sessionStorage.getItem("am_sess");
+  if (!s) { s = Math.random().toString(36).slice(2) + Date.now().toString(36); sessionStorage.setItem("am_sess", s); }
+  return s;
+}
+function track(slug, event) {
+  try {
+    fetch(API("/api/business/track"), {
+      method: "POST", headers: { "Content-Type": "application/json" }, keepalive: true,
+      body: JSON.stringify({ slug, event, session_id: _sessionId(), device: window.innerWidth < 768 ? "mobile" : "desktop" }),
+    }).catch(() => {});
+  } catch (_) {}
+}
+
 (async function () {
   const root = $("profile-root");
   const slug = slugFromLocation();
@@ -88,10 +103,10 @@
     const addr = [p.address, p.city, p.province].filter(Boolean).join(", ");
     const meta = [];
     if (addr) meta.push(`<div class="row"><span class="k">Indirizzo</span><span>${escapeHtml(addr)}${p.region ? " — " + escapeHtml(p.region) : ""}</span></div>`);
-    if (p.phone) meta.push(`<div class="row"><span class="k">Telefono</span><a href="tel:${escapeHtml(p.phone)}">${escapeHtml(p.phone)}</a></div>`);
+    if (p.phone) meta.push(`<div class="row"><span class="k">Telefono</span><a data-track="click_phone" href="tel:${escapeHtml(p.phone)}">${escapeHtml(p.phone)}</a></div>`);
     if (p.public_email) meta.push(`<div class="row"><span class="k">Email</span><a href="mailto:${escapeHtml(p.public_email)}">${escapeHtml(p.public_email)}</a></div>`);
-    if (p.website) meta.push(`<div class="row"><span class="k">Sito</span><a href="${escapeHtml(p.website)}" target="_blank" rel="noopener">${escapeHtml(p.website.replace(/^https?:\/\//,""))}</a></div>`);
-    if (p.instagram) meta.push(`<div class="row"><span class="k">Instagram</span><a href="https://instagram.com/${escapeHtml(p.instagram)}" target="_blank" rel="noopener">@${escapeHtml(p.instagram)}</a></div>`);
+    if (p.website) meta.push(`<div class="row"><span class="k">Sito</span><a data-track="click_website" href="${escapeHtml(p.website)}" target="_blank" rel="noopener">${escapeHtml(p.website.replace(/^https?:\/\//,""))}</a></div>`);
+    if (p.instagram) meta.push(`<div class="row"><span class="k">Instagram</span><a data-track="click_instagram" href="https://instagram.com/${escapeHtml(p.instagram)}" target="_blank" rel="noopener">@${escapeHtml(p.instagram)}</a></div>`);
 
     const verifiedNote = p.verification_status !== "not_verified"
       ? `<div class="biz-note success" style="margin-top:14px">✓ Profilo verificato da AcquaMap.</div>` : "";
@@ -116,6 +131,10 @@
       ${waterSection(p.water_info)}
       <p class="biz-empty" style="padding:20px;font-size:13px">Dati forniti dall'attività e verificati da AcquaMap. <a href="/business-app/apply">Anche tu hai un'attività?</a></p>
     `;
+    // tracking: view + click CTA
+    track(slug, "view");
+    root.querySelectorAll("[data-track]").forEach(a =>
+      a.addEventListener("click", () => track(slug, a.getAttribute("data-track"))));
   } catch (err) {
     if (err.status === 404) {
       root.innerHTML = emptyState("Profilo non trovato", "Questa attività non esiste o non è ancora pubblicata.");

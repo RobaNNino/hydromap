@@ -582,6 +582,13 @@ def create_application(payload: dict) -> dict:
         send_apply_received(app_obj)
     except Exception:
         pass
+    try:
+        import business_v2
+        business_v2.notify("admin", None, "new_application",
+                           "Nuova richiesta", f"{app_obj.get('business_name')} — {app_obj.get('city') or ''}")
+        business_v2.audit(None, app_obj.get("contact_email"), "application_submitted", app_obj.get("business_name") or "")
+    except Exception:
+        pass
     return {"ok": True, "application": app_obj}
 
 
@@ -739,6 +746,13 @@ def submit_onboarding_profile(token: str) -> dict | None:
     try:
         from mailer import send_profile_received
         send_profile_received(updated or p)
+    except Exception:
+        pass
+    try:
+        import business_v2
+        business_v2.notify("admin", p["id"], "profile_submitted",
+                           "Profilo da revisionare", f"{p.get('business_name')} ha inviato il profilo.")
+        business_v2.audit(p["id"], p.get("owner_email"), "profile_submitted", "")
     except Exception:
         pass
     return _strip_tokens(updated or {})
@@ -988,8 +1002,23 @@ def register_business_routes(app) -> None:
         p = get_profile_for_user(user)
         if not p:
             abort(404, description="Nessuna attività associata a questo account.")
-        updated = update_profile(p["id"], _json_body(), admin=False)
-        return jsonify(_strip_for_owner(updated or {}))
+        import business_v2
+        body = _json_body()
+        # I campi sensibili (telefono/email pubblica) NON vanno online subito:
+        # diventano "modifiche in attesa" da approvare in admin.
+        direct, sensitive = business_v2.split_business_edit(p, body, _BUSINESS_EDITABLE)
+        updated = update_profile(p["id"], direct, admin=False) if direct else p
+        pending = []
+        for field, new in sensitive.items():
+            try:
+                cleaned = _clean_profile_fields({field: new}, _BUSINESS_EDITABLE).get(field, new)
+                business_v2.create_pending_change(p["id"], field, p.get(field), cleaned, user.get("email", ""))
+                pending.append(field)
+            except Exception:
+                pass
+        out = _strip_for_owner(updated or {})
+        out["pending_changes"] = pending
+        return jsonify(out)
 
     @app.patch("/api/business/me/water-info")
     def api_business_me_water():
@@ -1074,6 +1103,13 @@ def register_business_routes(app) -> None:
             try:
                 from mailer import send_published
                 send_published(p)
+            except Exception:
+                pass
+            try:
+                import business_v2
+                business_v2.notify("business", profile_id, "published", "Profilo pubblicato",
+                                   "Il tuo profilo è ora online su AcquaMap.")
+                business_v2.audit(profile_id, "admin", "profile_published", "")
             except Exception:
                 pass
         return jsonify(p)

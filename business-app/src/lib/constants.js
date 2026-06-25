@@ -58,6 +58,36 @@ export const PROFILE_STATUSES = {
 
 export const APPLICATION_STATUSES = { pending: "In attesa", accepted: "Accettata", rejected: "Rifiutata" };
 
+// ---- Analytics (V2) ----
+export const EVENT_LABELS = {
+  view: "Visualizzazioni", open_map: "Aperture mappa", click_phone: "Click telefono",
+  click_maps: "Click indicazioni", click_website: "Click sito", click_instagram: "Click Instagram",
+  click_whatsapp: "Click WhatsApp", open_gallery: "Aperture gallery",
+};
+
+// Completezza profilo (mirror del backend) — 0..100.
+export function computeCompleteness(p = {}) {
+  const wi = p.water_info || {};
+  const ex = p.extra || {};
+  const checks = [
+    p.business_name, p.category, p.address, p.city, p.phone, p.description, ex.long_desc,
+    ex.hours && Object.keys(ex.hours).length, ex.services && ex.services.length,
+    (wi.water_type && wi.water_type.length) || (ex.water && Object.values(ex.water).some(Boolean)),
+    p.logo_url, p.cover_image_url, p.latitude != null && p.longitude != null,
+  ];
+  return Math.round((checks.filter(Boolean).length / checks.length) * 100);
+}
+
+// Trust score (mirror del backend) — 0..100.
+export function computeTrust(p = {}) {
+  let s = computeCompleteness(p) * 0.4;
+  if (p.verification_status && p.verification_status !== "not_verified") s += 20;
+  if (p.logo_url && p.cover_image_url) s += 10;
+  s += Math.min(20, (p.badges || []).length * 7);
+  if (p.latitude != null && p.longitude != null) s += 10;
+  return Math.round(Math.min(100, s));
+}
+
 export const PRIVACY_TEXT = `Informativa sul trattamento dei dati personali — AcquaMap Business
 
 Titolare del trattamento
