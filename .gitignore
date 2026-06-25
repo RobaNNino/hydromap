@@ -12,8 +12,8 @@ backend/data/business.json
 backend/data/business.json.tmp
 backend/data/business_geocache.json
 backend/data/business_geocache.json.tmp
-# Console React (business-app): build artifact (lo costruisce Netlify) + deps
-frontend/business-app/
+# Console React (business-app): il build VIENE committato (Render lo serve via Flask).
+# Solo le dipendenze restano ignorate (node_modules è già coperto globalmente).
 business-app/dist/
 # File di debug
 _dbg.py

@@ -25,7 +25,7 @@ services:
       - key: BUSINESS_ADMIN_EMAILS
         sync: false                     # email admin separate da virgola
       - key: APP_PUBLIC_BASE
-        value: https://hydromap.netlify.app
+        value: https://hydromap-api.onrender.com
       # --- SMTP Aruba (email transazionali) ---
       - key: SMTP_HOST
         value: smtps.aruba.it

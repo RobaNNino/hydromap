@@ -18,7 +18,7 @@
 <header class="biz-topbar">
   <a class="biz-brand" href="/"><img src="/LOGO.svg" alt="" /><b>Acqua<span>Map</span> Business</b></a>
   <div class="spacer"></div>
-  <a class="biz-link" href="/acquamap/business/apply">Iscrivi la tua attività →</a>
+  <a class="biz-link" href="/business-app/apply">Iscrivi la tua attività →</a>
 </header>
 
 <div class="biz-wrap wide">
@@ -72,7 +72,7 @@ function apply() {
   if (active.has("sparkling")) items = items.filter(p => p.water_info?.has_sparkling_water);
   $("list").innerHTML = items.length
     ? items.map(card).join("")
-    : `<div class="biz-empty"><span class="ico">🫧</span><h2>Nessun locale</h2><p>Presto qui troverai le attività verificate. <a href="/acquamap/business/apply">Iscrivi la tua →</a></p></div>`;
+    : `<div class="biz-empty"><span class="ico">🫧</span><h2>Nessun locale</h2><p>Presto qui troverai le attività verificate. <a href="/business-app/apply">Iscrivi la tua →</a></p></div>`;
 }
 
 $("filters").innerHTML = FILTERS.map(f => `<label class="biz-chip" data-k="${f.key}">${f.label}</label>`).join("");

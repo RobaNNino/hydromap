@@ -26,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from dotenv import load_dotenv
-from flask import Flask, Response, abort, jsonify, request, send_file, send_from_directory
+from flask import Flask, Response, abort, jsonify, redirect, request, send_file, send_from_directory
 from flask_cors import CORS
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
@@ -748,26 +748,54 @@ def index():
     return _no_cache(send_from_directory(FRONTEND_DIR, "index.html"))
 
 
-# ---------- AcquaMap Business: pagine con URL "amichevoli" ----------
-# Servono le pagine statiche di frontend/business/ su rotte leggibili.
-# (Su Netlify gli stessi URL sono mappati via redirect in netlify.toml.)
+# ---------- AcquaMap Business: console React (business-app) servita da Flask ----------
+# La console SaaS (apply, admin, onboarding, dashboard) è una SPA React buildata
+# in frontend/business-app/. Render serve API + frontend dallo stesso origin.
+BUSINESS_APP_DIR = FRONTEND_DIR / "business-app"
+
+
+def _serve_business_app():
+    return _no_cache(send_from_directory(BUSINESS_APP_DIR, "index.html"))
+
+
+@app.get("/business-app")
+def business_app_root():
+    return redirect("/business-app/", code=302)
+
+
+@app.get("/business-app/")
+def business_app_index():
+    return _serve_business_app()
+
+
+@app.get("/business-app/<path:fname>")
+def business_app_files(fname: str):
+    # Asset reali serviti dal disco; tutto il resto -> index.html (routing client).
+    target = (BUSINESS_APP_DIR / fname).resolve()
+    if BUSINESS_APP_DIR.resolve() in target.parents and target.exists() and target.is_file():
+        return send_from_directory(BUSINESS_APP_DIR, fname)
+    return _serve_business_app()
+
+
+# ---------- Pagine vanilla pubbliche (directory + profilo) ----------
 def _serve_business_page(fname: str):
     return _no_cache(send_from_directory(FRONTEND_DIR / "business", fname))
 
 
+# Le vecchie URL della console ora reindirizzano alla nuova app React.
 @app.get("/acquamap/business/apply")
 def page_business_apply():
-    return _serve_business_page("apply.html")
+    return redirect("/business-app/apply", code=301)
 
 
 @app.get("/acquamap/business/dashboard")
 def page_business_dashboard():
-    return _serve_business_page("dashboard.html")
+    return redirect("/business-app/dashboard", code=301)
 
 
 @app.get("/admin/acquamap/business")
 def page_business_admin():
-    return _serve_business_page("admin.html")
+    return redirect("/business-app/admin", code=301)
 
 
 @app.get("/admin/acquamap/business/map")

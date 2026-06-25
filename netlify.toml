@@ -3,12 +3,9 @@
 
 [build]
   publish = "frontend"
-  # Build della console React (business-app) -> frontend/business-app/.
-  # Il resto del frontend (mappa) resta HTML/JS vanilla statico.
-  command = "npm --prefix business-app ci && npm --prefix business-app run build"
-
-[build.environment]
-  NODE_VERSION = "20"
+  # Nessun build step: la console React è già buildata e committata in
+  # frontend/business-app/. (In produzione il frontend è servito da Flask/Render.)
+  command = ""
 
 # Console React (SPA): le rotte client di /business-app/* tornano all'index
 # (gli asset reali esistono come file e vengono serviti prima del redirect).
