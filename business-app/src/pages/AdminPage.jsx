@@ -3,6 +3,7 @@ import {
   Box, Card, CardContent, Typography, Stack, Chip, Button, Drawer, IconButton,
   Tabs, Tab, Table, TableHead, TableRow, TableCell, TableBody, TextField, Divider,
   Checkbox, FormControlLabel, CircularProgress, Tooltip, MenuItem, Alert,
+  Dialog, DialogTitle, DialogContent, DialogActions,
 } from "@mui/material";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import InboxIcon from "@mui/icons-material/Inbox";
@@ -362,22 +363,24 @@ function BadgeBoard({ profiles, onOpen }) {
 function DetailDrawer({ sel, onClose, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  const [linkInfo, setLinkInfo] = useState(null);
   if (!sel) return null;
   const isApp = sel.type === "app";
   const d = sel.data;
 
   const run = async (fn) => { setBusy(true); try { await fn(); onChanged(); onClose(); } catch (e) { toast.error(e.message); } finally { setBusy(false); } };
+  // Per la generazione link: NON chiude il drawer, mostra il link generato.
+  const runLink = async (fn) => { setBusy(true); try { const info = await fn(); onChanged(); setLinkInfo(info); } catch (e) { toast.error(e.message); } finally { setBusy(false); } };
 
-  const accept = () => run(async () => {
+  const accept = () => runLink(async () => {
     const res = await api(`/api/admin/business/applications/${d.id}/approve`, { method: "POST", body: {} });
-    const link = await api(`/api/admin/business/profiles/${res.profile.id}/onboarding-link`, { method: "POST", body: {} });
-    copy(onboardingUrl(link.token));
-    toast.success("Accettata. Link onboarding generato e copiato.");
+    const l = await api(`/api/admin/business/profiles/${res.profile.id}/onboarding-link`, { method: "POST", body: {} });
+    return { url: onboardingUrl(l.token), kind: "Onboarding", email: d.contact_email };
   });
   const reject = () => run(() => api(`/api/admin/business/applications/${d.id}/reject`, { method: "POST", body: { admin_notes: note } }));
   const setStatus = (status) => run(() => api(`/api/admin/business/profiles/${d.id}`, { method: "PATCH", body: { status, ...(note ? { admin_notes: note } : {}) } }));
-  const genOnboarding = () => run(async () => { const l = await api(`/api/admin/business/profiles/${d.id}/onboarding-link`, { method: "POST", body: {} }); copy(onboardingUrl(l.token)); });
-  const genAccount = () => run(async () => { const l = await api(`/api/admin/business/profiles/${d.id}/account-link`, { method: "POST", body: {} }); copy(accountUrl(l.token)); });
+  const genOnboarding = () => runLink(async () => { const l = await api(`/api/admin/business/profiles/${d.id}/onboarding-link`, { method: "POST", body: {} }); return { url: onboardingUrl(l.token), kind: "Onboarding", email: d.contact_email || d.owner_email }; });
+  const genAccount = () => runLink(async () => { const l = await api(`/api/admin/business/profiles/${d.id}/account-link`, { method: "POST", body: {} }); return { url: accountUrl(l.token), kind: "Creazione account", email: d.owner_email || d.contact_email }; });
   const toggleBadge = (key) => run(() => {
     const cur = new Set(d.badges || []);
     cur.has(key) ? cur.delete(key) : cur.add(key);
@@ -455,7 +458,7 @@ function DetailDrawer({ sel, onClose, onChanged }) {
           <Stack spacing={1.5}>
             <Alert severity="success" sx={{ borderRadius: 3 }}>Profilo pubblicato.</Alert>
             <Button variant="contained" startIcon={<ContentCopyIcon />} disabled={busy} onClick={genAccount}>Genera link creazione account</Button>
-            <Button variant="text" href={`/business-app/onboarding/preview`} target="_blank">Anteprima</Button>
+            <Button variant="text" href={`/acquamap/business/${d.slug}`} target="_blank">Vedi profilo pubblico ↗</Button>
           </Stack>
         )}
         {step === "active" && <Alert severity="success" sx={{ borderRadius: 3 }}>Account attivo e dashboard abilitata.</Alert>}
@@ -467,6 +470,23 @@ function DetailDrawer({ sel, onClose, onChanged }) {
           </>
         )}
       </Box>
+
+      {/* Link generato: mostrato sempre, così è copiabile anche se l'email tarda/spam */}
+      <Dialog open={!!linkInfo} onClose={() => setLinkInfo(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Link {linkInfo?.kind} generato</DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ borderRadius: 3, mb: 2 }}>
+            Email inviata a <b>{linkInfo?.email || "—"}</b> (controlla anche <b>SPAM</b>).
+            Puoi comunque copiare e inviare il link qui sotto manualmente.
+          </Alert>
+          <TextField value={linkInfo?.url || ""} fullWidth size="small" InputProps={{ readOnly: true }}
+            onFocus={(e) => e.target.select()} />
+        </DialogContent>
+        <DialogActions>
+          <Button startIcon={<ContentCopyIcon />} onClick={() => copy(linkInfo?.url)}>Copia link</Button>
+          <Button variant="contained" onClick={() => setLinkInfo(null)}>Chiudi</Button>
+        </DialogActions>
+      </Dialog>
     </Drawer>
   );
 }
