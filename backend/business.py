@@ -24,6 +24,7 @@ import unicodedata
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
 
 from flask import abort, jsonify, request
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -61,6 +62,7 @@ MAX_SHORT = 200
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _SLUG_STRIP_RE = re.compile(r"[^a-z0-9]+")
+_COORD_PAIR_RE = re.compile(r"(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)")
 
 # Nomi tabelle Supabase
 T_APP = "business_applications"
@@ -136,6 +138,44 @@ def _as_float_or_none(value):
 def _category(value) -> str:
     v = _clean_str(value, 40).lower().replace(" ", "_")
     return v if v in CATEGORIES else "altro"
+
+
+def _valid_lat_lng(lat, lng) -> bool:
+    return lat is not None and lng is not None and -90 <= lat <= 90 and -180 <= lng <= 180
+
+
+def _coords_from_maps_url(value) -> tuple[float, float] | None:
+    s = _clean_str(value, 2000)
+    if not s:
+        return None
+
+    def parse_pair(text: str) -> tuple[float, float] | None:
+        m = _COORD_PAIR_RE.search(unquote(text or ""))
+        if not m:
+            return None
+        lat, lng = _as_float_or_none(m.group(1)), _as_float_or_none(m.group(2))
+        return (lat, lng) if _valid_lat_lng(lat, lng) else None
+
+    for pattern in (
+        r"@(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)",
+        r"!3d(-?\d{1,2}(?:\.\d+)?)!4d(-?\d{1,3}(?:\.\d+)?)",
+    ):
+        m = re.search(pattern, s)
+        if m:
+            lat, lng = _as_float_or_none(m.group(1)), _as_float_or_none(m.group(2))
+            if _valid_lat_lng(lat, lng):
+                return lat, lng
+
+    try:
+        qs = parse_qs(urlparse(s).query)
+    except Exception:
+        qs = {}
+    for key in ("q", "query", "ll", "destination"):
+        for raw in qs.get(key, []):
+            coords = parse_pair(raw)
+            if coords:
+                return coords
+    return parse_pair(s)
 
 
 def slugify(name: str) -> str:
@@ -290,6 +330,7 @@ def _initial_profile_columns(fields: dict, slug: str) -> dict:
         "owner_email": _clean_email(fields.get("owner_email") or fields.get("contact_email")),
         "contact_email": _clean_email(fields.get("contact_email")),
         "application_id": fields.get("application_id"),
+        "extra": _clean_extra(fields.get("extra") if isinstance(fields.get("extra"), dict) else {}),
     }
     return cols
 
@@ -359,12 +400,43 @@ def _matches_filters(p: dict, f: dict) -> bool:
     return True
 
 
+def _profile_geocode_query(p: dict) -> str:
+    # La mappa business deve usare la via precisa: niente fallback al centro città.
+    if not p.get("address") or not p.get("city"):
+        return ""
+    parts = [
+        p.get("address"), p.get("city"), p.get("province"),
+        p.get("region"), p.get("country") or "Italia",
+    ]
+    return ", ".join(_clean_str(x) for x in parts if _clean_str(x))
+
+
+def _profile_coordinates(p: dict) -> tuple[float, float, str, str] | None:
+    lat, lng = _as_float_or_none(p.get("latitude")), _as_float_or_none(p.get("longitude"))
+    if lat is not None and lng is not None:
+        return lat, lng, "saved", ""
+    extra = p.get("extra") or {}
+    maps_url = extra.get("maps_url") or extra.get("google_maps_url") if isinstance(extra, dict) else ""
+    maps_coords = _coords_from_maps_url(maps_url)
+    if maps_coords:
+        return maps_coords[0], maps_coords[1], "maps_url", maps_url
+    q = _profile_geocode_query(p)
+    if not q:
+        return None
+    items = geocode(q)
+    if not items:
+        return None
+    first = items[0]
+    return first["lat"], first["lon"], "address", first.get("display_name") or q
+
+
 def _geojson(profiles: list[dict]) -> dict:
     feats = []
     for p in profiles:
-        lat, lng = p.get("latitude"), p.get("longitude")
-        if lat is None or lng is None:
+        coords = _profile_coordinates(p)
+        if not coords:
             continue
+        lat, lng, geocoding_source, geocoded_address = coords
         wi = p.get("water_info") or {}
         feats.append({
             "type": "Feature",
@@ -372,12 +444,24 @@ def _geojson(profiles: list[dict]) -> dict:
             "properties": {
                 "id": p.get("id"), "slug": p.get("slug"),
                 "business_name": p.get("business_name"), "category": p.get("category"),
+                "description": p.get("description") or "",
                 "city": p.get("city"),
+                "province": p.get("province"),
+                "region": p.get("region"),
                 "address": p.get("address"),
                 "logo_url": p.get("logo_url") or "",
+                "phone": p.get("phone") or "",
+                "public_email": p.get("public_email") or "",
+                "website": p.get("website") or "",
+                "instagram": p.get("instagram") or "",
                 "verification_status": p.get("verification_status"),
                 "is_expand_program": p.get("is_expand_program"), "is_premium": p.get("is_premium"),
+                "badges": p.get("badges") or [],
+                "geocoding_source": geocoding_source,
+                "geocoded_address": geocoded_address,
                 "water_type": wi.get("water_type") or [], "has_filter_system": wi.get("has_filter_system"),
+                "has_sparkling_water": wi.get("has_sparkling_water"),
+                "has_natural_water": wi.get("has_natural_water"),
             },
         })
     return {"type": "FeatureCollection", "features": feats}
@@ -629,6 +713,7 @@ def approve_application(app_id, extra=None):
         "phone": app_obj.get("contact_phone"),
         "contact_email": app_obj.get("contact_email"),
         "owner_email": app_obj.get("contact_email"),
+        "extra": app_obj.get("extra") or {},
         "is_expand_program": app_obj.get("wants_expand_program"),
         "application_id": app_obj.get("id"),
         **extra,
@@ -1114,6 +1199,10 @@ def register_business_routes(app) -> None:
     def api_admin_profile_update(profile_id):
         supa_auth.require_admin()
         body = _json_body()
+        if body.get("status") == "published" and "verification_status" not in body:
+            body["verification_status"] = "verified"
+        if "badges" in body and "verification_status" not in body and "verified" in (body.get("badges") or []):
+            body["verification_status"] = "verified"
         p = update_profile(profile_id, body, admin=True)
         if not p:
             abort(404)

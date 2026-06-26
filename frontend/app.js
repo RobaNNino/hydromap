@@ -39,6 +39,14 @@ const BASEMAPS = {
 
 const map = L.map("map", { preferCanvas: true, zoomControl: false }).setView([41.85, 12.66], 9);
 map.attributionControl?.setPrefix(false);
+function updateBusinessMarkerScale() {
+  const z = map.getZoom();
+  const size = z <= 6 ? 20 : z <= 8 ? 22 : z <= 11 ? 24 : z >= 15 ? 30 : 26;
+  map.getContainer().style.setProperty("--biz-marker-size", `${size}px`);
+  map.getContainer().style.setProperty("--biz-marker-font", `${Math.max(10, Math.round(size * 0.48))}px`);
+}
+updateBusinessMarkerScale();
+map.on("zoomend", updateBusinessMarkerScale);
 let baseLayer = null;
 function setBasemap(key) {
   if (baseLayer) map.removeLayer(baseLayer);
@@ -1102,7 +1110,18 @@ function _trackBusiness(slug, event) {
 // Cliccando un marker si apre una scheda rapida con link al profilo completo.
 const BUSINESS_CAT_ICONS = {
   bar: "☕", ristorante: "🍽️", hotel: "🏨", palestra: "🏋️",
-  centro_sportivo: "🤸", ufficio: "🏢", altro: "📍",
+  centro_sportivo: "🤸", coworking: "💼", ufficio: "🏢",
+  scuola: "🎓", negozio: "🛍️", altro: "📍",
+};
+const BUSINESS_CAT_LABELS = {
+  bar: "Bar", ristorante: "Ristorante", hotel: "Hotel", palestra: "Palestra",
+  centro_sportivo: "Centro sportivo", coworking: "Coworking", ufficio: "Ufficio",
+  scuola: "Scuola", negozio: "Negozio", altro: "Attività",
+};
+const BUSINESS_WATER_LABELS = {
+  rete: "Acqua di rete", filtrata: "Acqua filtrata",
+  microfiltrata: "Acqua microfiltrata", frizzante: "Acqua frizzante",
+  naturale: "Acqua naturale", altro: "Altro",
 };
 function _businessDivIcon(p) {
   const verified = p.verification_status && p.verification_status !== "not_verified";
@@ -1116,39 +1135,88 @@ function _businessDivIcon(p) {
       ${inner}
       ${verified ? '<span class="biz-marker-check">✓</span>' : ""}
     </div>`,
-    iconSize: [34, 34],
-    iconAnchor: [17, 17],
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+    popupAnchor: [0, -14],
   });
+}
+function _businessDirectionsUrl(p, lat, lng) {
+  const dest = Number.isFinite(lat) && Number.isFinite(lng)
+    ? `${lat},${lng}`
+    : [p.address, p.city].filter(Boolean).join(", ");
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}`;
+}
+function _businessPopupHtml(p, lat, lng) {
+  const icon = BUSINESS_CAT_ICONS[p.category] || "📍";
+  const cat = BUSINESS_CAT_LABELS[p.category] || "Attività";
+  const verifyTxt = p.verification_status === "business_verified"
+    ? "AcquaMap Business Verified"
+    : p.verification_status === "verified" ? "Verificato" : "Non verificato";
+  const verifiedClass = p.verification_status !== "not_verified" ? "sev-info" : "";
+  const expand = p.is_expand_program ? '<span class="pill sev-info">★ Expand Program</span>' : "";
+  const premium = p.is_premium ? '<span class="pill biz-premium">◆ Premium</span>' : "";
+  const address = [p.address, p.city, p.province].filter(Boolean).join(", ");
+  const description = p.description ? `<div class="biz-pop-desc">${escapeHtml(p.description)}</div>` : "";
+  const waterTypes = (p.water_type || []).slice(0, 3)
+    .map(t => `<span class="pill">💧 ${escapeHtml(BUSINESS_WATER_LABELS[t] || t)}</span>`).join("");
+  const waterExtra = [
+    p.has_filter_system === "yes" ? "Filtrazione dichiarata" : "",
+    p.has_sparkling_water ? "Frizzante" : "",
+    p.has_natural_water ? "Naturale" : "",
+  ].filter(Boolean).map(t => `<span class="pill">${escapeHtml(t)}</span>`).join("");
+  const phone = p.phone
+    ? `<a class="biz-pop-action ghost" href="tel:${escapeHtml(p.phone)}" data-biz-track="click_phone">Chiama</a>`
+    : "";
+  const website = p.website
+    ? `<a class="biz-pop-action ghost" href="${escapeHtml(p.website)}" target="_blank" rel="noopener" data-biz-track="click_website">Sito</a>`
+    : "";
+  const directions = `<a class="biz-pop-action ghost" href="${escapeHtml(_businessDirectionsUrl(p, lat, lng))}" target="_blank" rel="noopener" data-biz-track="click_maps">Indicazioni</a>`;
+  return `<div class="biz-popup">
+    <div class="biz-pop-head">
+      <span class="biz-pop-logo">${p.logo_url ? `<img src="${escapeHtml(p.logo_url)}" alt="" />` : icon}</span>
+      <div class="biz-pop-title">
+        <div class="title">${escapeHtml(p.business_name || "Attività")}</div>
+        <div class="biz-pop-sub">${escapeHtml(cat)}${p.city ? ` · ${escapeHtml(p.city)}` : ""}</div>
+      </div>
+    </div>
+    <div class="pills">
+      <span class="pill ${verifiedClass}">${escapeHtml(verifyTxt)}</span>${expand}${premium}
+    </div>
+    ${waterTypes || waterExtra ? `<div class="pills">${waterTypes}${waterExtra}</div>` : ""}
+    ${address ? `<div class="summary">${escapeHtml(address)}</div>` : ""}
+    ${description}
+    <div class="biz-pop-actions">
+      <a class="biz-pop-action primary" href="/acquamap/business/${encodeURIComponent(p.slug)}" target="_blank" rel="noopener">Profilo</a>
+      ${directions}${phone}${website}
+    </div>
+  </div>`;
 }
 async function loadBusiness() {
   if (state.businessLayer) return state.businessLayer;
   $("toggle-business").disabled = true;
   try {
     const r = await fetch(API("/api/business/map"));
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
-    const grp = L.layerGroup();
+    const grp = L.markerClusterGroup ? L.markerClusterGroup({
+      maxClusterRadius: 42,
+      iconCreateFunction: (c) => L.divIcon({
+        html: `<div class="biz-cluster"><span>${c.getChildCount()}</span></div>`,
+        className: "", iconSize: [36, 36],
+      }),
+    }) : L.layerGroup();
     (d.features || []).forEach(f => {
       const p = f.properties || {};
       const [lng, lat] = f.geometry.coordinates;
-      const verifyTxt = p.verification_status === "business_verified"
-        ? "AcquaMap Business Verified"
-        : p.verification_status === "verified" ? "Verificato" : "Non verificato";
-      const expand = p.is_expand_program ? '<span class="pill sev-info">★ Expand Program</span>' : "";
-      const water = (p.water_type || []).slice(0, 3)
-        .map(t => `<span class="pill">💧 ${escapeHtml(t)}</span>`).join("");
       const m = L.marker([lat, lng], { icon: _businessDivIcon(p) });
-      m.bindPopup(`<div class="news-popup">
-        <div class="title">${BUSINESS_CAT_ICONS[p.category] || "📍"} ${escapeHtml(p.business_name || "Attività")}</div>
-        <div class="pills">
-          <span class="pill ${p.verification_status !== "not_verified" ? "sev-info" : ""}">${escapeHtml(verifyTxt)}</span>
-          ${expand}
-        </div>
-        ${water ? `<div class="pills">${water}</div>` : ""}
-        <div class="summary">${escapeHtml(p.city || "")}</div>
-        <a class="news-popup-link" href="/acquamap/business/${encodeURIComponent(p.slug)}" target="_blank" rel="noopener">Apri profilo →</a>
-      </div>`);
+      m.bindPopup(_businessPopupHtml(p, lat, lng), { maxWidth: 340 });
       // Analytics V2: traccia "aperture dalla mappa".
-      m.on("popupopen", () => _trackBusiness(p.slug, "open_map"));
+      m.on("popupopen", e => {
+        _trackBusiness(p.slug, "open_map");
+        e.popup.getElement()?.querySelectorAll("[data-biz-track]").forEach(el => {
+          el.addEventListener("click", () => _trackBusiness(p.slug, el.dataset.bizTrack), { once: true });
+        });
+      });
       grp.addLayer(m);
     });
     state.businessLayer = grp;
@@ -1606,6 +1674,10 @@ function renderMeteo(m) {
   // dati
   try { await loadGeoJSON(); } catch (e) { console.error(e); showToast("Errore caricamento zone"); }
   try { await loadParameterList(); } catch (e) { console.error(e); }
+  if ($("toggle-business")?.checked) {
+    try { (await loadBusiness()).addTo(map); }
+    catch (e) { console.error(e); $("toggle-business").checked = false; }
+  }
   if (NEWS_ENABLED) {
     loadNews().catch(e => console.error(e));
     setInterval(() => loadNews(false), 15 * 60 * 1000);
