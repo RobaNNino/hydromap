@@ -87,6 +87,7 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
   const [openId, setOpenId] = useState("identita");
 
   useEffect(() => {
@@ -141,6 +142,8 @@ export default function OnboardingPage() {
       if (submit) {
         await api(`/api/business/onboarding/${token}/submit`, { method: "POST", auth: false, body: {} });
         toast.success("Profilo inviato per la revisione!");
+        setSubmitted(true);
+        window.scrollTo({ top: 0, behavior: "smooth" });
       } else toast.success("Bozza salvata");
     } catch (e) { toast.error(e.message); }
     finally { setSaving(false); }
@@ -150,6 +153,27 @@ export default function OnboardingPage() {
   if (err) return (
     <Box sx={{ minHeight: "100dvh", bgcolor: "background.default" }}><PublicTopbar />
       <Container maxWidth="sm" sx={{ py: 8 }}><Alert severity="error" sx={{ borderRadius: 3 }}>{err}</Alert></Container></Box>
+  );
+
+  if (submitted) return (
+    <Box sx={{ minHeight: "100dvh", bgcolor: "background.default" }}>
+      <PublicTopbar />
+      <Container maxWidth="sm" sx={{ py: { xs: 6, md: 10 }, textAlign: "center" }}>
+        <Typography sx={{ fontSize: 72, lineHeight: 1 }}>🎉</Typography>
+        <Typography variant="h4" sx={{ mt: 1, mb: 1.5 }}>Grazie! Profilo inviato</Typography>
+        <Typography color="text.secondary" sx={{ maxWidth: 460, mx: "auto" }}>
+          Abbiamo ricevuto il profilo di <b>{form.business_name || "la tua attività"}</b>.
+          Il team AcquaMap revisionerà i contenuti e le immagini prima della pubblicazione.
+        </Typography>
+        <Alert severity="info" sx={{ borderRadius: 3, mt: 3, textAlign: "left", justifyContent: "center" }}>
+          Ti avviseremo via email appena il profilo sarà online. Nel frattempo puoi chiudere questa pagina.
+        </Alert>
+        <Stack direction="row" spacing={2} justifyContent="center" sx={{ mt: 3 }}>
+          <Button variant="contained" href="/">Vai ad AcquaMap</Button>
+          <Button variant="outlined" onClick={() => setSubmitted(false)}>Torna al profilo</Button>
+        </Stack>
+      </Container>
+    </Box>
   );
 
   return (
