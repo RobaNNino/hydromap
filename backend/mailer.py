@@ -34,32 +34,50 @@ APP_BASE = os.environ.get("APP_PUBLIC_BASE", "https://hydromap.netlify.app").rst
 ENABLED = bool(SMTP_PASS and SMTP_USER)
 
 
-def _send_sync(to_email: str, subject: str, body: str) -> None:
-    if not ENABLED or not to_email:
-        return
+def _deliver(to_email: str, subject: str, body: str) -> None:
+    """Costruisce e invia il messaggio. SOLLEVA eccezione in caso di errore."""
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = f"{FROM_NAME} <{FROM_EMAIL}>"
     msg["To"] = to_email
     msg["Reply-To"] = FROM_EMAIL
     msg["Date"] = formatdate(localtime=True)
-    # Message-ID con dominio del mittente: aiuta la reputazione/anti-spam.
     _domain = FROM_EMAIL.split("@")[-1] if "@" in FROM_EMAIL else "hydroroma.com"
     msg["Message-ID"] = make_msgid(domain=_domain)
     msg.set_content(body)
+    if SMTP_SECURE:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=ctx, timeout=20) as s:
+            s.login(SMTP_USER, SMTP_PASS)
+            s.send_message(msg)
+    else:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
+            s.starttls(context=ssl.create_default_context())
+            s.login(SMTP_USER, SMTP_PASS)
+            s.send_message(msg)
+
+
+def _send_sync(to_email: str, subject: str, body: str) -> None:
+    if not ENABLED or not to_email:
+        return
     try:
-        if SMTP_SECURE:
-            ctx = ssl.create_default_context()
-            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=ctx, timeout=20) as s:
-                s.login(SMTP_USER, SMTP_PASS)
-                s.send_message(msg)
-        else:
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
-                s.starttls(context=ssl.create_default_context())
-                s.login(SMTP_USER, SMTP_PASS)
-                s.send_message(msg)
+        _deliver(to_email, subject, body)
     except Exception as e:  # noqa: BLE001 — non vogliamo rompere la richiesta
-        print(f"[mailer] invio fallito a {to_email}: {e}")
+        print(f"[mailer] invio fallito a {to_email}: {type(e).__name__}: {e}")
+
+
+def try_send(to_email: str, subject: str, body: str) -> tuple[bool, str | None]:
+    """Invio SINCRONO che RITORNA (ok, errore) invece di silenziare — per la
+    diagnostica: rivela l'errore reale lato server (es. porta SMTP bloccata)."""
+    if not ENABLED:
+        return False, "SMTP non configurato (SMTP_PASS mancante o vuota)"
+    if not to_email:
+        return False, "Destinatario vuoto"
+    try:
+        _deliver(to_email, subject, body)
+        return True, None
+    except Exception as e:  # noqa: BLE001
+        return False, f"{type(e).__name__}: {e}"
 
 
 def send(to_email: str, subject: str, body: str) -> None:

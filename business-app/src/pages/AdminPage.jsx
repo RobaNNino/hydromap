@@ -70,6 +70,14 @@ export default function AdminPage() {
   ];
 
   const refetch = () => { qc.invalidateQueries({ queryKey: ["apps"] }); qc.invalidateQueries({ queryKey: ["profiles"] }); };
+  const testEmail = async () => {
+    toast.message("Invio email di test dal server…");
+    try {
+      const r = await api("/api/admin/business/test-email", { method: "POST", body: {} });
+      if (r.ok) toast.success(`Email di test inviata a ${r.to}. Controlla la posta (anche spam).`, { duration: 8000 });
+      else toast.error(`Invio FALLITO dal server: ${r.error}`, { duration: 15000 });
+    } catch (e) { toast.error(e.message); }
+  };
 
   if (loading) return <Box sx={{ display: "grid", placeItems: "center", height: "100dvh" }}><CircularProgress /></Box>;
   if (!user) return <LoginCard title="Pannello Admin" subtitle="Accedi con il tuo account amministratore." />;
@@ -88,7 +96,10 @@ export default function AdminPage() {
     <ConsoleShell
       title="Console Admin" subtitle="Business · Admin" nav={navItems} active={nav} onNav={setNav}
       onSignOut={signOut}
-      topRight={<Button size="small" variant="outlined" onClick={refetch}>Aggiorna</Button>}
+      topRight={<Stack direction="row" spacing={1}>
+        <Button size="small" variant="text" onClick={testEmail}>Test email</Button>
+        <Button size="small" variant="outlined" onClick={refetch}>Aggiorna</Button>
+      </Stack>}
     >
       {forbidden && <Alert severity="error" sx={{ mb: 2, borderRadius: 3 }}>Questo account non ha permessi admin (aggiungi l'email a BUSINESS_ADMIN_EMAILS).</Alert>}
 

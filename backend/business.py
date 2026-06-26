@@ -1038,6 +1038,21 @@ def register_business_routes(app) -> None:
         updated = set_water_info(p["id"], _json_body())
         return jsonify(_strip_for_owner(updated or {}))
 
+    # ---------- Diagnostica email (admin) ----------
+    @app.post("/api/admin/business/test-email")
+    def api_admin_test_email():
+        user = supa_auth.require_admin()
+        to = (_json_body().get("to") or user.get("email") or "").strip()
+        import mailer
+        ok, err = mailer.try_send(
+            to, "AcquaMap Business — test email (server)",
+            "Test di invio dal SERVER di produzione AcquaMap Business. Se lo ricevi, "
+            "l'invio dal backend funziona. — Team AcquaMap")
+        return jsonify({"ok": ok, "error": err, "to": to,
+                        "mailer_enabled": mailer.ENABLED,
+                        "host": mailer.SMTP_HOST, "port": mailer.SMTP_PORT,
+                        "user": mailer.SMTP_USER})
+
     # ---------- Admin (Supabase Auth + allowlist email) ----------
     @app.get("/api/admin/business/applications")
     def api_admin_apps():
