@@ -866,6 +866,14 @@ def _json_body() -> dict:
     return request.get_json(force=True, silent=True) or {}
 
 
+def _mailer_enabled() -> bool:
+    try:
+        import mailer
+        return bool(mailer.ENABLED)
+    except Exception:
+        return False
+
+
 def _strip_for_owner(p: dict) -> dict:
     # Il titolare vede i propri dati (incl. contact_email); nascondiamo solo owner_id.
     return {k: v for k, v in p.items() if k != "owner_id"}
@@ -930,6 +938,7 @@ def register_business_routes(app) -> None:
                 "jwt_enabled": supa_auth.AUTH_ENABLED,
                 "supabase_enabled": SUPABASE_ENABLED,
             },
+            "mailer_enabled": _mailer_enabled(),
         })
 
     # ---------- Geocoding (indirizzo -> coordinate) per il posizionamento admin ----------

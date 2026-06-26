@@ -1,16 +1,17 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
-  Box, Container, Card, CardContent, Typography, TextField, MenuItem, Switch,
-  FormControlLabel, Button, Accordion, AccordionSummary, AccordionDetails, Stack,
-  LinearProgress, CircularProgress, Alert, Chip,
+  Box, Container, Typography, TextField, MenuItem, Switch, FormControlLabel,
+  Button, Accordion, AccordionSummary, AccordionDetails, Stack, LinearProgress,
+  CircularProgress, Alert, Chip, Tooltip, InputAdornment,
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import { toast } from "sonner";
 import PublicTopbar from "../components/PublicTopbar.jsx";
 import ImageCropField from "../components/ImageCropField.jsx";
 import { api } from "../lib/api.js";
-import { CATEGORIES, catLabel } from "../lib/constants.js";
+import { CATEGORIES } from "../lib/constants.js";
 
 const DAYS = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
 const SERVICES = ["Wi-Fi", "Prenotazione", "Tavoli esterni", "Accessibile", "Pet friendly", "Take away", "Delivery", "Adatto famiglie", "Adatto lavoro/studio"];
@@ -21,13 +22,72 @@ const WATER = [
   ["water_bottles", "Accetta borracce"], ["water_plasticfree", "Plastic free friendly"],
 ];
 
+// Normalizza gli orari salvati (vecchio formato stringa -> {m,p}).
+function normHours(h = {}) {
+  const out = {};
+  for (const d of DAYS) {
+    const v = h[d];
+    if (typeof v === "string") out[d] = { m: v, p: "" };
+    else out[d] = { m: v?.m || "", p: v?.p || "" };
+  }
+  return out;
+}
+
+// ---- Componenti a livello di modulo (NON dentro il render: evita il remount
+//      che faceva perdere il focus agli input a ogni lettera). ----
+function HintIcon({ hint }) {
+  if (!hint) return null;
+  return (
+    <Tooltip title={hint} arrow enterTouchDelay={0} leaveTouchDelay={5000}>
+      <HelpOutlineIcon sx={{ fontSize: 18, color: "text.disabled", cursor: "help" }} />
+    </Tooltip>
+  );
+}
+
+function Section({ id, title, desc, openId, setOpenId, children }) {
+  return (
+    <Accordion expanded={openId === id} onChange={() => setOpenId(openId === id ? "" : id)}
+      disableGutters elevation={0}
+      sx={{ border: "1px solid", borderColor: "divider", borderRadius: 3, mb: 1.5, "&:before": { display: "none" }, overflow: "hidden" }}>
+      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+        <Box><Typography sx={{ fontWeight: 700 }}>{title}</Typography>
+          <Typography variant="body2" color="text.secondary">{desc}</Typography></Box>
+      </AccordionSummary>
+      <AccordionDetails>{children}</AccordionDetails>
+    </Accordion>
+  );
+}
+
+// Campo testo riutilizzabile con tooltip "?" (endAdornment per single-line,
+// helperText per multiline). Componente STABILE a livello di modulo.
+function TextRow({ label, hint, value, onChange, multiline, minRows, select, children, ...rest }) {
+  const help = hint ? (
+    multiline || select
+      ? {}
+      : { InputProps: { endAdornment: <InputAdornment position="end"><HintIcon hint={hint} /></InputAdornment> } }
+  ) : {};
+  return (
+    <TextField
+      fullWidth size="small" label={label} value={value}
+      onChange={(e) => onChange(e.target.value)}
+      multiline={multiline} minRows={minRows} select={select}
+      helperText={hint && (multiline || select) ? hint : undefined}
+      {...help} {...rest}
+    >
+      {children}
+    </TextField>
+  );
+}
+
+const SECTIONS_GRID = { display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 };
+
 export default function OnboardingPage() {
   const { token } = useParams();
   const [form, setForm] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [open, setOpen] = useState("identita");
+  const [openId, setOpenId] = useState("identita");
 
   useEffect(() => {
     (async () => {
@@ -40,7 +100,7 @@ export default function OnboardingPage() {
           phone: p.phone || "", public_email: p.public_email || "", website: p.website || "",
           instagram: p.instagram || "", whatsapp: p.extra?.whatsapp || "",
           logo_url: p.logo_url || "", cover_image_url: p.cover_image_url || "",
-          hours: p.extra?.hours || {}, services: p.extra?.services || [], water: p.extra?.water || {},
+          hours: normHours(p.extra?.hours || {}), services: p.extra?.services || [], water: p.extra?.water || {},
           water_notes: p.extra?.water_notes || "",
         });
       } catch (e) { setErr(e.message || "Link non valido o scaduto."); }
@@ -50,12 +110,14 @@ export default function OnboardingPage() {
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const setWater = (k, v) => setForm((f) => ({ ...f, water: { ...f.water, [k]: v } }));
+  const setHour = (day, slot, v) => setForm((f) => ({ ...f, hours: { ...f.hours, [day]: { ...f.hours[day], [slot]: v } } }));
 
   const completeness = useMemo(() => {
     if (!form) return 0;
+    const hoursSet = Object.values(form.hours || {}).some((h) => h.m || h.p);
     const checks = [
       form.business_name, form.category, form.address, form.city, form.phone,
-      form.short_desc, form.long_desc, Object.keys(form.hours || {}).length, form.services?.length,
+      form.short_desc, form.long_desc, hoursSet, form.services?.length,
       Object.values(form.water || {}).some(Boolean), form.logo_url, form.cover_image_url,
     ];
     return Math.round((checks.filter(Boolean).length / checks.length) * 100);
@@ -90,71 +152,73 @@ export default function OnboardingPage() {
       <Container maxWidth="sm" sx={{ py: 8 }}><Alert severity="error" sx={{ borderRadius: 3 }}>{err}</Alert></Container></Box>
   );
 
-  const Section = ({ id, title, desc, children }) => (
-    <Accordion expanded={open === id} onChange={() => setOpen(open === id ? "" : id)} disableGutters elevation={0}
-      sx={{ border: "1px solid", borderColor: "divider", borderRadius: 3, mb: 1.5, "&:before": { display: "none" }, overflow: "hidden" }}>
-      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-        <Box><Typography sx={{ fontWeight: 700 }}>{title}</Typography>
-          <Typography variant="body2" color="text.secondary">{desc}</Typography></Box>
-      </AccordionSummary>
-      <AccordionDetails>{children}</AccordionDetails>
-    </Accordion>
-  );
-  const grid = { display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 };
-
   return (
     <Box sx={{ minHeight: "100dvh", bgcolor: "background.default" }}>
       <PublicTopbar />
       <Container maxWidth="md" sx={{ py: 4 }}>
         <Typography variant="h4" gutterBottom>Completa il profilo</Typography>
-        <Typography color="text.secondary" sx={{ mb: 2 }}>Compila i dati pubblici della tua attività. Verranno revisionati prima della pubblicazione.</Typography>
+        <Typography color="text.secondary" sx={{ mb: 2 }}>Compila i dati pubblici della tua attività. Verranno revisionati prima della pubblicazione. Passa il mouse sui <b>?</b> per le spiegazioni.</Typography>
         <Stack direction="row" justifyContent="space-between"><Typography variant="body2">Completezza</Typography><Typography variant="body2">{completeness}%</Typography></Stack>
         <LinearProgress variant="determinate" value={completeness} sx={{ borderRadius: 2, mb: 3 }} />
 
-        <Section id="identita" title="🏪 Identità attività" desc="Nome, categoria, claim.">
-          <Box sx={grid}>
-            <TextField label="Nome commerciale" value={form.business_name} onChange={(e) => set("business_name", e.target.value)} size="small" />
-            <TextField select label="Categoria" value={form.category} onChange={(e) => set("category", e.target.value)} size="small">
+        <Section id="identita" title="🏪 Identità attività" desc="Nome, categoria, claim." openId={openId} setOpenId={setOpenId}>
+          <Box sx={SECTIONS_GRID}>
+            <TextRow label="Nome commerciale" hint="Il nome/insegna con cui i clienti ti conoscono." value={form.business_name} onChange={(v) => set("business_name", v)} />
+            <TextRow label="Categoria" select hint="Il tipo di attività più rappresentativo." value={form.category} onChange={(v) => set("category", v)}>
               {CATEGORIES.map((c) => <MenuItem key={c.v} value={c.v}>{c.l}</MenuItem>)}
-            </TextField>
-            <Box sx={{ gridColumn: "1 / -1" }}><TextField fullWidth label="Claim / frase distintiva" value={form.claim} onChange={(e) => set("claim", e.target.value)} size="small" /></Box>
+            </TextRow>
+            <Box sx={{ gridColumn: "1 / -1" }}>
+              <TextRow label="Claim / frase distintiva" hint="Una frase breve che ti descrive (es. 'Caffè e brunch dal 1990')." value={form.claim} onChange={(v) => set("claim", v)} />
+            </Box>
           </Box>
         </Section>
 
-        <Section id="descrizione" title="📝 Descrizione" desc="Racconta la tua attività.">
+        <Section id="descrizione" title="📝 Descrizione" desc="Racconta la tua attività." openId={openId} setOpenId={setOpenId}>
           <Stack spacing={2}>
-            <TextField label="Descrizione breve" value={form.short_desc} onChange={(e) => set("short_desc", e.target.value)} size="small" multiline minRows={2} />
-            <TextField label="Descrizione lunga" value={form.long_desc} onChange={(e) => set("long_desc", e.target.value)} size="small" multiline minRows={4} />
+            <TextRow label="Descrizione breve" multiline minRows={2} hint="1-2 frasi che riassumono l'attività: compaiono in evidenza sul profilo." value={form.short_desc} onChange={(v) => set("short_desc", v)} />
+            <TextRow label="Descrizione lunga" multiline minRows={4} hint="Descrizione estesa: storia, atmosfera, specialità, a chi ti rivolgi." value={form.long_desc} onChange={(v) => set("long_desc", v)} />
           </Stack>
         </Section>
 
-        <Section id="posizione" title="📌 Posizione" desc="Indirizzo e contatti.">
-          <Box sx={grid}>
-            <Box sx={{ gridColumn: "1 / -1" }}><TextField fullWidth label="Indirizzo" value={form.address} onChange={(e) => set("address", e.target.value)} size="small" /></Box>
-            <TextField label="Comune" value={form.city} onChange={(e) => set("city", e.target.value)} size="small" />
-            <TextField label="Provincia" value={form.province} onChange={(e) => set("province", e.target.value)} size="small" />
-            <TextField label="CAP" value={form.cap} onChange={(e) => set("cap", e.target.value)} size="small" />
-            <TextField label="Telefono" value={form.phone} onChange={(e) => set("phone", e.target.value)} size="small" />
-            <TextField label="Email pubblica" value={form.public_email} onChange={(e) => set("public_email", e.target.value)} size="small" />
-            <TextField label="Sito web" value={form.website} onChange={(e) => set("website", e.target.value)} size="small" />
-            <TextField label="Instagram" value={form.instagram} onChange={(e) => set("instagram", e.target.value)} size="small" />
-            <TextField label="WhatsApp" value={form.whatsapp} onChange={(e) => set("whatsapp", e.target.value)} size="small" />
+        <Section id="posizione" title="📌 Posizione e contatti" desc="Indirizzo e recapiti pubblici." openId={openId} setOpenId={setOpenId}>
+          <Box sx={SECTIONS_GRID}>
+            <Box sx={{ gridColumn: "1 / -1" }}>
+              <TextRow label="Indirizzo" hint="Via e numero civico (es. Via Roma 12)." value={form.address} onChange={(v) => set("address", v)} />
+            </Box>
+            <TextRow label="Comune" hint="La città in cui si trova l'attività." value={form.city} onChange={(v) => set("city", v)} />
+            <TextRow label="Provincia" hint="Sigla della provincia (es. RM, MI, NA)." value={form.province} onChange={(v) => set("province", v)} />
+            <TextRow label="CAP" hint="Codice di avviamento postale (5 cifre)." value={form.cap} onChange={(v) => set("cap", v)} />
+            <TextRow label="Telefono" hint="Numero pubblico mostrato ai clienti sul profilo." value={form.phone} onChange={(v) => set("phone", v)} />
+            <TextRow label="Email pubblica" hint="Email visibile ai clienti (può differire da quella della candidatura)." value={form.public_email} onChange={(v) => set("public_email", v)} />
+            <TextRow label="Sito web" hint="URL completo del sito (es. https://iltuolocale.it)." value={form.website} onChange={(v) => set("website", v)} />
+            <TextRow label="Instagram" hint="Solo il nome utente, senza @ (es. iltuolocale)." value={form.instagram} onChange={(v) => set("instagram", v)} />
+            <TextRow label="WhatsApp" hint="Numero WhatsApp con prefisso (es. +39 333 1234567)." value={form.whatsapp} onChange={(v) => set("whatsapp", v)} />
           </Box>
         </Section>
 
-        <Section id="orari" title="🕒 Orari" desc="Apertura per giorno.">
+        <Section id="orari" title="🕒 Orari" desc="Apertura per giorno, anche con pausa." openId={openId} setOpenId={setOpenId}>
+          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 1 }}>
+            <Typography variant="body2" color="text.secondary">Lascia vuoto un giorno = chiuso. Usa due fasce per la pausa (es. mattina 08:00-13:00, pomeriggio 14:00-18:00).</Typography>
+            <HintIcon hint="Formato consigliato HH:MM-HH:MM. La seconda fascia serve se chiudi a pranzo." />
+          </Stack>
           <Stack spacing={1}>
             {DAYS.map((d) => (
-              <Stack key={d} direction="row" spacing={1} alignItems="center">
-                <Typography sx={{ width: 44 }}>{d}</Typography>
-                <TextField placeholder="es. 08:00-20:00 (vuoto = chiuso)" size="small" fullWidth
-                  value={form.hours?.[d] || ""} onChange={(e) => set("hours", { ...form.hours, [d]: e.target.value })} />
+              <Stack key={d} direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }}>
+                <Typography sx={{ width: 44, fontWeight: 600 }}>{d}</Typography>
+                <TextField size="small" placeholder="Mattina (es. 08:00-13:00)" fullWidth
+                  value={form.hours[d]?.m || ""} onChange={(e) => setHour(d, "m", e.target.value)} />
+                <TextField size="small" placeholder="Pomeriggio (es. 14:00-18:00)" fullWidth
+                  value={form.hours[d]?.p || ""} onChange={(e) => setHour(d, "p", e.target.value)} />
               </Stack>
             ))}
           </Stack>
         </Section>
 
-        <Section id="servizi" title="🛎️ Servizi" desc="Cosa offri.">
+        <Section id="servizi" title="🛎️ Servizi" desc="Cosa offri ai clienti." openId={openId} setOpenId={setOpenId}>
+          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 1 }}>
+            <Typography variant="body2" color="text.secondary">Clicca per selezionare i servizi disponibili.</Typography>
+            <HintIcon hint="Aiutano i clienti a capire subito cosa offri (compaiono come tag sul profilo)." />
+          </Stack>
           <Stack direction="row" flexWrap="wrap" gap={1}>
             {SERVICES.map((s) => {
               const on = form.services?.includes(s);
@@ -164,19 +228,29 @@ export default function OnboardingPage() {
           </Stack>
         </Section>
 
-        <Section id="acqua" title="💧 Informazioni acqua" desc="Il cuore di AcquaMap.">
-          <Box sx={grid}>
+        <Section id="acqua" title="💧 Informazioni acqua" desc="Il cuore di AcquaMap." openId={openId} setOpenId={setOpenId}>
+          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 1 }}>
+            <Typography variant="body2" color="text.secondary">Attiva le opzioni che descrivono l'acqua che offri.</Typography>
+            <HintIcon hint="Queste voci sbloccano il badge Water Experience e migliorano la visibilità." />
+          </Stack>
+          <Box sx={SECTIONS_GRID}>
             {WATER.map(([k, l]) => (
               <FormControlLabel key={k} control={<Switch checked={!!form.water?.[k]} onChange={(e) => setWater(k, e.target.checked)} />} label={l} />
             ))}
           </Box>
-          <TextField sx={{ mt: 1 }} fullWidth label="Note sull'acqua" value={form.water_notes} onChange={(e) => set("water_notes", e.target.value)} size="small" multiline minRows={2} />
+          <Box sx={{ mt: 1 }}>
+            <TextRow label="Note sull'acqua" multiline minRows={2} hint="Dettagli utili: tipo di filtrazione, marca dell'erogatore, fonte, ecc." value={form.water_notes} onChange={(v) => set("water_notes", v)} />
+          </Box>
         </Section>
 
-        <Section id="media" title="🖼️ Media" desc="Logo e copertina.">
+        <Section id="media" title="🖼️ Media" desc="Logo e copertina." openId={openId} setOpenId={setOpenId}>
+          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 1 }}>
+            <Typography variant="body2" color="text.secondary">Immagini di qualità migliorano molto il profilo.</Typography>
+            <HintIcon hint="Logo: immagine quadrata. Copertina: foto orizzontale (16:9). Entrambe vengono ritagliate." />
+          </Stack>
           <Stack spacing={2} direction={{ xs: "column", sm: "row" }}>
-            <ImageCropField label="Logo" value={form.logo_url} onChange={(v) => set("logo_url", v)} aspect={1} round />
-            <ImageCropField label="Copertina" value={form.cover_image_url} onChange={(v) => set("cover_image_url", v)} aspect={16 / 9} maxSize={1280} />
+            <ImageCropField label="Logo (quadrato)" value={form.logo_url} onChange={(v) => set("logo_url", v)} aspect={1} round />
+            <ImageCropField label="Copertina (16:9)" value={form.cover_image_url} onChange={(v) => set("cover_image_url", v)} aspect={16 / 9} maxSize={1280} />
           </Stack>
         </Section>
 
