@@ -20,6 +20,7 @@ import smtplib
 import ssl
 import threading
 from email.message import EmailMessage
+from email.utils import formatdate, make_msgid
 
 SMTP_HOST = os.environ.get("SMTP_HOST", "smtps.aruba.it")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "465"))
@@ -40,6 +41,11 @@ def _send_sync(to_email: str, subject: str, body: str) -> None:
     msg["Subject"] = subject
     msg["From"] = f"{FROM_NAME} <{FROM_EMAIL}>"
     msg["To"] = to_email
+    msg["Reply-To"] = FROM_EMAIL
+    msg["Date"] = formatdate(localtime=True)
+    # Message-ID con dominio del mittente: aiuta la reputazione/anti-spam.
+    _domain = FROM_EMAIL.split("@")[-1] if "@" in FROM_EMAIL else "hydroroma.com"
+    msg["Message-ID"] = make_msgid(domain=_domain)
     msg.set_content(body)
     try:
         if SMTP_SECURE:
