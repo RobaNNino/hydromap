@@ -13,6 +13,8 @@ import NotificationsIcon from "@mui/icons-material/Notifications";
 import HistoryIcon from "@mui/icons-material/History";
 import CloseIcon from "@mui/icons-material/Close";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useAuth } from "../lib/auth.jsx";
@@ -411,16 +413,7 @@ function DetailDrawer({ sel, onClose, onChanged }) {
             <Duplicates appId={d.id} />
           </>
         ) : (
-          <Stack spacing={1}>
-            <Field k="Slug" v={`/${d.slug}`} />
-            <Field k="Stato" v={PROFILE_STATUSES[d.status] || d.status} />
-            <Field k="Account" v={d.account_created ? "Creato ✓" : "Non creato"} />
-            <Field k="Email titolare" v={d.owner_email} />
-            <Stack direction="row" spacing={1} sx={{ pt: 0.5 }}>
-              <Chip size="small" label={`Completezza ${computeCompleteness(d)}%`} color={computeCompleteness(d) < 70 ? "warning" : "success"} />
-              <Chip size="small" label={`Trust ${computeTrust(d)}`} variant="outlined" />
-            </Stack>
-          </Stack>
+          <ProfileReview d={d} />
         )}
 
         <Divider sx={{ my: 2 }} />
@@ -531,5 +524,82 @@ function Field({ k, v }) {
       <Typography variant="body2" color="text.secondary" sx={{ width: 110, flexShrink: 0 }}>{k}</Typography>
       <Typography variant="body2" sx={{ wordBreak: "break-word" }}>{v || "—"}</Typography>
     </Stack>
+  );
+}
+
+// ---- Revisione contenuti: anteprima di ciò che il locale ha compilato ----
+const REVIEW_DAYS = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
+const WATER_ONBOARD = {
+  water_natural: "Naturale", water_sparkling: "Frizzante", water_microfiltered: "Microfiltrata",
+  water_purified: "Depurata", water_glass: "In vetro", water_refill: "Refill",
+  water_bottles: "Borracce", water_plasticfree: "Plastic free",
+};
+
+function ReviewRow({ label, ok, value }) {
+  return (
+    <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ py: 0.4 }}>
+      {ok ? <CheckCircleIcon sx={{ fontSize: 18, color: "success.main", mt: 0.2 }} />
+        : <RadioButtonUncheckedIcon sx={{ fontSize: 18, color: "text.disabled", mt: 0.2 }} />}
+      <Box sx={{ minWidth: 0, flex: 1 }}>
+        <Typography variant="caption" color="text.secondary">{label}</Typography>
+        <Typography variant="body2" sx={{ wordBreak: "break-word", color: ok ? "text.primary" : "text.disabled" }}>
+          {value || (ok ? "—" : "Mancante")}
+        </Typography>
+      </Box>
+    </Stack>
+  );
+}
+
+function ProfileReview({ d }) {
+  const ex = d.extra || {};
+  const wi = d.water_info || {};
+  const hours = ex.hours || {};
+  const hoursStr = REVIEW_DAYS.filter((day) => hours[day]?.m || hours[day]?.p)
+    .map((day) => `${day}: ${[hours[day].m, hours[day].p].filter(Boolean).join(" / ")}`).join("   ·   ");
+  const waterOn = Object.entries(WATER_ONBOARD).filter(([k]) => ex.water?.[k]).map(([, l]) => l);
+  const allWater = [...waterOn, ...(wi.water_type || [])];
+  const addr = [d.address, d.city, d.province, ex.cap].filter(Boolean).join(", ");
+  const photos = [d.logo_url, d.cover_image_url].filter(Boolean);
+  const c = computeCompleteness(d);
+
+  return (
+    <Box>
+      {(d.cover_image_url || d.logo_url) && (
+        <Box sx={{ position: "relative", mb: d.cover_image_url ? 2 : 1 }}>
+          {d.cover_image_url && <Box component="img" src={d.cover_image_url} alt="" sx={{ width: "100%", height: 120, objectFit: "cover", borderRadius: 3 }} />}
+          {d.logo_url && <Box component="img" src={d.logo_url} alt="" sx={{ width: 50, height: 50, borderRadius: 2, objectFit: "cover", border: "2px solid #fff", boxShadow: 2, ...(d.cover_image_url ? { position: "absolute", bottom: -10, left: 12 } : {}) }} />}
+        </Box>
+      )}
+
+      <Stack direction="row" spacing={1} sx={{ mb: 1.5, flexWrap: "wrap" }} useFlexGap>
+        <Chip size="small" label={PROFILE_STATUSES[d.status] || d.status} />
+        <Chip size="small" label={`Completezza ${c}%`} color={c < 70 ? "warning" : "success"} />
+        <Chip size="small" label={`Trust ${computeTrust(d)}`} variant="outlined" />
+        {d.status === "published" && <Button size="small" href={`/acquamap/business/${d.slug}`} target="_blank">Profilo pubblico ↗</Button>}
+      </Stack>
+
+      <Typography variant="subtitle2" gutterBottom>Contenuti inviati dal locale</Typography>
+      <ReviewRow label="Nome attività" ok={!!d.business_name} value={d.business_name} />
+      <ReviewRow label="Categoria" ok={!!d.category} value={catLabel(d.category)} />
+      <ReviewRow label="Claim" ok={!!ex.claim} value={ex.claim} />
+      <ReviewRow label="Descrizione breve" ok={!!d.description} value={d.description} />
+      <ReviewRow label="Descrizione lunga" ok={!!ex.long_desc} value={ex.long_desc} />
+      <ReviewRow label="Indirizzo" ok={!!d.address} value={addr} />
+      <ReviewRow label="Telefono pubblico" ok={!!d.phone} value={d.phone} />
+      <ReviewRow label="Email pubblica" ok={!!d.public_email} value={d.public_email} />
+      <ReviewRow label="Sito / Instagram / WhatsApp" ok={!!(d.website || d.instagram || ex.whatsapp)}
+        value={[d.website, d.instagram && "@" + d.instagram, ex.whatsapp].filter(Boolean).join("   ·   ")} />
+      <ReviewRow label="Orari" ok={!!hoursStr} value={hoursStr} />
+      <ReviewRow label="Servizi" ok={(ex.services || []).length > 0} value={(ex.services || []).join(", ")} />
+      <ReviewRow label="Informazioni acqua" ok={allWater.length > 0} value={allWater.join(", ")} />
+      <ReviewRow label="Note acqua" ok={!!ex.water_notes} value={ex.water_notes} />
+      <ReviewRow label="Foto (logo + copertina)" ok={photos.length === 2} value={`${photos.length}/2 caricate`} />
+
+      <Box sx={{ mt: 1, pt: 1, borderTop: "1px solid", borderColor: "divider" }}>
+        <Field k="Slug" v={`/${d.slug}`} />
+        <Field k="Email titolare" v={d.owner_email} />
+        <Field k="Account" v={d.account_created ? "Creato ✓" : "Non creato"} />
+      </Box>
+    </Box>
   );
 }
