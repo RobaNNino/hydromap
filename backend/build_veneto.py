@@ -104,6 +104,12 @@ ALIASES = {
     "rima s giuseppe": "alto sermenza",
     "rimasco": "alto sermenza",
     "quittengo": "campiglia cervo",
+    # SOGERI/AMAG (nomi OCR): fusioni, frazioni e omonimi
+    "borgoratto": "borgoratto alessandrino",
+    "piovera": "alluvioni piovera",
+    "terzod acqui": "terzo",
+    "terzo d acqui": "terzo",
+    "fraz s rocco di gamalero": "gamalero",
 }
 
 
@@ -752,7 +758,8 @@ LOMBARDIA = {
     "dolomitienergia": {"folder": "dolomiti-energia-pdf", "comune_col": "comune",
                         "file_col": "file", "prov_hint": "trento"},
     "amambiente": {"folder": "amambiente-pdf", "fname_re": r"^amambiente_([^_]+)_"},
-    "airspa": {"folder": "airspa-pdf", "fname_re": r"^airspa_([^_]+)_"},
+    "airspa": {"folder": "airspa-pdf", "fname_re": r"^airspa_([^_]+)_",
+               "prefer_re": r"_26\d{5}"},  # rapporti 2026 digitali, non le scansioni
     "altogarda": {"folder": "altogarda-servizi-pdf",
                   "text_re": r"Punto di prelievo:\s*([A-ZÀ-Ü'][A-ZÀ-Ü' ]+?)\s*-"},
     "seab": {"folder": "seab-bolzano-pdf", "fixed_comune": "Bolzano/Bozen"},
@@ -778,10 +785,11 @@ LOMBARDIA = {
     "cordarvalsesia": {"folder": "cordar-valsesia-pdf", "comune_col": "comune", "file_col": "file"},
     "siispa": {"folder": "siispa-pdf", "comune_col": "comune", "file_col": "file"},
     "alpiacque": {"folder": "alpiacque-pdf", "comune_col": "comune_cartella", "file_col": "file"},
-    "sogeri": {"folder": "sogeri-pdf", "fixed_comune": "Alessandria"},
+    # "sogeri" ha una discovery dedicata (discover_sogeri, OCR)
     "mondoacqua": {"folder": "mondoacqua-pdf",
                    "sections_re": r"^([A-ZÀ-Ü][A-ZÀ-Ü' ]{3,40})$"},
-    "aspasti": {"folder": "asp-asti-2025-pdf", "fixed_comune": "Asti"},
+    "aspasti": {"folder": "asp-asti-2025-pdf", "fixed_comune": "Asti",
+                "file_filter": "analisi-gruppo-b"},
 }
 
 LOMBARDIA_META = {
@@ -845,7 +853,10 @@ def discover_lombardia(idx: ComuneIndex, prov: str) -> list[dict]:
     raw: list[tuple[str, Path]] = []  # (comune_raw, pdf_path)
 
     if cfg.get("fixed_comune"):
+        flt = cfg.get("file_filter", "")
         for p in sorted(src.rglob("*.pdf")):
+            if flt and flt not in p.name:
+                continue
             raw.append((cfg["fixed_comune"], p))
     elif cfg.get("sections_re"):
         # un solo PDF con sezioni per comune (header in MAIUSCOLO)
@@ -872,7 +883,13 @@ def discover_lombardia(idx: ComuneIndex, prov: str) -> list[dict]:
                 raw.append((_clean_title(m.group(1)), p))
     elif cfg.get("fname_re"):
         rx = re.compile(cfg["fname_re"], re.I)
-        for p in sorted(src.glob("*.pdf")):
+        files = sorted(src.glob("*.pdf"))
+        if cfg.get("prefer_re"):
+            # i file che matchano prefer_re vengono prima (es. rapporti 2026
+            # digitali invece delle vecchie scansioni)
+            prx = re.compile(cfg["prefer_re"], re.I)
+            files.sort(key=lambda p: (0 if prx.search(p.name) else 1, p.name))
+        for p in files:
             m = rx.match(p.stem)
             if not m:
                 continue
@@ -907,6 +924,56 @@ def discover_lombardia(idx: ComuneIndex, prov: str) -> list[dict]:
                     "zona": hit["name"], "periodo": None, "src": p})
     if nomatch:
         print(f"[{prov}] no-match ({len(nomatch)}): {sorted(nomatch)[:8]}")
+    return out
+
+
+def discover_sogeri(idx: ComuneIndex) -> list[dict]:
+    """SO.G.E.R.I./AMAG (Alessandrino): PDF scansionati. Alessandria dalla
+    scheda 'comune alessandria'; gli altri comuni serviti si leggono via OCR
+    dalla prima colonna della scheda 'altri comuni' (edizione piu' recente)."""
+    src = HERE / "sogeri-pdf"
+    if not src.exists():
+        return []
+    city = sorted(src.glob("*comune-di-alessandria-marzo-2021*.pdf")) or \
+        sorted(src.glob("*comune-di-alessandria*.pdf"))
+    others = sorted(src.glob("*altri-comuni-marzo-2021*.pdf")) or \
+        sorted(src.glob("*altri-comuni*.pdf"))
+    out: list[dict] = []
+    if city:
+        hit = idx.match("alessandria")
+        out.append({"comune_key": _norm(hit["name"]), "comune": hit,
+                    "zona": "Alessandria città", "periodo": "03/2021", "src": city[-1]})
+    if not others:
+        return out
+    try:
+        from parse_pdfs import _ocr_word_rows_cached, _sogeri_norm, _SOGERI_PARAMS
+    except Exception:
+        return out
+    rows = _ocr_word_rows_cached(others[-1], max_pages=2)
+    # ancora sinistra = x del primo parametro riconosciuto nell'header
+    name_hi = None
+    for r in rows:
+        for w in sorted(r["words"], key=lambda w: w["x0"]):
+            if _sogeri_norm(w["text"]) in _SOGERI_PARAMS:
+                name_hi = w["x0"] - 25
+                break
+        if name_hi:
+            break
+    if not name_hi:
+        return out
+    for r in rows:
+        nm = " ".join(w["text"] for w in r["words"] if w["x0"] < name_hi).strip()
+        vals = [w for w in r["words"] if w["x0"] >= name_hi]
+        if not nm or len(vals) < 4 or "V.M.A" in nm or nm.lower().startswith(("citta", "legenda")):
+            continue
+        raw = _clean_title(re.split(r"[-(]", nm)[0])  # "ACQUI TERME POTABIL.." -> "Acqui Terme"
+        raw = re.sub(r"\b(potabil\w*|rete)\b", "", raw, flags=re.I).strip()
+        hit = idx.match(raw)
+        if not hit:
+            print(f"[sogeri] no-match OCR: {nm[:40]!r}")
+            continue
+        out.append({"comune_key": _norm(hit["name"]), "comune": hit,
+                    "zona": hit["name"], "periodo": "03/2021", "src": others[-1]})
     return out
 
 
@@ -1120,6 +1187,7 @@ def main() -> int:
         "lta": discover_lta_folder(idx),
         "irisacqua": discover_irisacqua(idx),
         "poiana": discover_poiana(idx),
+        "sogeri": discover_sogeri(idx),
     }
     for prov in LOMBARDIA:
         records[prov] = discover_lombardia(idx, prov)

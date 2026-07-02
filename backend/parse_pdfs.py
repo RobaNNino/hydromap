@@ -1236,6 +1236,63 @@ def _get_ocr():
     return _OCR_ENGINE
 
 
+_OCR_ROWS_CACHE: dict = {}
+
+
+def _ocr_word_rows_cached(path: Path, **kw) -> list[dict]:
+    """Come _ocr_word_rows ma con cache per CONTENUTO (md5): i PDF runtime di
+    zone diverse dello stesso gestore sono spesso copie identiche."""
+    import hashlib
+    try:
+        key = (hashlib.md5(Path(path).read_bytes()).hexdigest(), tuple(sorted(kw.items())))
+    except Exception:
+        return _ocr_word_rows(path, **kw)
+    if key not in _OCR_ROWS_CACHE:
+        _OCR_ROWS_CACHE[key] = _ocr_word_rows(path, **kw)
+    return _OCR_ROWS_CACHE[key]
+
+
+def _ocr_word_rows(path: Path, max_pages: int | None = None,
+                   scale: float = 3.0) -> list[dict]:
+    """OCR (RapidOCR + pypdfium2) di un PDF scansionato -> righe posizionali
+    nello stesso formato di _cafc_rows: [{top, words: [{x0, text}]}].
+    Dipende dall'ambiente: se le librerie mancano ritorna [] (il risultato
+    parsato viene committato in results.json, Render non ri-esegue l'OCR)."""
+    try:
+        import numpy as np
+        import pypdfium2 as pdfium
+        engine = _get_ocr()
+    except Exception:
+        return []
+    rows: list[dict] = []
+    try:
+        pdf = pdfium.PdfDocument(str(path))
+        n = len(pdf) if max_pages is None else min(max_pages, len(pdf))
+        y_off = 0.0
+        for i in range(n):
+            bmp = pdf[i].render(scale=scale)
+            img = np.asarray(bmp.to_pil().convert("RGB"))
+            res, _ = engine(img)
+            for box, txt, _conf in (res or []):
+                xs = [p[0] for p in box]
+                ys = [p[1] for p in box]
+                w = {"x0": min(xs) / scale, "top": y_off + (sum(ys) / 4.0) / scale,
+                     "text": txt}
+                for row in rows:
+                    if abs(row["top"] - w["top"]) <= 5.0:
+                        row["words"].append(w)
+                        break
+                else:
+                    rows.append({"top": w["top"], "words": [w]})
+            y_off += img.shape[0] / scale + 50
+    except Exception:
+        return []
+    rows.sort(key=lambda r: r["top"])
+    for row in rows:
+        row["words"].sort(key=lambda w: w["x0"])
+    return rows
+
+
 def _cluster_rows(items: list[tuple[float, float, str]],
                   tol: float) -> list[str]:
     """items = [(y_center, x_center, text)] → righe ordinate per y, testo
@@ -2503,12 +2560,68 @@ def parse_pdf_marche_asteaspa(path: Path) -> dict:
     if not out["parameters"]:
         # Se OCR opzionale produce testo tabellare, prova almeno il parser lineare.
         _parse_marche_text_lines(out, text)
+    if not out["parameters"]:
+        _asteaspa_ocr_fallback(path, out)
     if not out["zona"]:
         out["zona"] = path.stem.replace("marche_asteaspa_", "").replace("_", " ").title()
     return _marche_finish(
         out,
         None if out["parameters"] else "PDF scansionato/non testuale: OCR non disponibile nell'ambiente corrente.",
     )
+
+
+def _asteaspa_ocr_fallback(path: Path, out: dict) -> None:
+    """PDF ASTEA scansionati: OCR posizionale. Header 'Parametro | Misura |
+    Valore | Valori di parametro...' -> colonne per x, righe per y."""
+    rows = _ocr_word_rows(path, max_pages=3)
+    if not rows:
+        return
+    full = " ".join(w["text"] for r in rows for w in r["words"])
+    m = re.search(r"Valori rilevati dal\s*\d{1,2}/\d{1,2}/\d{2,4}\s*al\s*(\d{1,2}/\d{1,2}/\d{4})", full)
+    if m and not out.get("periodo"):
+        out["periodo"] = m.group(1)
+    m = re.search(r"Comune:\s*([A-Za-zÀ-ü' ]+)", full)
+    if m and not out.get("comune"):
+        out["comune"] = _clean(m.group(1))
+    xs: dict[str, float] = {}
+    for r in rows:
+        for w in r["words"]:
+            t = w["text"].strip().lower()
+            if t == "parametro":
+                xs.setdefault("par", w["x0"])
+            elif t == "valore":
+                xs.setdefault("val", w["x0"])
+            elif t.startswith("valori di par"):
+                xs.setdefault("lim", w["x0"])
+            elif t in ("misura", "unità di misura", "unita di misura"):
+                xs.setdefault("um", w["x0"])
+    if "par" not in xs or "val" not in xs:
+        return
+    # confini colonna a meta' strada tra le ancore
+    anchors = sorted((v, k) for k, v in xs.items())
+    def col_of(x: float) -> str:
+        best = anchors[0][1]
+        for ax, k in anchors:
+            if x >= ax - 25:
+                best = k
+        return best
+    seen: set[str] = set()
+    for r in rows:
+        cols: dict[str, list[str]] = {}
+        for w in r["words"]:
+            cols.setdefault(col_of(w["x0"]), []).append(w["text"])
+        par = _clean(" ".join(cols.get("par", [])))
+        val = _clean(" ".join(cols.get("val", [])))
+        if (not par or not val or len(par) > 50 or par.lower() in seen
+                or par.lower().startswith(("categoria", "parametro", "comune", "valori"))):
+            continue
+        if not re.match(r"^[<>]?\s*\d|^(assente|n\.d\.)", val, re.I):
+            continue
+        lim = _clean(" ".join(cols.get("lim", [])))
+        if not re.match(r"^[<>]?\s*\d", lim):
+            lim = ""
+        seen.add(par.lower())
+        _marche_add_param(out, par, _clean(" ".join(cols.get("um", []))), lim, val)
 
 
 def parse_pdf_ciip(path: Path) -> dict:
@@ -3019,12 +3132,13 @@ LOMBARDIA_PREFIXES = (
     "smat_", "acda_", "acquanovara_", "acquedottopiana_", "cordarbiella_",
     "cordarvalsesia_",
 )
-# Non parsabili (solo poligono + PDF, stato UNKNOWN): airspa e gestioneacqua
-# (scansioni/stub senza dati), latuaacqua (testo illeggibile), sogeri (immagini).
+# Non parsabili (solo poligono + PDF, stato UNKNOWN): gestioneacqua (stub senza
+# dati) e latuaacqua (PDF Milano con OCR/testo inaffidabile).
 
 # Rapporti di prova dei laboratori a colonne posizionali (TAA + Piemonte).
 TAALAB_PREFIXES = ("dolomitienergia_", "altogarda_", "amambiente_", "seab_", "asmb_",
-                   "acquambiente_", "infernotto_", "alpiacque_", "valtiglione_")
+                   "acquambiente_", "infernotto_", "alpiacque_", "valtiglione_",
+                   "airspa_")
 
 _VEN_MONTHS = ("gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|"
                "settembre|ottobre|novembre|dicembre")
@@ -3489,6 +3603,196 @@ def parse_pdf_mondoacqua(path: Path) -> dict:
             "parametro": parametro, "unita": _clean(mu.group(1)),
             "limite": limite, "valore": valore,
             "valore_num": _parse_number(valore), "limite_num": _parse_number(limite)})
+    _veneto_summary(out)
+    return out
+
+
+_SOGERI_PARAMS = {"ammoniaca": "Ammoniaca", "conduttivita": "Conducibilità",
+                  "conducibilita": "Conducibilità", "cloruri": "Cloruri",
+                  "durezzatotale": "Durezza totale", "durezza": "Durezza totale",
+                  "solfati": "Solfati", "nitrati": "Nitrati", "nitriti": "Nitriti",
+                  "ph": "pH", "residuo fisso": "Residuo fisso",
+                  "residuofisso": "Residuo fisso", "sodio": "Sodio",
+                  "fluoruri": "Fluoruri", "manganese": "Manganese", "ferro": "Ferro"}
+
+
+def _sogeri_norm(s: str) -> str:
+    import unicodedata
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c)).lower()
+    return re.sub(r"[^a-z0-9 ]", "", s).strip()
+
+
+def parse_pdf_sogeri(path: Path) -> dict:
+    """SO.G.E.R.I./AMAG (Alessandrino): schede scansionate -> OCR posizionale.
+    Righe = zone della citta' (PDF 'comune alessandria') o comuni serviti
+    (PDF 'altri comuni'); colonne = parametri, con riga dei limiti (V.M.A.)."""
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    m = re.match(r"^sogeri_(.+)_[0-9a-f]{8}$", name)
+    want = _sogeri_norm((m.group(1) if m else "").replace("_", " "))
+    rows = _ocr_word_rows_cached(path, max_pages=2)
+    if not rows:
+        _veneto_summary(out)
+        return out
+    # header: riga con piu' nomi-parametro riconosciuti
+    hdr_i, anchors = None, []
+    for i, r in enumerate(rows):
+        cand = []
+        for w in r["words"]:
+            k = _sogeri_norm(w["text"])
+            if k in _SOGERI_PARAMS:
+                cand.append((w["x0"], _SOGERI_PARAMS[k]))
+        if len(cand) >= 4:
+            hdr_i, anchors = i, sorted(cand)
+            break
+    if hdr_i is None:
+        _veneto_summary(out)
+        return out
+    name_hi = anchors[0][0] - 25
+
+    def nearest(x: float):
+        best, bd = None, 34.0
+        for j, (ax, _) in enumerate(anchors):
+            d = abs(x - ax)
+            if d < bd:
+                best, bd = j, d
+        return best
+
+    # riga limiti (subito dopo l'header, contiene V.M.A./V.G.)
+    limits: dict[int, str] = {}
+    data_start = hdr_i + 1
+    if hdr_i + 1 < len(rows):
+        joined = " ".join(w["text"] for w in rows[hdr_i + 1]["words"])
+        if "V.M.A" in joined or "V.G" in joined:
+            for w in rows[hdr_i + 1]["words"]:
+                j = nearest(w["x0"])
+                if j is not None and j not in limits:
+                    nums = re.findall(r"[\d]+(?:[.,]\d+)?", w["text"])
+                    if len(nums) >= 2 and "-" in w["text"]:
+                        limits[j] = f"{nums[0]} - {nums[1]}"  # range (es. 15°F-50°F)
+                    elif nums:
+                        pref = "max " if w["text"].lower().startswith("max") else ""
+                        limits[j] = pref + nums[0]
+            data_start = hdr_i + 2
+    # riga dati del comune/zona richiesti (a parita' preferisci la RETE di
+    # distribuzione rispetto all'uscita del potabilizzatore)
+    matches: list[tuple[str, dict]] = []
+    fallback = None
+    for r in rows[data_start:]:
+        nm = _sogeri_norm(" ".join(w["text"] for w in r["words"] if w["x0"] < name_hi))
+        vals = [w for w in r["words"] if w["x0"] >= name_hi]
+        if not nm or len(vals) < 4:
+            continue
+        if nm.startswith("legenda"):
+            break
+        if fallback is None:
+            fallback = (nm, r)
+        cmp_nm = nm.replace(" ", "")
+        cmp_want = want.replace(" ", "")
+        if cmp_want and (cmp_want in cmp_nm or cmp_nm.startswith(cmp_want[:10])):
+            matches.append((nm, r))
+        elif want == "alessandria" and nm.startswith("zona") and not matches:
+            matches.append((nm, r))
+    target = next((m for m in matches if "rete" in m[0]), matches[0] if matches else None)
+    if target is None:
+        target = fallback
+    if target is None:
+        _veneto_summary(out)
+        return out
+    zona_nm, r = target
+    out["zona"] = zona_nm.upper()
+    got: dict[int, str] = {}
+    for w in r["words"]:
+        if w["x0"] < name_hi:
+            continue
+        j = nearest(w["x0"])
+        if j is not None and j not in got:
+            got[j] = w["text"]
+    for j, (ax, label) in enumerate(anchors):
+        v = _clean(got.get(j, ""))
+        if not v or not re.match(r"^[<>]?\s*[\d.,]+$", v):
+            continue
+        lim = limits.get(j, "")
+        out["parameters"].append({
+            "parametro": label, "unita": "", "limite": lim, "valore": v,
+            "valore_num": _parse_number(v), "limite_num": _parse_number(lim)})
+    # guard di coerenza (errori OCR): uno ione disciolto non puo' superare il
+    # residuo fisso totale — se accade il valore e' illeggibile, va scartato.
+    res_fisso = next((p["valore_num"] for p in out["parameters"]
+                      if "residuo" in p["parametro"].lower() and p["valore_num"]), None)
+    if res_fisso:
+        out["parameters"] = [
+            p for p in out["parameters"]
+            if not (p["valore_num"] and p["valore_num"] > res_fisso * 1.2
+                    and any(i in p["parametro"].lower()
+                            for i in ("solfat", "clorur", "nitrat", "sodio")))]
+    _veneto_summary(out)
+    return out
+
+
+def parse_pdf_aspasti(path: Path) -> dict:
+    """ASP Asti: matrice 'Parametri | Unita' | Limiti | Valore misurato x N
+    punti di prelievo'. Si prende il PRIMO punto di prelievo come
+    rappresentativo (colonne posizionali; nomi/limiti multi-riga)."""
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": "Asti", "zona": None, "periodo": None}
+    seen: set[str] = set()
+    with pdfplumber.open(path) as pdf:
+        for pg in pdf.pages:
+            rows = _cafc_rows(pg.extract_words(), tol=7.0)
+            xs = {}
+            for r in rows:
+                toks = {w["text"].lower(): w["x0"] for w in r["words"]}
+                if "parametri" in toks and "limiti" in toks:
+                    xs = {"par": toks["parametri"], "lim": toks["limiti"]}
+                    um = [x for t, x in toks.items() if t.startswith("unità")]
+                    vals = sorted(w["x0"] for w in r["words"] if w["text"] == "Valore")
+                    if um and vals:
+                        xs["um"] = um[0]
+                        xs["v1"] = vals[0]
+                    break
+            if not xs.get("v1"):
+                continue
+            par_hi = xs["um"] - 8
+            um_hi = xs["lim"] - 8
+            lim_hi = xs["v1"] - 12
+            v1_lo, v1_hi = xs["v1"] - 12, xs["v1"] + 48
+            m_per = re.search(r"(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|"
+                              r"agosto|settembre|ottobre|novembre|dicembre)[\s\-–a-z]*(\d{4})",
+                              pg.extract_text() or "", re.I)
+            if m_per and not out["periodo"]:
+                out["periodo"] = _clean(m_per.group(0))
+            for i, r in enumerate(rows):
+                grab = lambda lo, hi, row: " ".join(
+                    w["text"] for w in row["words"] if lo <= w["x0"] < hi)
+                valore = _clean(grab(v1_lo, v1_hi, r))
+                if not valore:
+                    continue
+                parametro = _clean(grab(0, par_hi, r))
+                # nome spezzato sulle righe adiacenti senza valori
+                for j in (i - 1, i + 1):
+                    if 0 <= j < len(rows) and not grab(v1_lo, v1_hi, rows[j]):
+                        frag = _clean(grab(0, par_hi, rows[j]))
+                        if frag:
+                            parametro = (frag + " " + parametro).strip() if j < i else (parametro + " " + frag).strip()
+                if (not parametro or len(parametro) > 55 or parametro.lower() in seen
+                        or parametro.lower().startswith(("parametri", "codice", "identificativo"))):
+                    continue
+                if not re.match(r"^[<>]?\s*\d|^(incolore|inodore|insapore|assente|n\.d\.)",
+                                valore, re.I):
+                    continue
+                limite = _clean(grab(xs["lim"] - 10, lim_hi, r))
+                if not re.match(r"^[<>]?\s*\d", limite):
+                    limite = ""
+                seen.add(parametro.lower())
+                out["parameters"].append({
+                    "parametro": parametro, "unita": _clean(grab(xs["um"] - 8, um_hi, r)),
+                    "limite": limite, "valore": valore,
+                    "valore_num": _parse_number(valore), "limite_num": _parse_number(limite)})
+    out["zona"] = "Asti — primo punto di prelievo"
     _veneto_summary(out)
     return out
 
@@ -4116,6 +4420,10 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_siispa(p)
         if p.stem.startswith("mondoacqua_"):
             return p.stem, parse_pdf_mondoacqua(p)
+        if p.stem.startswith("aspasti_"):
+            return p.stem, parse_pdf_aspasti(p)
+        if p.stem.startswith("sogeri_"):
+            return p.stem, parse_pdf_sogeri(p)
         if p.stem.startswith(TAALAB_PREFIXES):
             return p.stem, parse_pdf_taalab(p)
         if p.stem.startswith(LOMBARDIA_PREFIXES):
