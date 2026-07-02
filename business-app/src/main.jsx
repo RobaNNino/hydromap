@@ -4,7 +4,8 @@ import { ThemeProvider, CssBaseline } from "@mui/material";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 import { Toaster } from "sonner";
-import { theme } from "./theme.js";
+import { makeTheme } from "./theme.js";
+import { ColorModeProvider, useColorMode } from "./lib/colorMode.jsx";
 import { AuthProvider } from "./lib/auth.jsx";
 import App from "./App.jsx";
 
@@ -12,8 +13,10 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 30_000 } },
 });
 
-ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
+function Root() {
+  const { mode } = useColorMode();
+  const theme = React.useMemo(() => makeTheme(mode), [mode]);
+  return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <QueryClientProvider client={queryClient}>
@@ -21,9 +24,17 @@ ReactDOM.createRoot(document.getElementById("root")).render(
           <BrowserRouter basename="/business-app">
             <App />
           </BrowserRouter>
-          <Toaster richColors position="bottom-center" />
+          <Toaster richColors position="bottom-center" theme={mode} />
         </AuthProvider>
       </QueryClientProvider>
     </ThemeProvider>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <React.StrictMode>
+    <ColorModeProvider>
+      <Root />
+    </ColorModeProvider>
   </React.StrictMode>
 );

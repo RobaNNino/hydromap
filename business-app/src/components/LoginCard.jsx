@@ -27,7 +27,11 @@ export default function LoginCard({ title = "Accedi", subtitle, allowSignup = fa
       <Card sx={{ width: "100%", maxWidth: 420 }}>
         <CardContent sx={{ p: 4 }}>
           <Stack direction="row" spacing={1.2} alignItems="center" sx={{ mb: 1 }}>
-            <Box component="img" src="/LOGO.svg" alt="" sx={{ width: 30, height: 30 }} />
+            <Box sx={{ width: 34, height: 34, borderRadius: "11px", display: "grid", placeItems: "center",
+              background: "linear-gradient(135deg, #1bb2bd 0%, #0492cf 60%, #0369a1 100%)",
+              boxShadow: "0 4px 14px rgba(4,146,207,.35)" }}>
+              <Box component="img" src="/LOGO.svg" alt="" sx={{ width: 20, height: 20, filter: "brightness(0) invert(1)" }} />
+            </Box>
             <Typography sx={{ fontWeight: 800 }}>AcquaMap Business</Typography>
           </Stack>
           <Typography variant="h5" sx={{ mb: 0.5 }}>{title}</Typography>

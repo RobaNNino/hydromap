@@ -37,6 +37,46 @@ DATA_DIR = Path(__file__).parent / "data"
 
 _LOCK = threading.RLock()
 
+# ---------- rate limiting / cache (in-memory, per-worker) ----------
+# Render free gira con un worker: un limiter in-process basta ad assorbire
+# spam e doppi submit; non serve Redis.
+_RL_LOCK = threading.Lock()
+_RL_BUCKETS: dict[str, list[float]] = {}
+
+
+def _rate_limit(bucket: str, limit: int, window_sec: int) -> bool:
+    """True se la richiesta e' ammessa, False oltre il limite per IP."""
+    import time as _time
+    now = _time.time()
+    ip = (request.headers.get("X-Forwarded-For", request.remote_addr or "?")
+          .split(",")[0].strip())
+    key = f"{bucket}:{ip}"
+    with _RL_LOCK:
+        hits = [t for t in _RL_BUCKETS.get(key, []) if now - t < window_sec]
+        if len(hits) >= limit:
+            _RL_BUCKETS[key] = hits
+            return False
+        hits.append(now)
+        _RL_BUCKETS[key] = hits
+        if len(_RL_BUCKETS) > 5000:  # pulizia best-effort
+            for k in [k for k, v in _RL_BUCKETS.items()
+                      if not v or now - v[-1] > window_sec]:
+                _RL_BUCKETS.pop(k, None)
+    return True
+
+
+# Cache breve del GeoJSON pubblico della mappa (senza, ogni load mappa =
+# query Supabase). Invalidata da qualunque mutazione dei profili.
+_MAP_CACHE: dict = {"body": None, "etag": None, "ts": 0.0}
+_MAP_TTL = 60.0
+
+
+def _invalidate_map_cache() -> None:
+    _MAP_CACHE["body"] = None
+    _MAP_CACHE["etag"] = None
+    _MAP_CACHE["ts"] = 0.0
+
+
 # ---------- enum / vocabolari ----------
 CATEGORIES = ["bar", "ristorante", "hotel", "palestra", "centro_sportivo",
               "coworking", "ufficio", "scuola", "negozio", "altro"]
@@ -976,6 +1016,17 @@ def register_business_routes(app) -> None:
             return jsonify({"error": "Supabase non configurato sul server."}), 503
         return None
 
+    @app.after_request
+    def _biz_invalidate_map(resp):
+        # Qualunque mutazione business (V1 o V2) invalida la cache della mappa;
+        # il tracking analytics e' escluso (POST ad alta frequenza, non tocca i profili).
+        if (request.method in ("POST", "PATCH", "PUT", "DELETE")
+                and "/business" in (request.path or "")
+                and not request.path.endswith("/track")
+                and resp.status_code < 400):
+            _invalidate_map_cache()
+        return resp
+
     # ---------- Pubblici ----------
     @app.get("/api/business")
     def api_business_list():
@@ -992,7 +1043,21 @@ def register_business_routes(app) -> None:
 
     @app.get("/api/business/map")
     def api_business_map():
-        return jsonify(public_profiles_geojson())
+        import hashlib
+        import time as _time
+        now = _time.time()
+        if _MAP_CACHE["body"] is None or now - _MAP_CACHE["ts"] > _MAP_TTL:
+            body = json.dumps(public_profiles_geojson(), ensure_ascii=False,
+                              separators=(",", ":")).encode("utf-8")
+            _MAP_CACHE.update(body=body, ts=now,
+                              etag=hashlib.md5(body).hexdigest())
+        if request.headers.get("If-None-Match") == _MAP_CACHE["etag"]:
+            resp = app.response_class(status=304)
+        else:
+            resp = app.response_class(_MAP_CACHE["body"], mimetype="application/json")
+        resp.headers["ETag"] = _MAP_CACHE["etag"]
+        resp.headers["Cache-Control"] = "public, max-age=60"
+        return resp
 
     @app.get("/api/business/<slug>")
     def api_business_detail(slug):
@@ -1003,7 +1068,16 @@ def register_business_routes(app) -> None:
 
     @app.post("/api/business/apply")
     def api_business_apply():
-        result = create_application(_json_body())
+        if not _rate_limit("apply", limit=5, window_sec=3600):
+            abort(429, description="Troppe richieste: riprova più tardi.")
+        body = _json_body()
+        # honeypot anti-bot: campo invisibile nel form — se compilato, e' spam.
+        # Rispondiamo ok senza salvare per non dare feedback al bot.
+        if _clean_str(body.get("company_website_confirm"), 50):
+            return jsonify({"ok": True,
+                            "message": "Richiesta inviata. Ti contatteremo dopo la verifica.",
+                            "application_id": str(uuid.uuid4())}), 201
+        result = create_application(body)
         if not result.get("ok"):
             return jsonify({"ok": False, "errors": result.get("errors", {})}), 400
         return jsonify({

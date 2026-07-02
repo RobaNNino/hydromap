@@ -95,6 +95,7 @@ export default function ApplyPage() {
   const [consents, setConsents] = useState({ privacy: false, commercial: false, publish: false, expand: false, truth: false });
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(null);
+  const [hp, setHp] = useState(""); // honeypot anti-bot (campo invisibile)
 
   const values = watch();
 
@@ -123,6 +124,7 @@ export default function ApplyPage() {
         consent_commercial: consents.commercial,
         consent_publish: consents.publish,
         consent_truth: consents.truth,
+        company_website_confirm: hp, // honeypot: vuoto per gli umani
       };
       const res = await api("/api/business/apply", { method: "POST", body: payload, auth: false });
       setDone(res);
@@ -166,7 +168,11 @@ export default function ApplyPage() {
           <motion.div initial={{ y: 18, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.5 }}>
             <Chip label="AcquaMap Business Expand Program" color="primary" sx={{ mb: 2, fontWeight: 700 }} />
             <Typography variant="h3" sx={{ fontWeight: 800, letterSpacing: "-0.03em", mb: 2 }}>
-              Entra in AcquaMap Business
+              Entra in{" "}
+              <Box component="span" sx={{
+                background: "linear-gradient(135deg,#1bb2bd,#0492cf 60%,#0369a1)",
+                WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+              }}>AcquaMap Business</Box>
             </Typography>
             <Typography variant="h6" color="text.secondary" sx={{ fontWeight: 400, maxWidth: 620, mx: "auto" }}>
               Porta la tua attività dentro AcquaMap e rendila visibile a chi cerca qualità dell'acqua,
@@ -202,6 +208,11 @@ export default function ApplyPage() {
             <LinearProgress variant="determinate" value={overall} sx={{ borderRadius: 2, mb: 3 }} />
 
             <form onSubmit={handleSubmit(onSubmit)}>
+              {/* honeypot: invisibile agli umani, i bot lo compilano */}
+              <input type="text" name="company_website_confirm" value={hp}
+                onChange={(e) => setHp(e.target.value)} tabIndex={-1} autoComplete="off"
+                aria-hidden="true"
+                style={{ position: "absolute", left: "-9999px", width: 1, height: 1, opacity: 0 }} />
               {SECTIONS.map((s) => (
                 <Accordion key={s.id} expanded={open === s.id} onChange={() => setOpen(open === s.id ? "" : s.id)}
                   disableGutters elevation={0}
