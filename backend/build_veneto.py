@@ -90,6 +90,9 @@ ALIASES = {
     "serravalle": "serravalle scrivia",
     "cassano": "cassano spinola",
     "borghetto": "borghetto di borbera",
+    # Mondo Acqua (Monregalese): nomi brevi delle sezioni -> comune corretto
+    "villanova": "villanova mondovi",
+    "roccaforte": "roccaforte mondovi",
     # Piemonte: comuni fusi nel 2018-2019 -> comune attuale
     "falmenta": "valle cannobina",
     "cavaglio spoccia": "valle cannobina",
@@ -165,6 +168,19 @@ class ComuneIndex:
             "regione": props.get("reg_name") or "",
             "geometry": geom,
         }
+        # omonimi TRA regioni primarie (es. Livo CO / Livo TN, Calliano AT / TN):
+        # il primo caricato vince sulla chiave semplice; ENTRAMBI restano
+        # raggiungibili con la chiave qualificata "<nome> <provincia>" (usata
+        # dai prov_hint dei gestori).
+        qual = f"{key} {_norm(entry['provincia'])}"
+        if key in self.by_norm:
+            print(f"[index] omonimo: {name} ({entry['provincia']}) oscurato da "
+                  f"{self.by_norm[key]['name']} ({self.by_norm[key]['provincia']}) "
+                  f"— raggiungibile come {qual!r}")
+            winner = self.by_norm[key]
+            self.by_norm.setdefault(f"{key} {_norm(winner['provincia'])}", winner)
+            self.by_norm.setdefault(qual, entry)
+            return
         self.by_norm[key] = entry
         # nomi bilingui IT/DE dell'Alto Adige ("Bressanone/Brixen"): indicizza
         # anche le singole parti, cosi' "brixen"/"bressanone" trovano il comune.
@@ -334,6 +350,14 @@ def _safe_text(path: Path) -> str:
     try:
         with pdfplumber.open(path) as pdf:
             return pdf.pages[0].extract_text() or ""
+    except Exception:
+        return ""
+
+
+def _safe_text_all(path: Path) -> str:
+    try:
+        with pdfplumber.open(path) as pdf:
+            return "\n".join((pg.extract_text() or "") for pg in pdf.pages)
     except Exception:
         return ""
 
@@ -725,7 +749,8 @@ LOMBARDIA = {
                   "fname_re": r"^qualita-acqua-(.+)$"},
     # ---- Trentino-Alto Adige ----
     "bolzano": {"folder": "bolzano-trinkwasser-pdf", "comune_col": "comune", "file_col": "file"},
-    "dolomitienergia": {"folder": "dolomiti-energia-pdf", "comune_col": "comune", "file_col": "file"},
+    "dolomitienergia": {"folder": "dolomiti-energia-pdf", "comune_col": "comune",
+                        "file_col": "file", "prov_hint": "trento"},
     "amambiente": {"folder": "amambiente-pdf", "fname_re": r"^amambiente_([^_]+)_"},
     "airspa": {"folder": "airspa-pdf", "fname_re": r"^airspa_([^_]+)_"},
     "altogarda": {"folder": "altogarda-servizi-pdf",
@@ -754,7 +779,8 @@ LOMBARDIA = {
     "siispa": {"folder": "siispa-pdf", "comune_col": "comune", "file_col": "file"},
     "alpiacque": {"folder": "alpiacque-pdf", "comune_col": "comune_cartella", "file_col": "file"},
     "sogeri": {"folder": "sogeri-pdf", "fixed_comune": "Alessandria"},
-    "mondoacqua": {"folder": "mondoacqua-pdf", "fixed_comune": "Mondovì"},
+    "mondoacqua": {"folder": "mondoacqua-pdf",
+                   "sections_re": r"^([A-ZÀ-Ü][A-ZÀ-Ü' ]{3,40})$"},
     "aspasti": {"folder": "asp-asti-2025-pdf", "fixed_comune": "Asti"},
 }
 
@@ -821,6 +847,12 @@ def discover_lombardia(idx: ComuneIndex, prov: str) -> list[dict]:
     if cfg.get("fixed_comune"):
         for p in sorted(src.rglob("*.pdf")):
             raw.append((cfg["fixed_comune"], p))
+    elif cfg.get("sections_re"):
+        # un solo PDF con sezioni per comune (header in MAIUSCOLO)
+        rx = re.compile(cfg["sections_re"], re.M)
+        for p in sorted(src.rglob("*.pdf")):
+            for m in rx.finditer(_safe_text_all(p)):
+                raw.append((_clean_title(m.group(1)), p))
     elif cfg.get("text_multi_re"):
         # un PDF copre piu' comuni elencati nel testo ("COMUNE DI X, Y, Z")
         rx = re.compile(cfg["text_multi_re"], re.I)
@@ -863,8 +895,11 @@ def discover_lombardia(idx: ComuneIndex, prov: str) -> list[dict]:
 
     out: list[dict] = []
     nomatch: set[str] = set()
+    hint = cfg.get("prov_hint")
     for comune_raw, p in raw:
-        hit = idx.match(comune_raw)
+        # con prov_hint prova prima la chiave qualificata "<comune> <provincia>"
+        # (risolve gli omonimi inter-regione, es. Calliano TN vs Calliano AT)
+        hit = (idx.match(f"{comune_raw} {hint}") if hint else None) or idx.match(comune_raw)
         if not hit:
             nomatch.add(comune_raw)
             continue

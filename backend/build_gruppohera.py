@@ -104,6 +104,40 @@ def load_polygons() -> tuple[dict[str, dict], dict[str, dict]]:
     return by_code, by_name
 
 
+def _zone_extra_polys(zona: str, er_by_name: dict[str, dict],
+                      primary_code: str) -> list[dict]:
+    """Comuni AGGIUNTIVI citati nel nome della zona di fornitura (es.
+    'Modena Big' -> Modena; 'Sassuolo Fiorano Maranello' -> tutti e tre;
+    'Vignola Savignano Sul Panaro' -> Vignola + Savignano sul Panaro).
+
+    Conservativo: finestre di parole (dalla piu' lunga), match esatto sul nome
+    normalizzato oppure prefisso-a-parole UNICO, limitato alle PROVINCE in cui
+    Hera gestisce l'acquedotto (evita che frazioni omonime come 'San Pellegrino'
+    o 'Montecchio' catturino comuni di RE/PR/Marche); i token singoli corti
+    (<5 char) sono ignorati."""
+    toks = _normalize(zona).split()
+    out: list[dict] = []
+    used = [False] * len(toks)
+    keys = list(er_by_name.keys())
+    for win in (4, 3, 2, 1):
+        for i in range(len(toks) - win + 1):
+            if any(used[i:i + win]):
+                continue
+            q = " ".join(toks[i:i + win])
+            if win == 1 and len(q) < 5:
+                continue
+            hit = er_by_name.get(q)
+            if not hit:
+                pref = [k for k in keys if k.startswith(q + " ")]
+                if len(pref) == 1:
+                    hit = er_by_name[pref[0]]
+            if hit and hit["code"] != primary_code and hit not in out:
+                out.append(hit)
+                for j in range(i, i + win):
+                    used[j] = True
+    return out
+
+
 def _first_page_text(path: Path) -> str:
     try:
         with pdfplumber.open(path) as pdf:
@@ -143,6 +177,12 @@ def main() -> int:
     features = []
     skipped = []
     seen_names: set[str] = set()
+    # sotto-indice per l'estrazione dei comuni extra dal nome zona:
+    # SOLO le province servite da Hera/Heracqua per l'acquedotto
+    _HERA_PROV = ("Modena", "Bologna", "Ferrara", "Ravenna",
+                  "Forlì-Cesena", "Rimini")
+    er_by_name = {k: v for k, v in by_name.items()
+                  if v.get("provincia") in _HERA_PROV}
     # i file per-(zona, comune) con marcatore "__" prima dei vecchi per-zona,
     # così a parità di coppia vince la scansione più recente
     src_files = sorted(SRC_DIR.glob("*.pdf"),
@@ -165,35 +205,42 @@ def main() -> int:
         if not poly:
             skipped.append((path.name, f"polygon: civ={m_civ.group(1) if m_civ else '-'} addr={m_addr.group(1)[:40] if m_addr else '-'}"))
             continue
-        name = short_feature_name(
-            PROVIDER_ID,
-            f"{poly['name']}_{zona}",
-            f"{PROVIDER_ID}|{gestore}|{zona}|{poly['code'] or poly['name']}",
-        )
-        if name in seen_names:
-            skipped.append((path.name, f"duplicato (zona, comune): {zona} / {poly['name']}"))
-            continue
-        seen_names.add(name)
-        shutil.copy2(path, PDF_OUT_DIR / f"{name}.pdf")
-        lat, lon = _center(poly["geometry"])
-        features.append({
-            "type": "Feature",
-            "geometry": poly["geometry"],
-            "properties": {
-                "name": name,
-                "comune": poly["name"],
-                "zona_label": zona,
-                "regione": poly["regione"],
-                "provincia": poly["provincia"],
-                "provider": PROVIDER_ID,
-                "provider_label": PROVIDER_LABEL,
-                "provider_ato": PROVIDER_ATO,
-                "periodo": "",
-                "lat": lat,
-                "lon": lon,
-                "source_pdf": path.name,
-            },
-        })
+        # comune primario (civic key / indirizzo) + comuni citati nel nome zona
+        polys = [poly] + _zone_extra_polys(zona, er_by_name, poly["code"])
+        first = True
+        for pl in polys:
+            name = short_feature_name(
+                PROVIDER_ID,
+                f"{pl['name']}_{zona}",
+                f"{PROVIDER_ID}|{gestore}|{zona}|{pl['code'] or pl['name']}",
+            )
+            if name in seen_names:
+                if first:
+                    skipped.append((path.name, f"duplicato (zona, comune): {zona} / {pl['name']}"))
+                first = False
+                continue
+            first = False
+            seen_names.add(name)
+            shutil.copy2(path, PDF_OUT_DIR / f"{name}.pdf")
+            lat, lon = _center(pl["geometry"])
+            features.append({
+                "type": "Feature",
+                "geometry": pl["geometry"],
+                "properties": {
+                    "name": name,
+                    "comune": pl["name"],
+                    "zona_label": zona,
+                    "regione": pl["regione"],
+                    "provincia": pl["provincia"],
+                    "provider": PROVIDER_ID,
+                    "provider_label": PROVIDER_LABEL,
+                    "provider_ato": PROVIDER_ATO,
+                    "periodo": "",
+                    "lat": lat,
+                    "lon": lon,
+                    "source_pdf": path.name,
+                },
+            })
 
     OUT_FILE.write_text(json.dumps({
         "type": "FeatureCollection",

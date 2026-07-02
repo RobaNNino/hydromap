@@ -835,10 +835,14 @@ function renderZone(d, name) {
       <button class="btn ghost" id="zone-share" data-name="${escapeHtml(name)}">📤 Condividi</button>
     </div>
     ${noteBlock}
+    ${(d.parameters || []).length ? `
     <table class="params">
       <thead><tr><th>Parametro</th><th>U.M.</th><th>Limite</th><th>Valore</th></tr></thead>
       <tbody>${paramsRows}</tbody>
-    </table>
+    </table>` : `
+    <div class="zone-note">📄 I parametri analitici non sono ancora disponibili in
+      formato leggibile per questa zona: il gestore pubblica solo il documento
+      originale, scaricabile con il pulsante <b>PDF</b> qui sopra.</div>`}
     ${sections}
   `;
   $("zone-add-compare").addEventListener("click", () => addCompare(name));

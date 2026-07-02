@@ -3020,11 +3020,11 @@ LOMBARDIA_PREFIXES = (
     "cordarvalsesia_",
 )
 # Non parsabili (solo poligono + PDF, stato UNKNOWN): airspa e gestioneacqua
-# (scansioni/stub senza dati), latuaacqua e valtiglione (testo illeggibile).
+# (scansioni/stub senza dati), latuaacqua (testo illeggibile), sogeri (immagini).
 
 # Rapporti di prova dei laboratori a colonne posizionali (TAA + Piemonte).
 TAALAB_PREFIXES = ("dolomitienergia_", "altogarda_", "amambiente_", "seab_", "asmb_",
-                   "acquambiente_", "infernotto_")
+                   "acquambiente_", "infernotto_", "alpiacque_", "valtiglione_")
 
 _VEN_MONTHS = ("gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|"
                "settembre|ottobre|novembre|dicembre")
@@ -3354,32 +3354,48 @@ def parse_pdf_taalab(path: Path) -> dict:
         for pg in pdf.pages:
             page_texts.append(pg.extract_text() or "")
             rows = _cafc_rows(pg.extract_words())
-            # posizioni colonne dall'header (cerca le label tra tutte le parole)
+            # posizioni colonne: valuta OGNI riga che contiene 'Risultato' come
+            # possibile header (alcuni PDF hanno una tabella preliminare con un
+            # header diverso) e scegli quella piu' completa (con Limiti > senza).
             xs: dict[str, float] = {}
             for row in rows:
+                cand: dict[str, float] = {}
                 for w in row["words"]:
                     tl = w["text"].lower()
-                    if "ris" not in xs and (tl.startswith("risultato") or tl == "valore"):
-                        xs["ris"] = w["x0"]
-                    elif "um" not in xs and tl.startswith("u.m"):
-                        xs["um"] = w["x0"]
-                    elif "lim" not in xs and (tl.startswith("limiti") or tl.startswith("l.max")
-                                              or tl.startswith("valore di par")):
-                        xs["lim"] = w["x0"]
-                    elif "inc" not in xs and tl.startswith("incertezza"):
-                        xs["inc"] = w["x0"]
-                    elif "lmin" not in xs and tl.startswith("l.min"):
-                        xs["lmin"] = w["x0"]
+                    if "ris" not in cand and (tl.startswith("risultato") or tl == "valore"):
+                        cand["ris"] = w["x0"]
+                    elif "um" not in cand and tl.startswith("u.m"):
+                        cand["um"] = w["x0"]
+                    elif "lim" not in cand and (tl.startswith("limiti") or tl.startswith("l.max")
+                                                or tl.startswith("valore di par")):
+                        cand["lim"] = w["x0"]
+                    elif "inc" not in cand and tl.startswith("incertezza"):
+                        cand["inc"] = w["x0"]
+                    elif "lmin" not in cand and tl.startswith("l.min"):
+                        cand["lmin"] = w["x0"]
+                    elif "loq" not in cand and tl in ("loq", "lod", "metodo"):
+                        cand["loq"] = w["x0"]
+                if "ris" in cand and len(cand) > len(xs) + (0 if "lim" in cand else -1):
+                    if "lim" in cand or "lim" not in xs:
+                        xs = cand
             if "ris" not in xs:  # senza colonna valore non si parsa
                 continue
             ris = xs["ris"]
             lim = xs.get("lim")  # la colonna limiti puo' mancare (es. ARPA)
+            um = xs.get("um")
             # confine destro della colonna valore = prima colonna dopo 'ris'
-            after_ris = [x for x in (xs.get("inc"), xs.get("lmin"), lim) if x and x > ris]
+            # (inclusa U.M. quando sta DOPO il risultato, come in Valtiglione)
+            after_ris = [x for x in (xs.get("inc"), xs.get("lmin"), lim,
+                                     um if (um and um > ris) else None)
+                         if x and x > ris]
             val_hi = (min(after_ris) if after_ris else ris + 70) - 6
-            name_hi = xs.get("um", ris - 80) - 14
+            name_hi = (um - 14) if (um and um < ris) else ris - 14
             val_lo = ris - 12
-            lim_lo = (lim - 12) if lim else 1e9
+            # header LIMITI puo' essere piu' a destra dei valori (right-aligned):
+            # allarga a sinistra fino a meta' strada dalla colonna precedente.
+            prev_cols = [x for x in (xs.get("inc"), xs.get("lmin"), xs.get("loq"),
+                                     um, ris) if x and lim and x < lim]
+            lim_lo = ((max(prev_cols) + lim) / 2 + 20) if (lim and prev_cols) else ((lim - 12) if lim else 1e9)
             for row in rows:
                 nm, va, li = [], [], []
                 for w in row["words"]:
@@ -3395,17 +3411,186 @@ def parse_pdf_taalab(path: Path) -> dict:
                 if (not parametro or not valore or len(parametro) > 50
                         or _CAFC_SKIP_RX.match(parametro) or parametro.lower() in seen):
                     continue
-                if not re.search(r"\d", valore) and valore.lower() not in (
-                        "assente", "presente", "n.r.", "incolore"):
+                # il valore deve INIZIARE con un numero (o keyword qualitativa):
+                # esclude righe di testo libero che contengono cifre per caso.
+                if not re.match(r"^[<>]?\s*\d|^(assente|presente|n\.r\.|incolore)",
+                                valore, re.I):
                     continue
-                # limite: togli l'incertezza '± ...' eventualmente agganciata
+                # limite: togli incertezza '± ...' e note '(1)' eventualmente agganciate
                 limite = re.sub(r"\s*[±+].*$", "", _clean(" ".join(li))).strip()
+                limite = re.sub(r"\(\*?\d*\)\s*", "", limite).strip()
                 seen.add(parametro.lower())
                 out["parameters"].append({
                     "parametro": parametro, "unita": "", "limite": limite,
                     "valore": valore, "valore_num": _parse_number(valore),
                     "limite_num": _parse_number(limite)})
     out["periodo"] = _veneto_periodo("\n".join(page_texts))
+    _veneto_summary(out)
+    return out
+
+
+_MONDO_UNIT_RX = re.compile(
+    r"(mg/l|µg/l|meq/l|µS/cm|UFC/100\s*ml|unità pH|°F|NTU|Bq/l)", re.I)
+
+
+def parse_pdf_mondoacqua(path: Path) -> dict:
+    """Mondo Acqua (Monregalese): un unico PDF con una sezione per comune
+    (header in maiuscolo). Il comune della feature e' nel nome file: si estrae
+    e si parsa SOLO la sua sezione (righe 'Parametro unita' valore limite')."""
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    m = re.match(r"^mondoacqua_(.+)_[0-9a-f]{8}$", name)
+    want = (m.group(1) if m else "").replace("_", " ")
+    with pdfplumber.open(path) as pdf:
+        text = "\n".join((pg.extract_text() or "") for pg in pdf.pages)
+    mp = re.search(r"Periodo di riferimento:\s*([^\n]+)", text)
+    if mp:
+        out["periodo"] = _clean(mp.group(1))
+
+    def _slug(s: str) -> str:
+        import unicodedata
+        s = unicodedata.normalize("NFKD", s)
+        s = "".join(c for c in s if not unicodedata.combining(c)).lower()
+        return re.sub(r"[^a-z0-9]+", " ", s).strip()
+
+    # trova l'intervallo della sezione del comune richiesto
+    sec_rx = re.compile(r"^([A-ZÀ-Ü][A-ZÀ-Ü' ]{3,40})$", re.M)
+    secs = [(m2.start(), m2.end(), _slug(m2.group(1))) for m2 in sec_rx.finditer(text)]
+    body = None
+    for i, (s, e, sl) in enumerate(secs):
+        if sl == _slug(want) or sl.startswith(_slug(want)) or _slug(want).startswith(sl):
+            end = secs[i + 1][0] if i + 1 < len(secs) else len(text)
+            body = text[e:end]
+            out["comune"] = want.title()
+            break
+    if body is None:
+        _veneto_summary(out)
+        return out
+    seen: set[str] = set()
+    for raw in body.splitlines():
+        line = _clean(raw)
+        mu = _MONDO_UNIT_RX.search(line)
+        if not mu or mu.start() < 2:
+            continue
+        parametro = line[:mu.start()].strip()
+        rest = line[mu.end():].strip()
+        mv = re.match(r"([<>]?\s*[\d.,]+|assente|0)", rest, re.I)
+        if not mv or not parametro or len(parametro) > 50 or parametro.lower() in seen:
+            continue
+        valore = _clean(mv.group(1))
+        after = rest[mv.end():].strip()
+        ml = re.match(r"([<>]?\s*[\d.,]+(?:\s*[–\-]\s*[\d.,]+)?|nessuno)", after)
+        limite = _clean(ml.group(1)) if ml else ""
+        if limite.lower() == "nessuno":
+            limite = ""
+        seen.add(parametro.lower())
+        out["parameters"].append({
+            "parametro": parametro, "unita": _clean(mu.group(1)),
+            "limite": limite, "valore": valore,
+            "valore_num": _parse_number(valore), "limite_num": _parse_number(limite)})
+    _veneto_summary(out)
+    return out
+
+
+def parse_pdf_siispa(path: Path) -> dict:
+    """S.I.I. (Vercellese): matrice orizzontale — una colonna per parametro
+    (pH, Durezza, Conducibilita'...), righe = unita', limiti di legge e un
+    rilievo per semestre. Si ancorano i token alla colonna piu' vicina e si
+    prende l'ultimo rilievo disponibile."""
+    name = path.stem
+    out: dict = {"name": name, "parameters": [], "sections": {},
+                 "comune": None, "zona": None, "periodo": None}
+    with pdfplumber.open(path) as pdf:
+        pg = pdf.pages[0]
+        rows = _cafc_rows(pg.extract_words())
+    # 1) riga header parametri: contiene pH + Durezza/Conducibilita'
+    hdr = None
+    for i, r in enumerate(rows):
+        toks = [w["text"] for w in r["words"]]
+        if "pH" in toks and any(t.startswith(("Durezza", "Conducibilit")) for t in toks):
+            hdr = i
+            break
+    if hdr is None:
+        _veneto_summary(out)
+        return out
+    anchors: list[tuple[float, str]] = []  # (x, label)
+    _SKIP_HDR = ("COMUNE", "PUNTO", "DI", "PERIODO", "RIFERIMENTO", "PRELIEVO",
+                 "ACQUEDOTTO")
+    for w in rows[hdr]["words"]:
+        t = w["text"]
+        if t.upper() in _SKIP_HDR:
+            continue
+        if anchors and w["x0"] - anchors[-1][0] < 28:
+            anchors[-1] = (anchors[-1][0], anchors[-1][1] + " " + t)
+        else:
+            anchors.append((w["x0"], t))
+    # normalizza label spezzate tra piu' righe di header
+    _RELABEL = {"fisso a": "Residuo fisso a 180°", "fisso": "Residuo fisso a 180°",
+                "residuo": "Cloro residuo", "Residuo": "Residuo fisso a 180°"}
+    anchors = [(x, _RELABEL.get(l, l)) for x, l in anchors]
+    # colonna 'Residuo fisso a 180°' scritta nelle righe sopra l'header
+    if not any(l.startswith("Residuo") for _, l in anchors):
+        for r in rows[:hdr]:
+            ws = [w for w in r["words"] if w["text"].startswith("Residuo")]
+            if ws:
+                xs_res = [w["x0"] for w in r["words"]
+                          if w["text"] in ("Residuo", "fisso", "a", "180°")]
+                anchors.append((sum(xs_res) / len(xs_res), "Residuo fisso a 180°"))
+                break
+    anchors.sort()
+
+    def nearest(x: float) -> int | None:
+        best, bd = None, 45.0
+        for j, (ax, _) in enumerate(anchors):
+            d = abs(x - ax)
+            if d < bd:
+                best, bd = j, d
+        return best
+
+    def collect(row) -> dict[int, str]:
+        got: dict[int, list[str]] = {}
+        for w in row["words"]:
+            j = nearest(w["x0"])
+            if j is not None:
+                got.setdefault(j, []).append(w["text"])
+        return {j: " ".join(v) for j, v in got.items()}
+
+    units: dict[int, str] = {}
+    limits: dict[int, str] = {}
+    data: dict[int, str] = {}
+    periodo = None
+    for r in rows[hdr + 1:]:
+        toks = [w["text"] for w in r["words"]]
+        joined = " ".join(toks).lower()
+        if "misura" in joined and not units:
+            units = collect(r)
+            continue
+        if ("previsto" in joined or joined.startswith("tra ")) and not limits:
+            limits = collect(r)
+            continue
+        # riga dati: molti token numerici
+        nums = [t for t in toks if re.match(r"^[<>]?\s*\d", t)]
+        m_per = re.search(r"(media\s+\d{4}|\d°\s*semestre\s+\d{4})", joined)
+        if m_per and nums:
+            periodo = m_per.group(1)
+        elif m_per and not nums:
+            periodo = m_per.group(1)
+            continue
+        if len(nums) >= 5:
+            data = collect(r)  # tieni l'ULTIMO rilievo (righe successive vincono)
+    out["periodo"] = periodo
+    for j, (ax, label) in enumerate(anchors):
+        v = data.get(j)
+        if not v or not re.match(r"^[<>]?\s*\d", v):
+            continue
+        lim = limits.get(j, "")
+        if "previsto" in lim.lower():
+            lim = ""
+        out["parameters"].append({
+            "parametro": label, "unita": units.get(j, ""),
+            "limite": lim, "valore": _clean(v),
+            "valore_num": _parse_number(v), "limite_num": _parse_number(lim)})
     _veneto_summary(out)
     return out
 
@@ -3927,6 +4112,10 @@ def _worker(path_str: str) -> tuple[str, dict | str]:
             return p.stem, parse_pdf_irisacqua(p)
         if p.stem.startswith("brianzacque_"):
             return p.stem, parse_pdf_brianzacque(p)
+        if p.stem.startswith("siispa_"):
+            return p.stem, parse_pdf_siispa(p)
+        if p.stem.startswith("mondoacqua_"):
+            return p.stem, parse_pdf_mondoacqua(p)
         if p.stem.startswith(TAALAB_PREFIXES):
             return p.stem, parse_pdf_taalab(p)
         if p.stem.startswith(LOMBARDIA_PREFIXES):
